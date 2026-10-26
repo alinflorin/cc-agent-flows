@@ -1,8 +1,9 @@
 name: Build agent images
 
 # Builds the Alpine base image (Claude Code preinstalled) the app boots agents from, natively on
-# x86_64 and arm64 runners, and publishes it as a prerelease named image-<version>. Bump
-# "version" in scripts/images/version.json and push to main (or run manually) to produce a new one.
+# x86_64 and arm64 runners, and publishes it to a single rolling prerelease, image-base, replacing
+# the previous assets. Only the latest image of each type is kept. Push to main (or run manually)
+# to rebuild.
 on:
   push:
     branches: [main]
@@ -56,9 +57,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version=$(jq -r .version scripts/images/version.json)
-          tag="image-$version"
+          tag="image-base"
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
-            --prerelease --latest=false --title "Agent base image $version" \
-            --notes "Alpine $(jq -r .alpine scripts/images/version.json) base image with Claude Code, for x86_64 and aarch64. Used by the app; not an app release."
+            --prerelease --latest=false --title "Agent base image" \
+            --notes "Latest Alpine base image with Claude Code, for x86_64 and aarch64; replaced on every build. Used by the app; not an app release."
           gh release upload "$tag" dist/*.qcow2 --clobber
