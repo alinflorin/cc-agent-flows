@@ -52,7 +52,7 @@ jobs:
 
       - name: Install macOS dependencies
         if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'macOS'
-        run: brew install ninja pkgconf glib pixman libslirp dtc dylibbundler
+        run: brew install ninja pkgconf glib pixman libslirp dylibbundler
 
       - uses: msys2/setup-msys2@v2
         if: steps.cache.outputs.cache-hit != 'true' && runner.os == 'Windows'
