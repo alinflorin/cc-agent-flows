@@ -1,0 +1,64 @@
+name: Build agent images
+
+# Builds the Alpine base image (Claude Code preinstalled) the app boots agents from, natively on
+# x86_64 and arm64 runners, and publishes it as a prerelease named image-<version>. Bump
+# "version" in scripts/images/version.json and push to main (or run manually) to produce a new one.
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/images/**
+      - .github/workflows/build-images.yml
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            arch: x86_64
+          - platform: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-utils rsync dosfstools fdisk e2fsprogs jq
+
+      - name: Build image
+        run: scripts/images/build.sh "${{ matrix.arch }}" image-out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-base-${{ matrix.arch }}
+          path: image-out/agent-base-${{ matrix.arch }}.qcow2
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # A prerelease, so it never becomes /releases/latest, which the app's updater points at.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(jq -r .version scripts/images/version.json)
+          tag="image-$version"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
+            --prerelease --latest=false --title "Agent base image $version" \
+            --notes "Alpine $(jq -r .alpine scripts/images/version.json) base image with Claude Code, for x86_64 and aarch64. Used by the app; not an app release."
+          gh release upload "$tag" dist/*.qcow2 --clobber

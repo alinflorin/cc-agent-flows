@@ -45,6 +45,12 @@ CI (`ci.yml`) runs `pnpm build`, `cargo build`, clippy and test on Linux, macOS 
 - `scripts/qemu/fetch.mjs` downloads that asset for the target triple (`$TAURI_ENV_TARGET_TRIPLE`, else the host) and stamps `.version`. `tauri.conf.json` bundles `resources/qemu/` as `qemu/`. Everything in that directory except its README is git-ignored.
 - Upgrading QEMU means bumping `version.json` and pushing to main, then waiting for the prerelease before building a release.
 
+**Agent VM base image** (`scripts/images/`)
+- `build.sh <x86_64|aarch64> <out>` builds an Alpine qcow2 with Claude Code, using the vendored `vendor/alpine-make-vm-image` (v0.13.4). Alpine is pinned in `version.json`. Claude Code comes from the official installer at build time, unpinned. It needs root and Linux, and must run natively per arch. `provision.sh` runs in the chroot.
+- `build-images.yml` builds both arches on native runners and publishes `agent-base-<arch>.qcow2` to a prerelease tagged `image-<version>`. Bump `version` in `version.json` to publish a changed image.
+- The image has no SSH server, and `provision.sh` fails the build if one is present. It currently has no host-to-guest control channel: that still has to be added (for example a virtio-serial port). Secrets must not go in command lines, fw_cfg strings or the disk.
+- Boot agents from a throwaway `qemu-img create -b` overlay, never from the base image itself.
+
 **Release**
 - `release.yml` triggers on `v*` tags or manual dispatch, and builds macOS (aarch64 and x86_64), Linux and Windows.
 - The version must be kept in sync in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`.
