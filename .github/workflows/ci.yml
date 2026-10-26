@@ -44,9 +44,6 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Fetch prebuilt QEMU
-        run: pnpm qemu:fetch
-
       - name: Build frontend (typecheck + bundle)
         run: pnpm build
 
