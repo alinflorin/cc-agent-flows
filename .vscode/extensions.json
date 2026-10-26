@@ -1,0 +1,18 @@
+{
+    "recommendations": [
+        "vadimcn.vscode-lldb",
+        "anthropic.claude-code",
+        "editorconfig.editorconfig",
+        "github.vscode-github-actions",
+        "esbenp.prettier-vscode",
+        "tauri-apps.tauri-vscode",
+        "tamasfe.even-better-toml",
+        "usernamehw.errorlens",
+        "dsznajder.es7-react-js-snippets",
+        "ecmel.vscode-html-css",
+        "christian-kohler.npm-intellisense",
+        "oxc.oxc-vscode",
+        "vscode-icons-team.vscode-icons",
+        "vitest.explorer"
+    ]
+}

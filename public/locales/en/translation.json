@@ -1,0 +1,48 @@
+{
+  "title": "CC Agent Flows",
+  "language": "Language",
+  "common": {
+    "save": "Save",
+    "reset": "Reset"
+  },
+  "validation": {
+    "required": "This field is required.",
+    "max": "Use at most {{max}} characters."
+  },
+  "nav": {
+    "menu": "Menu",
+    "home": "Home",
+    "about": "About",
+    "settings": "Settings"
+  },
+  "theme": {
+    "label": "Theme",
+    "auto": "System",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "home": {
+    "welcome": "Welcome",
+    "greeting": "Welcome, {{name}}",
+    "intro": "This is the starting point of the app."
+  },
+  "about": {
+    "version": "Version {{version}}",
+    "tagline": "Desktop app built with Tauri and Fluent UI."
+  },
+  "settings": {
+    "title": "Settings",
+    "displayName": "Display name",
+    "autoUpdate": "Check for updates on startup",
+    "saved": "Settings saved."
+  },
+  "updates": {
+    "title": "Updates",
+    "check": "Check for updates",
+    "upToDate": "You're up to date.",
+    "downloading": "Downloading {{version}}...",
+    "managed": "Version {{version}} is available. This install is managed by your package manager.",
+    "ready": "Version {{version}} was installed. Restart to use it.",
+    "restart": "Restart to update ({{version}})"
+  }
+}

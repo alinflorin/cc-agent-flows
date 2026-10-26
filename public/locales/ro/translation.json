@@ -1,0 +1,48 @@
+{
+  "title": "CC Agent Flows",
+  "language": "Limbă",
+  "common": {
+    "save": "Salvează",
+    "reset": "Resetează"
+  },
+  "validation": {
+    "required": "Acest câmp este obligatoriu.",
+    "max": "Folosiți cel mult {{max}} caractere."
+  },
+  "nav": {
+    "menu": "Meniu",
+    "home": "Acasă",
+    "about": "Despre",
+    "settings": "Setări"
+  },
+  "theme": {
+    "label": "Temă",
+    "auto": "Sistem",
+    "light": "Luminoasă",
+    "dark": "Întunecată"
+  },
+  "home": {
+    "welcome": "Bun venit",
+    "greeting": "Bun venit, {{name}}",
+    "intro": "Acesta este punctul de pornire al aplicației."
+  },
+  "about": {
+    "version": "Versiunea {{version}}",
+    "tagline": "Aplicație desktop construită cu Tauri și Fluent UI."
+  },
+  "settings": {
+    "title": "Setări",
+    "displayName": "Nume afișat",
+    "autoUpdate": "Caută actualizări la pornire",
+    "saved": "Setările au fost salvate."
+  },
+  "updates": {
+    "title": "Actualizări",
+    "check": "Caută actualizări",
+    "upToDate": "Aplicația este la zi.",
+    "downloading": "Se descarcă {{version}}...",
+    "managed": "Versiunea {{version}} este disponibilă. Această instalare este gestionată de managerul de pachete.",
+    "ready": "Versiunea {{version}} a fost instalată. Reporniți pentru a o folosi.",
+    "restart": "Repornește pentru actualizare ({{version}})"
+  }
+}
