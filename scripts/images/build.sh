@@ -29,6 +29,6 @@ sudo "$here/vendor/alpine-make-vm-image" \
   --script-chroot \
   "$work/raw.qcow2" -- "$here/provision.sh"
 
-# compress, and drop the free space the build left behind
+# compress; zeroed free space (see provision.sh) is dropped
 sudo qemu-img convert -O qcow2 -c "$work/raw.qcow2" "$out/agent-base-$arch.qcow2"
 sudo chown "$(id -u):$(id -g)" "$out/agent-base-$arch.qcow2"
