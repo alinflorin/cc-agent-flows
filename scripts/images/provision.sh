@@ -28,3 +28,11 @@ rc-update add networking boot
 # no SSH server of any kind
 ! apk info -e openssh openssh-server dropbear | grep -q . || { echo "an SSH server is installed" >&2; exit 1; }
 ! command -v sshd dropbear >/dev/null || { echo "an SSH server is installed" >&2; exit 1; }
+
+# The installer can leave a claude process running from the image, which makes the final
+# umount fail with "target is busy". Match by name only: the chroot sees host processes too.
+for _ in 1 2 3 4 5; do
+  pgrep -x claude >/dev/null || break
+  pkill -x claude || true
+  sleep 1
+done
