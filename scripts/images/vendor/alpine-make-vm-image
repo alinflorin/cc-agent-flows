@@ -172,8 +172,17 @@ cleanup() {
 		rm -Rf "$temp_dir"
 	fi
 	if [ "$mount_dir" ]; then
-		umount_recursively "$mount_dir" \
-			|| die "Failed to unmount $mount_dir; unmount it and disconnect $disk_dev manually"
+		# LOCAL PATCH: a process started in the chroot (e.g. by the Claude Code installer) can
+		# outlive the script and make umount fail with "target is busy". Stop whatever still
+		# holds the image and retry.
+		_umount_tries=0
+		until umount_recursively "$mount_dir"; do
+			_umount_tries=$((_umount_tries + 1))
+			[ "$_umount_tries" -lt 10 ] \
+				|| die "Failed to unmount $mount_dir; unmount it and disconnect $disk_dev manually"
+			kill_mount_holders "$mount_dir"
+			sleep 2
+		done
 		rm -Rf "$mount_dir"
 	fi
 	if [ "$disk_dev" ] && ! [ -b "$IMAGE_FILE" ]; then
@@ -366,6 +375,25 @@ setup_mkinitfs() {
 
 	sed -Ei "s|^[# ]*(features)=.*|\1=\"$features\"|" \
 		"$mnt"/etc/mkinitfs/mkinitfs.conf
+}
+
+# LOCAL PATCH: kills the processes whose root, cwd, exe or open files are under the specified
+# directory, reporting each one.
+kill_mount_holders() {
+	local dir="$1" p pid link target
+	for p in /proc/[0-9]*; do
+		pid=${p#/proc/}
+		for link in root cwd exe fd/*; do
+			target=$(readlink "$p/$link" 2>/dev/null) || continue
+			case "$target" in
+				"$dir"|"$dir"/*)
+					einfo "$dir is busy: killing pid $pid ($(cat "$p/comm" 2>/dev/null)), $link -> $target" >&2
+					kill -9 "$pid" 2>/dev/null
+					break
+					;;
+			esac
+		done
+	done
 }
 
 # Unmounts all filesystem under the specified directory tree.
