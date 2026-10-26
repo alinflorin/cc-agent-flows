@@ -104,6 +104,8 @@ PLIST
     for bin in "$out"/bin/*; do codesign -f -s - --entitlements "$work/hvf.entitlements" "$bin"; done
     ;;
   windows)
+    # QEMU installs the DLLs it builds itself (libslirp) beside the executables.
+    cp "$stage"/*.dll "$out/bin/"
     for bin in "$out"/bin/*.exe; do
       ldd "$bin" | awk '/=> \/mingw64\//{print $3}' | while read -r dll; do
         cp -n "$dll" "$out/bin/"
