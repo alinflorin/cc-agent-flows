@@ -61,9 +61,10 @@ jobs:
           update: true
           path-type: inherit
           install: >-
-            curl tar xz git
+            curl tar xz
             mingw-w64-x86_64-toolchain mingw-w64-x86_64-ninja mingw-w64-x86_64-python
             mingw-w64-x86_64-pkgconf mingw-w64-x86_64-glib2 mingw-w64-x86_64-pixman
+            mingw-w64-x86_64-libslirp mingw-w64-x86_64-dtc
 
       - name: Build QEMU (Unix)
         if: steps.cache.outputs.cache-hit != 'true' && runner.os != 'Windows'

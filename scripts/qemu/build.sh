@@ -32,13 +32,11 @@ tar -xJf "$work/qemu.tar.xz" -C "$work"
 
 # Headless on purpose: guests are driven through VNC/websocket or a serial console, so no
 # GUI toolkit (SDL/GTK) has to be bundled. Everything not listed here stays off.
-# MSYS2 no longer packages dtc, so Windows builds it from QEMU's own subproject wrap (needs git).
 accel=()
-fdt=system
 case "$os" in
   linux) accel=(--enable-kvm) ;;
   macos) accel=(--enable-hvf) ;;
-  windows) accel=(--enable-whpx); fdt=internal ;;
+  windows) accel=(--enable-whpx) ;;
 esac
 
 mkdir "$work/build"
@@ -47,7 +45,7 @@ cd "$work/build"
   --prefix="$stage" \
   --target-list=x86_64-softmmu,aarch64-softmmu \
   --without-default-features \
-  --enable-system --enable-tools --enable-pixman --enable-fdt=$fdt --enable-slirp --enable-vnc \
+  --enable-system --enable-tools --enable-fdt=system --enable-slirp --enable-vnc \
   --disable-werror --disable-docs \
   "${accel[@]}"
 make -j"$jobs"
