@@ -32,12 +32,13 @@ tar -xJf "$work/qemu.tar.xz" -C "$work"
 
 # Headless on purpose: guests are driven through VNC/websocket or a serial console, so no
 # GUI toolkit (SDL/GTK) has to be bundled. Everything not listed here stays off.
-# MSYS2 no longer packages dtc, so Windows builds it from QEMU's own subproject wrap (needs git).
+# Windows (MSYS2 dropped dtc) and macOS (Homebrew's libfdt is outside the default search path)
+# build dtc from QEMU's own subproject wrap, which needs git.
 accel=()
 fdt=system
 case "$os" in
   linux) accel=(--enable-kvm) ;;
-  macos) accel=(--enable-hvf) ;;
+  macos) accel=(--enable-hvf); fdt=internal ;;
   windows) accel=(--enable-whpx); fdt=internal ;;
 esac
 
