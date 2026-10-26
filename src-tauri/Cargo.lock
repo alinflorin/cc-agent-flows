@@ -438,7 +438,7 @@ dependencies = [
 
 [[package]]
 name = "cc-agent-flows"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde_json",
  "tauri",
