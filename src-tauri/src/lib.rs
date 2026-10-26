@@ -1,5 +1,3 @@
-mod qemu;
-
 /// Whether the updater can replace this installation. On Linux only an AppImage can;
 /// a .deb or .rpm belongs to the package manager.
 #[tauri::command]
@@ -57,7 +55,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
 
     builder
-        .invoke_handler(tauri::generate_handler![can_self_update, qemu::qemu_version])
+        .invoke_handler(tauri::generate_handler![can_self_update])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
