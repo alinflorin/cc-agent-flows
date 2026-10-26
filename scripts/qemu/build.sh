@@ -55,8 +55,12 @@ cd "$work/build"
   --enable-system --enable-tools --enable-pixman --enable-fdt=$fdt --enable-slirp --enable-vnc \
   --disable-werror --disable-docs \
   "${accel[@]}"
-make -j"$jobs"
-make install
+# The mingw32-make that comes with the toolchain reports D:/... paths, which QEMU's Makefile
+# rejects for containing a colon. MSYS's own make sees /tmp/... instead.
+make=make
+[ "$os" = windows ] && make=/usr/bin/make
+"$make" -j"$jobs"
+"$make" install
 
 exe=""
 [ "$os" = windows ] && exe=".exe"
