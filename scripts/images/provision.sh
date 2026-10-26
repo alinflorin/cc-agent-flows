@@ -29,10 +29,22 @@ rc-update add networking boot
 ! apk info -e openssh openssh-server dropbear | grep -q . || { echo "an SSH server is installed" >&2; exit 1; }
 ! command -v sshd dropbear >/dev/null || { echo "an SSH server is installed" >&2; exit 1; }
 
-# The installer can leave a claude process running from the image, which makes the final
-# umount fail with "target is busy". Match by name only: the chroot sees host processes too.
+# The installer can leave a process running from the agent's home (the binary is versioned, so
+# its name isn't `claude`), which makes the final umount fail with "target is busy". Match by
+# where the process runs, not by name: the chroot sees host processes too.
 for _ in 1 2 3 4 5; do
-  pgrep -x claude >/dev/null || break
-  pkill -x claude || true
+  found=
+  for p in /proc/[0-9]*; do
+    pid=${p#/proc/}
+    [ "$pid" = "$$" ] && continue
+    case "$(readlink "$p/exe" 2>/dev/null):$(readlink "$p/cwd" 2>/dev/null)" in
+      /home/agent/*|*:/home/agent|*:/home/agent/*)
+        echo "stopping leftover process $pid: $(readlink "$p/exe" 2>/dev/null)"
+        kill -9 "$pid" 2>/dev/null || true
+        found=1
+        ;;
+    esac
+  done
+  [ -n "$found" ] || break
   sleep 1
 done
