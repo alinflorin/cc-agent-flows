@@ -4,9 +4,9 @@
   "version": "0.3.0",
   "identifier": "com.alinflorin.ccagentflows",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm qemu:fetch && pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm qemu:fetch --required && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
