@@ -1,0 +1,69 @@
+name: Release cache
+
+# Release runs on tag refs, and a tag can only restore caches saved on the default
+# branch. Build the release configuration here so those caches exist on main.
+on:
+  push:
+    branches: [main]
+    paths:
+      # what rust-cache puts in its key; a source-only change hits the same key and saves nothing
+      - "src-tauri/Cargo.toml"
+      - "src-tauri/Cargo.lock"
+      - "src-tauri/.cargo/**"
+      - "src-tauri/rust-toolchain*"
+      - ".github/workflows/release-cache.yml"
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: release-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          add-job-id-key: false
+          shared-key: release-${{ matrix.platform }}-${{ matrix.args }}
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build like a release, without bundling
+        run: pnpm tauri build --no-bundle ${{ matrix.args }}
