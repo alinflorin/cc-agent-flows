@@ -34,6 +34,9 @@
       "icons/icon.ico"
     ],
     "createUpdaterArtifacts": true,
+    "resources": {
+      "resources/qemu/": "qemu/"
+    },
     "publisher": "Alin-Florin Ciu",
     "shortDescription": "CC Agent Flows desktop app"
   },
