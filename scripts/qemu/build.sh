@@ -28,7 +28,11 @@ if command -v sha256sum >/dev/null; then
 else
   echo "$sha256  $work/qemu.tar.xz" | shasum -a 256 -c -
 fi
-tar -xJf "$work/qemu.tar.xz" -C "$work"
+# roms/ (firmware sources) and the CI fixtures are not needed to build, and their symlinks cannot
+# be created under MSYS2. Any symlinks that still fail there belong to disabled features, so
+# tolerate tar's exit status and check the tree instead.
+tar -xJf "$work/qemu.tar.xz" -C "$work" --exclude="qemu-$version/roms" --exclude="qemu-$version/tests/lcitool" || [ "$os" = windows ]
+[ -f "$work/qemu-$version/configure" ]
 
 # Headless on purpose: guests are driven through VNC/websocket or a serial console, so no
 # GUI toolkit (SDL/GTK) has to be bundled. Everything not listed here stays off.
