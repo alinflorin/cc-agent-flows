@@ -31,7 +31,7 @@ fi
 # roms/ (firmware sources) and the CI fixtures are not needed to build, and their symlinks cannot
 # be created under MSYS2. Any symlinks that still fail there belong to disabled features, so
 # tolerate tar's exit status and check the tree instead.
-tar -xJf "$work/qemu.tar.xz" -C "$work" --exclude="qemu-$version/roms" --exclude="qemu-$version/tests/lcitool" || [ "$os" = windows ]
+tar -xJf "$work/qemu.tar.xz" -C "$work" --exclude="qemu-$version/roms" --exclude="qemu-$version/tests/lcitool/libvirt-ci" || [ "$os" = windows ]
 [ -f "$work/qemu-$version/configure" ]
 
 # Headless on purpose: guests are driven through VNC/websocket or a serial console, so no
