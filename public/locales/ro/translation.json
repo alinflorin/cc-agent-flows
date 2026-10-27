@@ -40,7 +40,7 @@
     "tabs": {
       "llm": "LLM",
       "general": "General",
-      "base": "Imagine de bază"
+      "images": "Imagini"
     },
     "llm": {
       "token": "Setup token Claude Code",
@@ -61,8 +61,12 @@
       }
     },
     "saved": "Setările au fost salvate.",
-    "base": {
-      "intro": "Imaginea de bază este sistemul de la care pornește fiecare agent: Alpine cu agentd, Claude Code și ripgrep. Aplicația o construiește singură prima dată și din nou după o actualizare care o schimbă. Nu poate fi editată.",
+    "images": {
+      "intro": "Sistemele pe care rulează agenții. Imaginea de bază este inclusă; adaugă-le pe ale tale cu un script care rulează peste ea. Un profil de agent alege imaginea.",
+      "new": "Imagine nouă",
+      "edit": "Editează imaginea",
+      "base": "Bază",
+      "baseDescription": "Alpine cu agentd, Claude Code și ripgrep. Construită de aplicație, nu poate fi editată. Reconstruită după o actualizare care o schimbă.",
       "state": {
         "missing": "Neconstruită",
         "building": "Se construiește…",
@@ -70,7 +74,10 @@
         "stale": "Depășită"
       },
       "builtAt": "Construită {{date}}",
-      "rebuild": "Reconstruiește"
+      "build": "Construiește",
+      "rebuild": "Reconstruiește",
+      "script": "Script (sh)",
+      "scriptHint": "Rulează o dată ca root la construirea imaginii, peste imaginea de bază (Alpine; apk este disponibil). Modificarea lui face imaginea depășită până o reconstruiești."
     }
   },
   "updates": {
@@ -95,11 +102,11 @@
     "systemPrompt": "Prompt de sistem",
     "systemPromptHint": "Adăugat la promptul de sistem al lui Claude pentru fiecare sarcină a acestui agent.",
     "env": "Variabile de mediu",
-    "envHint": "O valoare este inclusă în imagine. O variabilă de runtime primește valoarea de la aplicație când pornește sarcina.",
+    "envHint": "O variabilă cu valoare este trimisă ca atare. Una de runtime primește valoarea de la aplicație când pornește sarcina.",
     "atRuntime": "setată la pornirea sarcinii",
     "runtime": "Runtime",
     "addVar": "Adaugă variabilă",
-    "script": "Script de personalizare (sh)",
-    "scriptHint": "Rulează o dată ca root la construirea imaginii, peste imaginea de bază (Alpine; apk este disponibil). Modificarea lui reconstruiește imaginea."
+    "image": "Imagine",
+    "imageHint": "Sistemul pe care rulează acest agent. Imaginile se gestionează în Setări."
   }
 }

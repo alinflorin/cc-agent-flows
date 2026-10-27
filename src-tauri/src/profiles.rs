@@ -1,15 +1,15 @@
-//! Agent profiles: what an agent VM is set up with on top of the base image. A profile has a
-//! name, a system prompt, environment variables and a customization script (run as root in a
-//! builder VM at image build). The user creates them in the UI; each is `<id>.json` in the app
-//! data dir. The app ships none.
+//! Agent profiles: how an agent behaves and which image it runs on. A profile has a name, a
+//! system prompt, environment variables and the id of an image (see `images.rs`; `base` is the
+//! built-in one). The user creates them in the UI; each is `<id>.json` in the app data dir. The
+//! app ships none.
 //!
-//! An environment variable with a value is baked into the image; one without is injected by the
-//! app when the task starts (the run engine supplies the value, e.g. from the keyring).
+//! Everything in a profile travels in the `Task` when a run starts, nothing is baked into an
+//! image. An environment variable with a value is sent as is; one without is supplied by the run
+//! engine at that moment (e.g. a token from the keyring).
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 /// Variables the app or agentd own; a profile may not set them.
 const RESERVED: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN", "PATH", "HOME", "USER", "LOGNAME", "SHELL", "USE_BUILTIN_RIPGREP"];
@@ -17,7 +17,7 @@ const RESERVED: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN", "PATH", "HOME", "USER", "
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EnvVar {
     pub name: String,
-    /// `None`: injected at run time.
+    /// `None`: supplied by the run engine when the task starts.
     #[serde(default)]
     pub value: Option<String>,
 }
@@ -31,9 +31,13 @@ pub struct Profile {
     pub system_prompt: String,
     #[serde(default)]
     pub env: Vec<EnvVar>,
-    /// Shell script run as root (busybox ash) in the builder VM after the base image boots.
-    #[serde(default)]
-    pub script: String,
+    /// The image the agent runs on.
+    #[serde(default = "base_image")]
+    pub image: String,
+}
+
+fn base_image() -> String {
+    "base".into()
 }
 
 /// A profile as listed to the UI.
@@ -66,8 +70,11 @@ impl Profile {
                 return Err(format!("{} has a NUL in its value", v.name));
             }
         }
-        if self.system_prompt.len() > 64 * 1024 || self.script.len() > 256 * 1024 {
-            return Err("the system prompt or script is too large".into());
+        if self.system_prompt.len() > 64 * 1024 {
+            return Err("the system prompt is too large".into());
+        }
+        if self.image.is_empty() {
+            return Err("pick an image".into());
         }
         Ok(())
     }
@@ -76,17 +83,6 @@ impl Profile {
     /// Names of the variables the app must supply for each run.
     pub fn runtime_env(&self) -> Vec<&str> {
         self.env.iter().filter(|v| v.value.is_none()).map(|v| v.name.as_str()).collect()
-    }
-
-    #[allow(dead_code)] // used by the image builder
-    /// Identifies the image this profile builds: everything baked into it plus the base image's
-    /// stamp. The name, description and runtime variables do not change the image.
-    pub fn image_key(&self, base_stamp: &str) -> String {
-        let mut baked: Vec<_> = self.env.iter().filter_map(|v| v.value.as_ref().map(|x| (&v.name, x))).collect();
-        baked.sort();
-        let spec = serde_json::json!([base_stamp, self.system_prompt, baked, self.script]);
-        let digest = Sha256::digest(spec.to_string());
-        digest[..8].iter().map(|b| format!("{b:02x}")).collect()
     }
 }
 
@@ -165,6 +161,11 @@ fn dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("profiles"))
 }
 
+/// Ids of the images that profiles use.
+pub fn used_images(app: &tauri::AppHandle) -> Vec<String> {
+    dir(app).map(|d| list(&d).into_iter().map(|e| e.profile.image).collect()).unwrap_or_default()
+}
+
 #[tauri::command]
 pub fn profiles_list(app: tauri::AppHandle) -> Result<Vec<Entry>, String> {
     Ok(list(&dir(&app)?))
@@ -186,7 +187,7 @@ mod tests {
     use super::*;
 
     fn p(name: &str) -> Profile {
-        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], script: "echo hi".into() }
+        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], image: "base".into() }
     }
 
     fn tmp(tag: &str) -> PathBuf {
@@ -208,22 +209,6 @@ mod tests {
         x.env = vec![EnvVar { name: "GH_TOKEN".into(), value: None }, EnvVar { name: "LANG".into(), value: Some("C".into()) }];
         assert!(x.validate().is_ok());
         assert_eq!(x.runtime_env(), ["GH_TOKEN"]);
-    }
-
-    #[test]
-    fn image_key_tracks_only_what_is_baked() {
-        let a = p("a");
-        let mut b = p("b");
-        b.description = "other".into();
-        b.env = vec![EnvVar { name: "TOKEN".into(), value: None }];
-        assert_eq!(a.image_key("s1"), b.image_key("s1"), "name, description and runtime vars are not baked");
-        assert_ne!(a.image_key("s1"), a.image_key("s2"), "a new base changes the key");
-        let mut c = p("a");
-        c.script = "echo other".into();
-        assert_ne!(a.image_key("s1"), c.image_key("s1"));
-        let mut d = p("a");
-        d.env = vec![EnvVar { name: "X".into(), value: Some("1".into()) }];
-        assert_ne!(a.image_key("s1"), d.image_key("s1"));
     }
 
     #[test]
