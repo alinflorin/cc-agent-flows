@@ -11,9 +11,13 @@ install -d -o agent -g agent /home/agent/work
 
 # Claude Code, the official native installer, as that user. The system ripgrep is used because
 # the bundled one does not run on musl.
-su agent -c 'curl -fsSL https://claude.ai/install.sh | bash'
+su agent -c 'export PATH="$HOME/.local/bin:$PATH"; curl -fsSL https://claude.ai/install.sh | bash'
 ln -s /home/agent/.local/bin/claude /usr/local/bin/claude
-echo 'export USE_BUILTIN_RIPGREP=0' >/etc/profile.d/claude.sh
+# Claude Code's own bin directory on PATH (for logins; the symlink above covers the service)
+cat >/etc/profile.d/claude.sh <<'EOP'
+export USE_BUILTIN_RIPGREP=0
+export PATH="$HOME/.local/bin:$PATH"
+EOP
 
 install -m 755 /tmp/setup/agentd.sh /usr/local/bin/agentd
 install -m 755 /tmp/setup/agentd.initd /etc/init.d/agentd

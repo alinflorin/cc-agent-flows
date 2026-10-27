@@ -6,7 +6,7 @@ command_args="--run-as agent --poweroff"
 command_background=true
 pidfile=/run/agentd.pid
 export USE_BUILTIN_RIPGREP=0
-export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+export PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 # Only with an agent channel: builder VMs (which boot this image to customize it) have none.
 start_pre() {

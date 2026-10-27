@@ -136,6 +136,13 @@ fn clean(line: &str) -> String {
     out
 }
 
+/// The shell text that runs a script file in the guest. Its output goes through a pipe so tools
+/// see no terminal and print plain lines (progress bars and full-screen installers would otherwise
+/// paint with cursor movements that a log cannot show); the exit status is the script's.
+pub fn script_cmd(path: &str) -> String {
+    format!("(set -o pipefail; TERM=dumb NO_COLOR=1 sh {path} </dev/null 2>&1 | cat)")
+}
+
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
@@ -268,7 +275,7 @@ mod tests {
         for f in ["setup.sh", "agentd.sh", "agentd.initd"] {
             con.put(&format!("/tmp/setup/{f}"), &std::fs::read(res().join("agentd").join(f)).unwrap()).await.unwrap();
         }
-        let code = within(1500, "setup", con.run("sh /tmp/setup/setup.sh 2>&1", |l| eprintln!("{l}"))).await.unwrap();
+        let code = within(1500, "setup", con.run(&script_cmd("/tmp/setup/setup.sh"), |l| eprintln!("{l}"))).await.unwrap();
         assert_eq!(code, 0);
         let _ = std::fs::remove_dir_all(work);
     }
