@@ -1,6 +1,7 @@
 use tauri::Manager;
 
 mod broker;
+mod idp;
 mod nats;
 mod qemu;
 mod secrets;
