@@ -88,6 +88,7 @@ pub fn run() {
             projects::sessions_list,
             projects::sessions_create,
             projects::sessions_rename,
+            projects::sessions_autonomy,
             projects::sessions_delete,
             engine::session_start,
             engine::session_continue,

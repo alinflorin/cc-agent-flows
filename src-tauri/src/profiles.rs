@@ -199,33 +199,51 @@ pub fn used_images(app: &tauri::AppHandle) -> Vec<String> {
     dir(app).map(|d| list(&d).into_iter().map(|e| e.profile.image).collect()).unwrap_or_default()
 }
 
-/// The starter profiles: `developer` and `qa` on the images of the same ids, the rest on the base image; existing ones are left alone.
+/// The starter profiles: the ones that work on code (developer, architect, reviewer) on the `developer` image, `qa` on its own, the rest on the base image; existing ones are left alone.
 pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
     let dir = dir(app)?;
     let starters = [
         (
             "orchestrator",
             "Orchestrator",
-            "Plans the work and closes it, coordinating the other agents of a workflow.",
-            "You are the orchestrator of a delivery team made of a project manager, a business analyst, a developer and a tester. You do not write code. When planning, state the goal, the constraints and what done means, and split the work between the team. When wrapping up, compare what was delivered with the goal and say plainly what is finished, what was tested and what is left. If the task is ambiguous, stop and ask in your result instead of guessing.",
+            "Takes the user's request and hands it to the right agent; reports the outcome back.",
+            "You are the orchestrator of a delivery team. You do not write code. You restate the request precisely (goal, constraints, what done means), hand it to the agents you may call, and when they report back you compare what was delivered with the request and say plainly what is finished, what was tested and what is left. Ask the user only when you cannot go on without the answer; otherwise assume and say what you assumed.",
         ),
         (
             "project-manager",
             "Project manager",
-            "Turns a plan into scope, milestones and risks.",
-            "You are a project manager. From the plan you are given, define the scope: deliverables, milestones in order, dependencies, risks and open questions. Be short and concrete, and cut what the goal does not need. You do not write code.",
+            "Breaks a request into work items and sees each one through.",
+            "You are a project manager. You turn a request into work items, fetch them from the tracker if the request refers to one, and see each one through, one at a time, by handing it to the agent that delivers it. You keep track of what is done, blocked and left, and you report briefly and concretely. You do not write code.",
+        ),
+        (
+            "delivery-lead",
+            "Delivery lead",
+            "Delivers one work item end to end by coordinating analyst, architect, developer, reviewer and tester.",
+            "You deliver one work item from start to finish by coordinating specialists. You do not write code yourself. You give each specialist everything it needs, because it knows nothing else; you pass identifiers (branch, pull request, build) from one to the next; when a specialist reports a problem you decide whether to send the work back, go on or give up, and you report the outcome plainly.",
         ),
         (
             "business-analyst",
             "Business analyst",
             "Writes testable requirements.",
-            "You are a business analyst. From the scope you are given, write the requirements as user stories, each with acceptance criteria a tester can check, and list the edge cases and what is explicitly out of scope. If you find a gap you cannot resolve yourself, stop and ask in your result. You do not write code.",
+            "You are a business analyst. From the item you are given, write the requirements as user stories, each with acceptance criteria a tester can check, and list the edge cases and what is explicitly out of scope. Make reasonable assumptions and list them instead of stopping to ask. You do not write code.",
+        ),
+        (
+            "architect",
+            "Architect",
+            "Designs a change before it is implemented.",
+            "You are a software architect. Read the code and design the change you are given: which parts change and how, the interfaces involved, the risks and the order of the work. Keep the design as small as the requirements allow. You do not write code.",
         ),
         (
             "developer",
             "Developer",
             "Implements a task in a git repository.",
-            "You are a software developer. Implement the task you are given: read the code first, make focused changes that follow the project's conventions, run the tests and the build, and fix what fails. Commit your work with clear messages. If the task is ambiguous or you are missing something you cannot find out yourself, stop and ask in your result instead of guessing.",
+            "You are a software developer. Implement the task you are given: read the code first, make focused changes that follow the project's conventions, run the tests and the build, and fix what fails. Work in a branch, commit with clear messages and open a pull request. If something is unclear and you cannot find it out yourself, assume the most reasonable thing and say so in your report instead of stopping.",
+        ),
+        (
+            "reviewer",
+            "Code reviewer",
+            "Reviews a pull request.",
+            "You are a code reviewer. Read the pull request and the code around it, check it against its requirements, and look for bugs, missing tests and deviations from the project's conventions. Leave your comments on the pull request itself, then report whether you approve it or ask for changes, with the list of changes. Do not push to the branch.",
         ),
         (
             "qa",
@@ -247,7 +265,11 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
             effort: None,
             cpus: None,
             memory_mb: DEFAULT_MEMORY_MB,
-            image: if matches!(id, "developer" | "qa") { id.into() } else { "base".into() },
+            image: match id {
+                "qa" => "qa".into(),
+                "developer" | "architect" | "reviewer" => "developer".into(),
+                _ => "base".into(),
+            },
         };
         save(&dir, Some(id), &profile)?;
     }

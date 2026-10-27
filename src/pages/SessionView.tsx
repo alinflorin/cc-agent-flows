@@ -1,23 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useTranslation } from "react-i18next";
-import { Badge, Body1, Button, Caption1, Field, Input, MessageBar, MessageBarBody, Textarea, Title2, makeStyles, tokens } from "@fluentui/react-components";
+import { Badge, Body1, Button, Caption1, Field, Input, MessageBar, MessageBarBody, Select, Subtitle2, Textarea, Title2, makeStyles, tokens } from "@fluentui/react-components";
 import { Edit16Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
 interface Pending {
+  id: string;
   node: string;
-  kind: "approve" | "input" | "questions";
+  label: string;
+  kind: "approve" | "questions";
   prompt: string;
   questions: string[];
 }
 
 interface View {
-  session: { name: string; task: string; status: string };
+  session: { name: string; task: string; status: string; autonomy: "ask" | "never" };
   pending: Pending | null;
   live: boolean;
   cost_usd: number;
+  assumptions: string[];
+  result: string | null;
 }
 
 interface Entry {
@@ -29,14 +33,15 @@ interface Entry {
 const useStyles = makeStyles({
   head: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalXS, marginBottom: tokens.spacingVerticalM },
   bar: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "center", flexWrap: "wrap", marginBottom: tokens.spacingVerticalM },
+  title: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS },
   feed: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS, maxWidth: "900px" },
   box: { whiteSpace: "pre-wrap", wordBreak: "break-word", padding: tokens.spacingVerticalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorNeutralBackground2 },
+  user: { whiteSpace: "pre-wrap", wordBreak: "break-word", padding: tokens.spacingVerticalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorBrandBackground2, alignSelf: "flex-end", maxWidth: "80%" },
   step: { fontWeight: tokens.fontWeightSemibold, marginTop: tokens.spacingVerticalM },
   tool: { fontFamily: tokens.fontFamilyMonospace, color: tokens.colorNeutralForeground3 },
   muted: { color: tokens.colorNeutralForeground3 },
   ask: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS, maxWidth: "720px", padding: tokens.spacingHorizontalM, border: `1px solid ${tokens.colorBrandStroke1}`, borderRadius: tokens.borderRadiusMedium, marginBottom: tokens.spacingVerticalL },
-  title: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS },
-  user: { whiteSpace: "pre-wrap", wordBreak: "break-word", padding: tokens.spacingVerticalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorBrandBackground2, alignSelf: "flex-end", maxWidth: "80%" },
+  note: { maxWidth: "900px", padding: tokens.spacingHorizontalM, border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusMedium, marginTop: tokens.spacingVerticalL },
   composer: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-end", maxWidth: "900px", marginTop: tokens.spacingVerticalL },
   grow: { flexGrow: 1 },
   actions: { display: "flex", gap: tokens.spacingHorizontalS },
@@ -48,7 +53,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 }
 
 const statusColor = (s: string) =>
-  s === "done" ? "success" : s === "failed" ? "danger" : s === "running" ? "brand" : s === "waiting" ? "warning" : "informative";
+  s === "done" ? "success" : s === "failed" || s === "rejected" ? "danger" : s === "running" ? "brand" : s === "waiting" || s === "needs_input" ? "warning" : "informative";
 
 export function SessionView() {
   const { id = "", sid = "" } = useParams();
@@ -81,7 +86,7 @@ export function SessionView() {
       const u = await listen<{ project: string; session: string; entry: Entry }>("session-log", (e) => {
         if (e.payload.project !== id || e.payload.session !== sid) return;
         setLog((l) => [...l, e.payload.entry]);
-        if (e.payload.entry.kind === "status" || e.payload.entry.kind === "wait") void refresh();
+        if (["status", "wait", "reply", "decision", "step_end"].includes(e.payload.entry.kind)) void refresh();
       });
       if (gone) u();
       else off = u;
@@ -119,50 +124,55 @@ export function SessionView() {
   const { session, pending, live } = view;
   const canStart = session.status === "new";
   const canContinue = !live && ["interrupted", "failed", "cancelled"].includes(session.status);
+  const pad = (depth: number) => ({ marginLeft: `${Math.min(depth, 6) * 16}px` });
 
   const render = (e: Entry, i: number) => {
     const b = e.body;
     switch (e.kind) {
       case "step":
         return (
-          <div key={i} className={styles.step}>
-            ▶ {b.label} <Caption1>({b.profile}{b.instances > 1 ? ` ×${b.instances}` : ""})</Caption1>
+          <div key={i} className={styles.step} style={pad(b.depth)}>
+            ▶ {b.label} <Caption1>({b.profile}{b.info?.round > 1 ? ` · ${t("session.turn", { n: b.info.round })}` : ""})</Caption1>
           </div>
         );
       case "agent": {
         if (b.event?.type !== "assistant") return null;
         return (b.event.message?.content ?? []).map((c: any, j: number) => {
-          const who = b.instances > 1 ? `[${b.instance}] ` : "";
-          if (c.type === "text" && c.text) return <div key={`${i}-${j}`} className={styles.box}>{who}{c.text}</div>;
+          if (c.type === "text" && c.text) return <div key={`${i}-${j}`} className={styles.box} style={pad(b.depth)}>{c.text}</div>;
           if (c.type === "tool_use")
-            return <div key={`${i}-${j}`} className={`${styles.box} ${styles.tool}`}>{who}{c.name} {JSON.stringify(c.input).slice(0, 200)}</div>;
+            return <div key={`${i}-${j}`} className={`${styles.box} ${styles.tool}`} style={pad(b.depth)}>{c.name} {JSON.stringify(c.input).slice(0, 200)}</div>;
           return null;
         });
       }
       case "step_end":
         return (
-          <div key={i} className={styles.box}>
+          <div key={i} className={styles.box} style={pad(b.depth)}>
             <Badge appearance="filled" color={statusColor(b.status)}>{t(`runs.status.${b.status}`, b.status)}</Badge> {b.summary}
+            {b.questions?.length > 0 && <div>{b.questions.map((q: string) => `• ${q}`).join("\n")}</div>}
           </div>
         );
-      case "decision":
+      case "decision": {
+        const d = b.detail ?? {};
         return (
-          <div key={i} className={styles.box}>
-            → <b>{b.label}</b>{b.instructions ? `: ${b.instructions}` : ""}{b.parts?.length ? ` (${b.parts.join(" | ")})` : ""}
+          <div key={i} className={styles.box} style={pad(b.depth)}>
+            {b.action === "delegate" &&
+              (d.calls ?? []).map((c: any, j: number) => (
+                <div key={j}>→ <b>{c.label}</b>: {c.instructions}</div>
+              ))}
+            {b.action === "finish" && <div>{d.success === false ? "✘" : "✔"} {d.result}</div>}
+            {b.action === "ask" && <div>? {(d.questions ?? []).join("\n? ")}</div>}
+            {b.notes && <Caption1 block className={styles.muted}>{t("session.notes")}: {b.notes}</Caption1>}
           </div>
         );
+      }
       case "decision_rejected":
-        return <Caption1 key={i} className={styles.muted} block>{t("session.rejected", { reason: b.reason })}</Caption1>;
-      case "condition":
-        return <Caption1 key={i} className={styles.muted} block>{t("session.condition", { field: b.field, result: String(b.result) })}</Caption1>;
+        return <Caption1 key={i} className={styles.muted} block>{t("session.rejected", { label: b.label, reason: b.reason })}</Caption1>;
       case "wait":
         return <Caption1 key={i} className={styles.muted} block>{t("session.waiting", { label: b.label })}</Caption1>;
       case "reply":
         return <div key={i} className={styles.box}>{b.approved === null || b.approved === undefined ? "" : b.approved ? `✔ ${t("session.approve")} ` : `✘ ${t("session.reject")} `}{b.text}</div>;
       case "error":
         return <MessageBar key={i} intent="error"><MessageBarBody>{b.reason}</MessageBarBody></MessageBar>;
-      case "end":
-        return <Caption1 key={i} className={styles.muted} block>{t("session.ended", { outcome: b.outcome })}</Caption1>;
       default:
         return null;
     }
@@ -197,16 +207,19 @@ export function SessionView() {
         {view.cost_usd > 0 && <Caption1>${view.cost_usd.toFixed(2)}</Caption1>}
         {canContinue && <Button appearance="primary" onClick={() => act("session_continue")}>{t("session.continue")}</Button>}
         {live && <Button onClick={() => act("session_cancel")}>{t("runs.cancel")}</Button>}
+        <span className={styles.grow} />
+        <Field orientation="horizontal" label={t("session.autonomy.label")} hint={t(`session.autonomy.${session.autonomy}Hint`)}>
+          <Select value={session.autonomy} onChange={(_, d) => act("sessions_autonomy", { autonomy: d.value })}>
+            <option value="ask">{t("session.autonomy.ask")}</option>
+            <option value="never">{t("session.autonomy.never")}</option>
+          </Select>
+        </Field>
       </div>
 
       {pending && live && (
         <div className={styles.ask}>
-          <Body1><b>{t(`session.ask.${pending.kind}`)}</b></Body1>
-          {pending.kind === "questions" ? (
-            <Body1 className={styles.box}>{pending.questions.join("\n") || pending.prompt}</Body1>
-          ) : (
-            <Body1 className={styles.box}>{pending.prompt}</Body1>
-          )}
+          <Body1><b>{t(`session.ask.${pending.kind}`, { label: pending.label })}</b></Body1>
+          <Body1 className={styles.box}>{pending.kind === "questions" ? [pending.prompt, ...pending.questions.map((q) => `• ${q}`)].filter(Boolean).join("\n") : pending.prompt}</Body1>
           <Field label={pending.kind === "approve" ? t("session.comment") : t("session.answer")}>
             <Textarea rows={3} value={answer} onChange={(_, d) => setAnswer(d.value)} />
           </Field>
@@ -229,6 +242,20 @@ export function SessionView() {
         {log.map(render)}
         <div ref={end} />
       </div>
+
+      {view.result && !live && (
+        <div className={styles.note}>
+          <Subtitle2>{t("session.result")}</Subtitle2>
+          <Body1 block className={styles.box}>{view.result}</Body1>
+        </div>
+      )}
+      {view.assumptions.length > 0 && (
+        <div className={styles.note}>
+          <Subtitle2>{t("session.assumptions")}</Subtitle2>
+          <Caption1 block>{t("session.assumptionsHint")}</Caption1>
+          <ul>{view.assumptions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+        </div>
+      )}
 
       {canStart && (
         <div className={styles.composer}>

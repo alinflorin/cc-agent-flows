@@ -129,7 +129,7 @@
   },
   "welcome": {
     "title": "Bun venit",
-    "text": "Configurăm un punct de plecare? Se creează două imagini, Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu playwright-cli), construite în fundal peste imaginea de bază, cinci profiluri de agent (orchestrator, project manager, business analyst, developer, tester) și un proiect Demo cu workflow-ul standard de delivery: orchestratorul planifică, project managerul și business analystul modelează munca, tu aprobi cerințele, developerul construiește și testerul verifică. Poți modifica sau șterge totul mai târziu.",
+    "text": "Configurăm un punct de plecare? Se creează două imagini, Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu playwright-cli), construite în fundal peste imaginea de bază, opt profiluri de agent (orchestrator, project manager, delivery lead, business analyst, arhitect, developer, reviewer, tester) și un proiect Demo cu workflow-ul standard de delivery: orchestratorul trimite cererea ta project managerului, care parcurge elementele de lucru pe rând; pentru fiecare, delivery lead-ul pune analistul, arhitectul, developerul, reviewerul și testerul să-și facă partea. Poți modifica sau șterge totul mai târziu.",
     "yes": "Da, configurează",
     "no": "Nu, mulțumesc",
     "done": "Imaginile și profilurile de start au fost create. Imaginile se construiesc."
@@ -172,69 +172,32 @@
   },
   "wf": {
     "saved": "Workflow salvat.",
-    "add": "Adaugă pas:",
+    "addAgent": "Adaugă agent",
     "loadStandard": "Încarcă workflow-ul standard",
-    "pick": "Alege un pas ca să-l editezi. Trage din mânerul din dreapta al unui pas spre alt pas ca să-i legi.",
+    "pick": "O săgeată de la A la B înseamnă că A poate da de lucru lui B. Agentul căruia nimeni nu-i dă de lucru este rădăcina și primește cererea utilizatorului; un agent cu săgeți coordonează agenții spre care arată și decide ce deleagă, în ce ordine și de câte ori. Trage din mânerul din dreapta al unui agent spre alt agent ca să-i legi; selectează o săgeată ca să ceri aprobare.",
+    "agent": "Agent",
+    "coordinates": "Coordonează {{count}} agent(ți): decide ce deleagă și când a terminat.",
+    "worker": "Își face treaba și raportează; nu cheamă pe nimeni.",
     "label": "Etichetă",
     "profile": "Profil de agent",
-    "prompt": "Instrucțiuni",
-    "agentPromptHint": "Adăugate sarcinii acestui pas, după rezultatul pașilor anteriori.",
-    "schema": "Schema rezultatului (JSON, opțional)",
-    "schemaHint": "Face rezultatul structurat ca să-l poată citi condițiile.",
-    "maxRuns": "Rulări maxime",
-    "maxRunsHint": "De câte ori poate ajunge o sesiune la acest pas înainte să eșueze (bucle).",
-    "field": "Câmp",
-    "fieldHint": "`status` sau `result.<cheie>` din rezultatul agentului anterior.",
-    "operator": "Operator",
-    "value": "Valoare",
-    "remove": "Elimină pasul",
-    "type": {
-      "start": "Start",
-      "agent": "Agent",
-      "condition": "Condiție",
-      "human": "Om",
-      "end": "Final"
-    },
-    "op": {
-      "eq": "este egal cu",
-      "ne": "diferă de",
-      "contains": "conține"
-    },
-    "mode": {
-      "label": "Tip",
-      "hint": "Schimbarea lui șterge conexiunile de ieșire ale pasului.",
-      "approve": "Aprobă sau respinge",
-      "input": "Răspuns liber"
-    },
-    "humanPromptHint": "Afișat utilizatorului când sesiunea așteaptă aici.",
-    "outcome": {
-      "label": "Rezultat",
-      "success": "Succes",
-      "failure": "Eșec"
-    },
-    "branch": {
-      "true": "da",
-      "false": "nu",
-      "approved": "aprobat",
-      "rejected": "respins"
-    },
-    "problem": {
-      "unreachable": "„{{node}}” nu poate fi atins din start.",
-      "unknown_profile": "„{{node}}” folosește un profil de agent care nu există.",
-      "no_next": "„{{node}}” nu are pas următor.",
-      "multi_out": "„{{node}}” are mai multe ieșiri.",
-      "missing_branch": "„{{node}}” nu are una dintre ieșiri.",
-      "duplicate_branch": "„{{node}}” are două conexiuni pe aceeași ieșire.",
-      "no_end": "Workflow-ul nu are pas final."
-    },
-    "instances": "Agenți în paralel",
-    "instancesHint": "Câți agenți cu acest profil lucrează simultan la pas. Engine-ul alege un număr din acest interval și împarte munca între ei.",
-    "min": "min",
-    "max": "max",
-    "coordinator": "Coordonator",
-    "coordinatorHint": "Coordonatorul primește rezultatul fiecărui pas și decide care dintre pașii conectați urmează, în limita conexiunilor desenate aici. Fără coordonator, rezultatele merg pe conexiuni.",
+    "prompt": "Rolul în acest workflow",
+    "agentPromptHint": "Ce face agentul aici. Coordonatorii îl folosesc și ca să decidă cum lucrează cu agenții pe care îi cheamă (ordine, bucle, când se opresc).",
+    "maxCalls": "Apeluri maxime",
+    "maxCallsHint": "De câte ori poate fi chemat agentul într-o sesiune. Limitează buclele.",
     "timeout": "Timeout (minute)",
-    "timeoutHint": "Cât poate dura o rulare de agent la acest pas înainte să fie oprită forțat. Implicit 30."
+    "timeoutHint": "Cât poate dura o rulare a acestui agent înainte să fie oprită. Implicit 30.",
+    "remove": "Șterge agentul",
+    "root": "rădăcină",
+    "approval": "Necesită aprobarea ta",
+    "approvalHint": "De fiecare dată când primul agent vrea să dea de lucru celui de-al doilea, aprobi sau respingi. Se cere chiar dacă sesiunea nu lasă agenții să te întrebe.",
+    "approvalLabel": "aprobare",
+    "problem": {
+      "empty": "Workflow-ul nu are niciun agent.",
+      "no_root": "Niciun agent nu este rădăcină: fiecare e chemat de altul (ciclu).",
+      "many_roots": "Mai mulți agenți nu sunt chemați de nimeni; este nevoie de exact o rădăcină.",
+      "unreachable": "„{{node}}” nu poate fi atins din rădăcină.",
+      "unknown_profile": "„{{node}}” folosește un profil de agent care nu există."
+    }
   },
   "runs": {
     "title": "Rulează un agent",
@@ -259,15 +222,24 @@
     "answer": "Răspunsul tău",
     "ask": {
       "approve": "Este nevoie de aprobarea ta",
-      "input": "Workflow-ul are nevoie de răspunsul tău",
-      "questions": "Un agent are întrebări"
+      "questions": "{{label}} are întrebări"
     },
-    "rejected": "Răspunsul coordonatorului a fost refuzat: {{reason}}",
-    "condition": "Condiție pe {{field}}: {{result}}",
-    "waiting": "Te așteaptă la „{{label}}”",
-    "ended": "Încheiat: {{outcome}}",
+    "waiting": "Te așteaptă: {{label}}",
     "rename": "Redenumește sesiunea",
     "firstMessage": "Spune-le agenților ce vrei să se facă.",
-    "placeholder": "Ce vrei să faci? Enter trimite, Shift+Enter adaugă un rând."
+    "placeholder": "Ce vrei să faci? Enter trimite, Shift+Enter adaugă un rând.",
+    "autonomy": {
+      "label": "Întrebări",
+      "ask": "Întreabă-mă",
+      "never": "Nu mă întreba",
+      "askHint": "Întrebările la care agenții nu pot răspunde între ei ajung la tine.",
+      "neverHint": "Agenții decid singuri și își notează presupunerile."
+    },
+    "turn": "runda {{n}}",
+    "notes": "note",
+    "rejected": "Răspunsul lui {{label}} a fost refuzat: {{reason}}",
+    "result": "Rezultat",
+    "assumptions": "Presupuneri făcute",
+    "assumptionsHint": "Ce au presupus agenții în loc să întrebe. Verifică-le."
   }
 }

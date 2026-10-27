@@ -103,7 +103,7 @@ pub enum Status {
 }
 
 /// The one message that ends a run.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Final {
     pub status: Status,
     /// What the agent reports, or the reason of a failure.
@@ -124,7 +124,7 @@ pub struct Final {
 }
 
 /// The answer `claude` is asked to end with (`--json-schema`).
-pub const RESULT_SCHEMA: &str = r#"{"type":"object","properties":{"status":{"type":"string","enum":["done","needs_input","failed"]},"summary":{"type":"string"},"questions":{"type":"array","items":{"type":"string"}}},"required":["status","summary"]}"#;
+pub const RESULT_SCHEMA: &str = r#"{"type":"object","properties":{"status":{"type":"string","enum":["done","needs_input","failed"]},"summary":{"type":"string"},"questions":{"type":"array","items":{"type":"string"}},"assumptions":{"type":"array","items":{"type":"string"}}},"required":["status","summary"]}"#;
 
 #[cfg(test)]
 mod tests {
