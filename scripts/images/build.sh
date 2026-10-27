@@ -37,8 +37,20 @@ script="$work/provision.sh"
   cat "$here/finalize.sh"
 } >"$script"
 
+# alpine-make-vm-image downloads a static apk-tools from gitlab.alpinelinux.org when the host has no
+# apk, and that host is often unreachable from CI. Take it from the Alpine CDN instead. It must be
+# apk-tools 2.x (3.x, shipped from v3.24 on, is not what the vendored script expects).
+apk_env=()
+if ! command -v apk >/dev/null; then
+  cdn="https://dl-cdn.alpinelinux.org/alpine/v3.22/main/$(uname -m)"
+  pkg=$(curl -fsSL --retry 5 "$cdn/" | grep -o 'apk-tools-static-[0-9][^"]*\.apk' | head -n 1)
+  curl -fsSL --retry 5 -o "$work/apk-tools-static.apk" "$cdn/$pkg"
+  tar -xzf "$work/apk-tools-static.apk" -C "$work" sbin/apk.static
+  apk_env=(APK="$work/sbin/apk.static")
+fi
+
 sudo modprobe nbd max_part=8 || true
-sudo "$here/vendor/alpine-make-vm-image" \
+sudo env "${apk_env[@]}" "$here/vendor/alpine-make-vm-image" \
   --arch "$arch" \
   --branch "$branch" \
   --image-format qcow2 \
