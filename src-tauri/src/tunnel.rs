@@ -168,7 +168,7 @@ mod tests {
                 });
             }
         });
-        let mut proxy = Proxy::new(crate::egress::Rules::new([vec!["localhost".to_string()]]));
+        let mut proxy = Proxy::new(crate::egress::Rules::new([vec!["localhost".to_string()]]), None);
         let p = Arc::get_mut(&mut proxy).unwrap();
         p.ports = vec![site_port];
         p.guard = false;

@@ -44,7 +44,8 @@
       "general": "General",
       "images": "Images",
       "network": "Network",
-      "secrets": "Secrets"
+      "secrets": "Secrets",
+      "injections": "Injections"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -107,6 +108,35 @@
       "empty": "No secrets yet.",
       "replace": "Replace value",
       "delete": "Delete secret"
+    },
+    "injections": {
+      "intro": "Credentials the app adds to requests an agent sends to certain addresses, so the secret never enters the VM. Pick one in an agent profile's environment variable as ${injection:NAME}: the variable then holds a placeholder (for tools that refuse to run without a token) and the real value is set by the app on the matching requests, replacing whatever the agent sent. The hosts are allowed for the agents that use it. The traffic to them is decrypted by the app (the VM trusts a certificate made for each run).",
+      "desktopOnly": "Injections are only available in the desktop app.",
+      "new": "New injection",
+      "editTitle": "Edit injection",
+      "edit": "Edit",
+      "delete": "Delete",
+      "empty": "No injections yet.",
+      "saved": "Injection saved.",
+      "name": "Name",
+      "nameHint": "Letters, digits and underscores. It cannot be changed later.",
+      "rules": "Where",
+      "rulesHint": "Host (api.example.com or *.example.com), path pattern (* matches anything, empty means all) and methods (GET, POST, empty means all). HTTPS only. Requests with dot segments or encoded slashes in the path never match.",
+      "allMethods": "all methods",
+      "addRule": "Add address",
+      "header": "Header",
+      "kind": "Format",
+      "username": "User name",
+      "kinds": {
+        "bearer": "Bearer token",
+        "basic": "Basic (user:secret)",
+        "raw": "The secret as is"
+      },
+      "secret": "Secret",
+      "noSecrets": "Create the secret in Settings > Secrets first.",
+      "placeholder": "Placeholder",
+      "placeholderHint": "What the agent sees in its variable. Set it to look like a token if a tool checks the format (for example ghp_…). Default: ccaf-injected.",
+      "summary": "{{header}}: {{kind}} from {{secret}}"
     }
   },
   "updates": {
@@ -131,7 +161,7 @@
     "systemPrompt": "System prompt",
     "systemPromptHint": "Added to Claude's system prompt for every task of this agent.",
     "env": "Environment variables",
-    "envHint": "Sent to the agent with every task. A value can be a ${secret:NAME} from Settings > Secrets.",
+    "envHint": "Sent to the agent with every task. A value can be a ${secret:NAME} (Settings > Secrets, the value reaches the VM) or an ${injection:NAME} (Settings > Injections, the VM only sees a placeholder).",
     "addVar": "Add variable",
     "image": "Image",
     "imageHint": "The system this agent runs on. Images are managed in Settings.",
@@ -148,7 +178,7 @@
     "memoryHint": "RAM of the VM, at least 1024. Default 2048.",
     "allowHosts": "Allowed hosts",
     "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). The hosts in Settings > Network are always allowed; everything else is blocked.",
-    "envValue": "Value or ${secret:NAME}"
+    "envValue": "Value, ${secret:NAME} or ${injection:NAME}"
   },
   "welcome": {
     "title": "Welcome",

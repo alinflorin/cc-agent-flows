@@ -86,6 +86,8 @@ pub struct Spec {
     pub memory_mb: u32,
     /// Hosts the agent may reach besides the global list (Settings > Network): the profile's.
     pub allow_hosts: Vec<String>,
+    /// The credential injections the profile switched on, applied by the egress proxy.
+    pub injections: Vec<crate::injections::Active>,
     pub task: Task,
 }
 
@@ -93,13 +95,15 @@ pub struct Spec {
 /// the final (also a synthesized one), in order. `Err` only for what stops the VM from starting
 /// (no token, image not built, QEMU missing). `cancel` firing ends the run as failed.
 pub async fn run_vm(app: &AppHandle, spec: Spec, cancel: oneshot::Receiver<()>, mut on_msg: impl FnMut(&Outbound)) -> Result<Final, String> {
-    let Spec { run_id, image, identity, cpus, memory_mb, allow_hosts, task } = spec;
+    let Spec { run_id, image, identity, cpus, memory_mb, allow_hosts, injections, task } = spec;
     let token = crate::secrets::claude_token().ok_or("no Claude token is set (Settings > LLM)")?;
     let disk = crate::images::path(app, &image).ok_or_else(|| format!("the image {image} is not built"))?;
     let work = app.path().app_data_dir().map_err(|e| e.to_string())?.join("runs").join("tmp").join(&run_id);
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
-    let rules = crate::egress::Rules::new([crate::network::current(app).allow_hosts, allow_hosts]);
-    let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), &identity, &token, rules, task, cancel, &mut on_msg).await;
+    // the hosts of the injections are allowed too: a profile that uses one means to reach it
+    let injected: Vec<String> = injections.iter().flat_map(|a| a.rules.iter().map(|r| r.host.clone())).collect();
+    let rules = crate::egress::Rules::new([crate::network::current(app).allow_hosts, allow_hosts, injected]);
+    let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), &identity, &token, (rules, injections), task, cancel, &mut on_msg).await;
     let _ = std::fs::remove_dir_all(&work);
     let fin = result?;
     on_msg(&Outbound::Final(fin.clone()));
@@ -114,7 +118,7 @@ async fn boot_and_drive(
     size: (Option<u32>, u32),
     identity: &str,
     token: &str,
-    rules: crate::egress::Rules,
+    egress: (crate::egress::Rules, Vec<crate::injections::Active>),
     task: Task,
     mut cancel: oneshot::Receiver<()>,
     on_msg: &mut impl FnMut(&Outbound),
@@ -131,8 +135,11 @@ async fn boot_and_drive(
     // which hands the agent's traffic to the egress proxy. The server must listen before QEMU
     // starts, which connects to it at once.
     let (egress_tx, mut egress_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (rules, injections) = egress;
+    let inspector = if injections.is_empty() { None } else { Some(crate::inspect::Inspector::new(injections)?) };
+    let ca = inspector.as_ref().map(|i| i.ca_pem().to_string());
     let tunnel = crate::tunnel::Tunnel::start(
-        crate::egress::Proxy::new(rules),
+        crate::egress::Proxy::new(rules, inspector),
         std::sync::Arc::new(move |line| {
             let _ = egress_tx.send(line);
         }),
@@ -168,6 +175,7 @@ async fn boot_and_drive(
             id: identity.to_string(),
             claude_token: token.to_string(),
             tunnel: Some(TunnelKeys { key: tunnel.client_key.clone(), host_key: tunnel.host_key.clone() }),
+            ca,
         },
         task,
     );
@@ -236,6 +244,7 @@ pub fn agent_run(app: AppHandle, profile: String, prompt: String) -> Result<Stri
 
     let run_id = new_run_id();
     let who = identity(&[("profile", &entry.id)], &run_id);
+    let (env, injections) = crate::injections::prepare(&app, &entry.profile.env)?;
     let task = Task {
         prompt,
         model: entry.profile.model.clone(),
@@ -244,7 +253,7 @@ pub fn agent_run(app: AppHandle, profile: String, prompt: String) -> Result<Stri
         resume: false,
         schema: crate::protocol::RESULT_SCHEMA.into(),
         system_prompt: Some(entry.profile.system_prompt.clone()).filter(|s| !s.trim().is_empty()),
-        env: crate::secrets::resolve_env(&entry.profile.env)?,
+        env,
         timeout_secs: 30 * 60,
     };
 
@@ -268,7 +277,7 @@ pub fn agent_run(app: AppHandle, profile: String, prompt: String) -> Result<Stri
             let _ = app.emit("agent-run", serde_json::json!({"run": id, "msg": msg}));
         };
         let mut emit = emit;
-        let spec = Spec { run_id: id.clone(), image: entry.profile.image.clone(), identity: who, cpus: entry.profile.cpus, memory_mb: entry.profile.memory_mb, allow_hosts: entry.profile.allow_hosts.clone(), task };
+        let spec = Spec { run_id: id.clone(), image: entry.profile.image.clone(), identity: who, cpus: entry.profile.cpus, memory_mb: entry.profile.memory_mb, allow_hosts: entry.profile.allow_hosts.clone(), injections, task };
         if let Err(e) = run_vm(&app, spec, cancel_rx, &mut emit).await {
             emit(&Outbound::Final(failed(e)));
         }
@@ -346,7 +355,7 @@ mod tests {
         let seen = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
         let sink = seen.clone();
         let rules = crate::egress::Rules::new([crate::network::Network::default().allow_hosts]);
-        let tunnel = crate::tunnel::Tunnel::start(crate::egress::Proxy::new(rules), std::sync::Arc::new(move |l| sink.lock().unwrap().push(l))).await.unwrap();
+        let tunnel = crate::tunnel::Tunnel::start(crate::egress::Proxy::new(rules, None), std::sync::Arc::new(move |l| sink.lock().unwrap().push(l))).await.unwrap();
         let channel = Serial::named(&work, "agent");
         let mut vm = Command::new(q.join("bin/qemu-system-x86_64"))
             .arg("-L")
@@ -382,6 +391,7 @@ mod tests {
                 id: who,
                 claude_token: "sk-ant-oat01-fake".into(),
                 tunnel: Some(TunnelKeys { key: tunnel.client_key.clone(), host_key: tunnel.host_key.clone() }),
+                ca: None,
             }, task);
         let fin = tokio::time::timeout(Duration::from_secs(240), async {
             loop {

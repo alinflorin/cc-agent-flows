@@ -26,6 +26,14 @@ sha2 = "0.11.1"
 base64 = "0.23.1"
 russh = { version = "0.65", default-features = false, features = ["ring", "flate2"] }
 rand = { version = "0.10", features = ["thread_rng"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["ring", "pem"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+hyper = { version = "1.12.0", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+http-body-util = "0.1.5"
+bytes = "1.12.1"
+webpki-roots = "1.0.11"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

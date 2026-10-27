@@ -14,7 +14,7 @@ mod e2e {
     use crate::protocol::{Bootstrap, Final, Outbound, Status, Task, TaskEnv, TunnelKeys};
 
     fn boot() -> Bootstrap {
-        Bootstrap { id: "spiffe://ccaf.local/test/agent-1".into(), claude_token: "sk-test-token".into(), tunnel: None }
+        Bootstrap { id: "spiffe://ccaf.local/test/agent-1".into(), claude_token: "sk-test-token".into(), tunnel: None, ca: None }
     }
 
     fn task(timeout_secs: u64) -> Task {
@@ -105,6 +105,7 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
             .arg(script)
             .args(["--channel", to_agent.to_str().unwrap(), "--out", from_agent.to_str().unwrap()])
             .args(["--workspace", dir.join("work").to_str().unwrap(), "--claude", fake.to_str().unwrap(), "--ssh", fake_ssh.to_str().unwrap()])
+            .args(["--ca-bundle", dir.join("bundle.crt").to_str().unwrap(), "--ca-file", dir.join("ca.pem").to_str().unwrap()])
             .spawn()
             .unwrap();
         let rx = drive(tokio::io::join(rx_pipe, tx_pipe), boot, task);
@@ -191,6 +192,30 @@ echo '{"type":"result","is_error":false,"result":"ok","session_id":"s"}'
         assert!(args.contains("StrictHostKeyChecking=yes"), "{args}");
         let key = std::fs::read_to_string(run.dir.join("ssh-key-path")).unwrap();
         assert!(!Path::new(key.trim()).exists(), "the key file is removed once ssh has it");
+        let _ = std::fs::remove_dir_all(run.dir);
+    }
+
+    /// `claude` that must trust the injection CA through the variables agentd sets.
+    const CA_CLAUDE: &str = r#"#!/bin/sh
+[ "$(head -n1 "$NODE_EXTRA_CA_CERTS")" = "-----BEGIN CERTIFICATE-----" ] || { echo "no CA file: $NODE_EXTRA_CA_CERTS" >&2; exit 2; }
+[ "$REQUESTS_CA_BUNDLE" = "$(dirname "$NODE_EXTRA_CA_CERTS")/bundle.crt" ] || { echo "no bundle var" >&2; exit 3; }
+echo '{"type":"result","is_error":false,"result":"ok","session_id":"s"}'
+"#;
+
+    #[tokio::test]
+    async fn agentd_installs_the_injection_ca() {
+        if !have_jq() {
+            eprintln!("needs jq, skipping");
+            return;
+        }
+        let pem = "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----";
+        let mut b = boot();
+        b.ca = Some(pem.into());
+        let mut run = start_with("agentd-ca", CA_CLAUDE, task(40), b, None);
+        let (_, fin) = run.finish(30).await;
+        assert_eq!(fin.status, Status::Done, "{}", fin.result);
+        let bundle = std::fs::read_to_string(run.dir.join("bundle.crt")).unwrap();
+        assert_eq!(bundle.trim_end(), pem);
         let _ = std::fs::remove_dir_all(run.dir);
     }
 
