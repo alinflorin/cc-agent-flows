@@ -1,22 +1,24 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
-import { Button, Field, Input, Subtitle1, Switch, Title2, makeStyles, tokens } from "@fluentui/react-components";
+import { Button, Field, Input, Subtitle1, Switch, Tab, TabList, Title2, makeStyles, tokens } from "@fluentui/react-components";
 import { getPref, setPref } from "../prefs";
 import { useNotify } from "../notifications";
 import { useUpdates } from "../updates";
+import { LlmSettings } from "./SettingsLlm";
 
 const NAME_MAX = 40;
 
 const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "480px" },
   section: { marginTop: tokens.spacingVerticalXL },
+  tabs: { marginBottom: tokens.spacingVerticalL },
   actions: { display: "flex", gap: tokens.spacingHorizontalS },
 });
 
-export function Settings() {
+function GeneralSettings() {
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
@@ -56,9 +58,6 @@ export function Settings() {
 
   return (
     <>
-      <Title2 as="h1" block>
-        {t("settings.title")}
-      </Title2>
       <form className={styles.form} onSubmit={handleSubmit(onSubmit)} noValidate>
         <Field
           label={t("settings.displayName")}
@@ -108,6 +107,25 @@ export function Settings() {
           )}
         </div>
       </div>
+    </>
+  );
+}
+
+export function Settings() {
+  const { t } = useTranslation();
+  const styles = useStyles();
+  const [tab, setTab] = useState("general");
+
+  return (
+    <>
+      <Title2 as="h1" block>
+        {t("settings.title")}
+      </Title2>
+      <TabList className={styles.tabs} selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as string)}>
+        <Tab value="general">{t("settings.tabs.general")}</Tab>
+        <Tab value="llm">{t("settings.tabs.llm")}</Tab>
+      </TabList>
+      {tab === "general" ? <GeneralSettings /> : <LlmSettings />}
     </>
   );
 }

@@ -4,9 +4,9 @@
   "version": "0.3.0",
   "identifier": "com.alinflorin.ccagentflows",
   "build": {
-    "beforeDevCommand": "pnpm qemu:fetch && pnpm dev",
+    "beforeDevCommand": "pnpm qemu:fetch && pnpm nats:fetch && pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm qemu:fetch --required && pnpm build",
+    "beforeBuildCommand": "pnpm qemu:fetch --required && pnpm nats:fetch --required && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -35,7 +35,8 @@
     ],
     "createUpdaterArtifacts": true,
     "resources": {
-      "resources/qemu/": "qemu/"
+      "resources/qemu/": "qemu/",
+      "resources/nats/": "nats/"
     },
     "publisher": "Alin-Florin Ciu",
     "shortDescription": "CC Agent Flows desktop app"

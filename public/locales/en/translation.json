@@ -11,6 +11,7 @@
   },
   "nav": {
     "menu": "Menu",
+    "more": "More options",
     "home": "Home",
     "about": "About",
     "settings": "Settings"
@@ -34,6 +35,19 @@
     "title": "Settings",
     "displayName": "Display name",
     "autoUpdate": "Check for updates on startup",
+    "tabs": {"llm": "LLM", "general": "General"},
+    "llm": {
+      "token": "Claude Code setup token",
+      "tokenHint": "Generate one with `claude setup-token`. It is kept in the OS credential store.",
+      "tokenDesktopOnly": "Only available in the desktop app.",
+      "tokenSet": "A token is saved.",
+      "tokenSaved": "Token saved.",
+      "tokenRemove": "Remove",
+      "tokenError": "Could not access the credential store: {{error}}",
+      "model": "Default model for agents",
+      "thinking": "Default thinking level",
+      "levels": {"low": "Low", "medium": "Medium", "high": "High", "xhigh": "Extra high", "max": "Max"}
+    },
     "saved": "Settings saved."
   },
   "updates": {

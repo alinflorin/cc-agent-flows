@@ -11,6 +11,7 @@
   },
   "nav": {
     "menu": "Meniu",
+    "more": "Mai multe opțiuni",
     "home": "Acasă",
     "about": "Despre",
     "settings": "Setări"
@@ -34,6 +35,19 @@
     "title": "Setări",
     "displayName": "Nume afișat",
     "autoUpdate": "Caută actualizări la pornire",
+    "tabs": {"llm": "LLM", "general": "General"},
+    "llm": {
+      "token": "Setup token Claude Code",
+      "tokenHint": "Generează unul cu `claude setup-token`. Este păstrat în depozitul de credențiale al sistemului.",
+      "tokenDesktopOnly": "Disponibil doar în aplicația desktop.",
+      "tokenSet": "Un token este salvat.",
+      "tokenSaved": "Token salvat.",
+      "tokenRemove": "Șterge",
+      "tokenError": "Nu s-a putut accesa depozitul de credențiale: {{error}}",
+      "model": "Modelul implicit pentru agenți",
+      "thinking": "Nivelul implicit de gândire",
+      "levels": {"low": "Scăzut", "medium": "Mediu", "high": "Ridicat", "xhigh": "Foarte ridicat", "max": "Maxim"}
+    },
     "saved": "Setările au fost salvate."
   },
   "updates": {

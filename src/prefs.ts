@@ -9,7 +9,7 @@
 export const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const FILE = "settings.json";
-const KEYS = ["theme", "language", "autoUpdate", "displayName"];
+const KEYS = ["theme", "language", "autoUpdate", "displayName", "llmModel", "llmThinking"];
 
 type Store = { get<T>(k: string): Promise<T | undefined>; set(k: string, v: unknown): Promise<void> };
 
