@@ -277,13 +277,28 @@ pub struct Status {
     error: Option<String>,
 }
 
+impl State {
+    fn status(&self) -> Status {
+        match &*self.0.lock().unwrap() {
+            Slot::Starting => Status { state: "starting", port: None, error: None },
+            Slot::Running(b) => Status { state: "running", port: Some(b.port), error: None },
+            Slot::Failed(e) => Status { state: "failed", port: None, error: Some(e.clone()) },
+        }
+    }
+}
+
 #[tauri::command]
 pub fn broker_status(state: tauri::State<State>) -> Status {
-    match &*state.0.lock().unwrap() {
-        Slot::Starting => Status { state: "starting", port: None, error: None },
-        Slot::Running(b) => Status { state: "running", port: Some(b.port), error: None },
-        Slot::Failed(e) => Status { state: "failed", port: None, error: Some(e.clone()) },
-    }
+    state.status()
+}
+
+/// Stops the broker (dropping it kills `nats-server`) and starts a fresh one. Everything queued in
+/// the old one is lost, as are the credentials handed out.
+#[tauri::command]
+pub async fn broker_restart(app: tauri::AppHandle, state: tauri::State<'_, State>) -> Result<Status, String> {
+    state.set(Slot::Starting);
+    state.start(&app).await;
+    Ok(state.status())
 }
 
 #[cfg(test)]
