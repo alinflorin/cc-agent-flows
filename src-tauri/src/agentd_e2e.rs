@@ -94,7 +94,8 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    /// Boots the real base image (fetched by `pnpm images:fetch`) with the bundled QEMU and no
+    /// Boots a base image with `agentd` in it (the plain one from `pnpm images:fetch` has none, so this
+    /// is skipped until the app builds that base) with the bundled QEMU and no
     /// network device at all, and runs a task through it over virtio-serial. Claude gets an invalid
     /// token and cannot reach its API, so the run is expected to fail, but the whole path is
     /// exercised: boot, bootstrap, ready, task, `claude` start, `final`, power off. Skipped without

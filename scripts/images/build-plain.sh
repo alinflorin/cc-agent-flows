@@ -1,38 +1,39 @@
 #!/usr/bin/env bash
-# Builds the base Alpine image: a compressed qcow2 with Claude Code and agentd installed. Profiles
-# (src-tauri/resources/profiles/, user-made ones too) are applied on top of it by the app, in a VM.
-# Linux only; needs root (loop/nbd mounts) plus qemu-img, qemu-nbd, rsync, sfdisk, dosfstools, jq.
+# Builds a plain Alpine image: alpine-base on an 8G disk, DHCP on eth0 and a serial console, nothing
+# else. The app starts from it and installs Claude Code, agentd and profiles in a VM on the user's
+# machine. Linux only; needs root (loop/nbd mounts) plus qemu-img, qemu-nbd, rsync, sfdisk,
+# dosfstools, jq.
 #
-#   build.sh <x86_64|aarch64> <out-dir> <agentd-binary>
-#
-# <agentd-binary> is the static musl build of crates/agentd for that arch.
+#   build-plain.sh <x86_64|aarch64> <out-dir>
 #
 # aarch64 must be built on an aarch64 host. x86_64 boots with BIOS, aarch64 with UEFI.
 set -euo pipefail
 
 arch=$1
 out=$2
-agentd=$3
-[ -x "$agentd" ] || { echo "agentd binary $agentd not found or not executable" >&2; exit 1; }
 here=$(cd "$(dirname "$0")" && pwd)
-cfg="$here/version.json"
-
-branch=$(jq -r .alpine "$cfg")
-size=4G
-image="agent-base-$arch.qcow2"
+branch=$(jq -r .alpine "$here/version.json")
+image="alpine-$arch.qcow2"
 
 work=$(mktemp -d)
 trap 'sudo rm -rf "$work"' EXIT
 mkdir -p "$out"
 
-# alpine-make-vm-image copies a single script into the chroot, so splice provisioning and cleanup
-# into one. Its directory is /mnt in the chroot: agentd goes in there.
-script="$work/provision.sh"
-cat "$here/provision.sh" >"$script"
-printf '\n' >>"$script"
-cat "$here/finalize.sh" >>"$script"
-chmod +x "$script"
-cp "$agentd" "$work/agentd"
+cat >"$work/provision.sh" <<'SCRIPT'
+#!/bin/sh
+set -eu
+cat > /etc/network/interfaces <<'NET'
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
+NET
+echo alpine > /etc/hostname
+rc-update add networking boot
+touch /mnt/.provisioned
+SCRIPT
+chmod +x "$work/provision.sh"
 
 # alpine-make-vm-image downloads a static apk-tools from gitlab.alpinelinux.org when the host has no
 # apk, and that host is often unreachable from CI. Take it from the Alpine CDN instead. It must be
@@ -51,16 +52,14 @@ sudo env "${apk_env[@]}" "$here/vendor/alpine-make-vm-image" \
   --arch "$arch" \
   --branch "$branch" \
   --image-format qcow2 \
-  --image-size "$size" \
+  --image-size 8G \
   --serial-console \
   --packages "alpine-base" \
   --script-chroot \
-  "$work/raw.qcow2" -- "$script"
+  "$work/raw.qcow2" -- "$work/provision.sh"
 
-# alpine-make-vm-image exits 0 even when the script fails; finalize.sh drops this marker only at
-# the end of a complete run (the script's directory is bind-mounted at /mnt in the chroot)
+# alpine-make-vm-image exits 0 even when the script fails
 [ -e "$work/.provisioned" ] || { echo "provisioning failed, see the log above" >&2; exit 1; }
 
-# compress; zeroed free space (see provision.sh) is dropped
 sudo qemu-img convert -O qcow2 -c "$work/raw.qcow2" "$out/$image"
 sudo chown "$(id -u):$(id -g)" "$out/$image"

@@ -18,13 +18,13 @@ Package manager is pnpm; Rust is edition 2024.
 - `pnpm tauri dev`: run the full app. Its before-command runs `pnpm qemu:fetch && pnpm dev`.
 - `pnpm dev`: frontend only in a browser (Vite on port 1420). Tauri APIs are absent, so prefs fall back to localStorage.
 - `pnpm build`: `tsc` typecheck, then Vite bundle. This is the only frontend check; there is no linter or JS test runner.
-- `pnpm tauri build`: production bundle. Its before-command runs `qemu:fetch --required` and `images:fetch --required` (fails if either can't be downloaded).
-- `pnpm images:fetch [triple] [--required]`: download the base agent image for the target arch into `src-tauri/resources/images` (see Agent VM base image).
-- `pnpm qemu:fetch [triple] [--required]`: download prebuilt QEMU into `src-tauri/resources/qemu`.
+- `pnpm tauri build`: production bundle. Its before-command runs `qemu:fetch --required` and `images:fetch --required` (fails if either is missing).
+- `pnpm images:fetch [triple] [--required]`: copy the committed plain Alpine image for the target arch from `vendor/images` into `src-tauri/resources/images` (see Agent VM base image).
+- `pnpm qemu:fetch [triple] [--required]`: unpack the committed QEMU build for the target from `vendor/qemu` into `src-tauri/resources/qemu` (no network).
 - Backend: `cargo build|clippy|test --manifest-path src-tauri/Cargo.toml`. CI runs clippy with `-D warnings`. Single test: `cargo test --manifest-path src-tauri/Cargo.toml <name>`.
 - `pnpm driver:install` / `pnpm driver`: install and run `tauri-driver` (into `.tools/`, git-ignored) on port 4444. Use `tauri-driver` (WebDriver) for interactive testing of the running app, not only the browser-based `pnpm dev`, since Tauri APIs, QEMU and the prefs store only exist in the real app.
 
-CI (`ci.yml`) runs `pnpm build`, `cargo build`, clippy and test on Linux, macOS and Windows. Linux needs `libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`.
+CI (`ci.yml`) runs `pnpm build`, `cargo build`, clippy and test on Linux (x86_64 and arm64), macOS and Windows. Linux needs `libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf`.
 
 ## Architecture
 
@@ -44,18 +44,19 @@ CI (`ci.yml`) runs `pnpm build`, `cargo build`, clippy and test on Linux, macOS 
 
 **QEMU bundling pipeline** (spans several files)
 - `scripts/qemu/version.json` pins the QEMU version and source sha256.
-- `build.sh` compiles QEMU from source on each OS (MSYS2 on Windows). `.github/workflows/build-qemu.yml` runs it and publishes the result as a prerelease tagged `qemu-<version>`, with assets named `qemu-<target-triple>.tar.gz`. It triggers on changes to the version file, the script or the workflow.
-- `scripts/qemu/fetch.mjs` downloads that asset for the target triple (`$TAURI_ENV_TARGET_TRIPLE`, else the host) and stamps `.version`. `tauri.conf.json` bundles `resources/qemu/` as `qemu/`. Everything in that directory except its README is git-ignored.
-- Upgrading QEMU means bumping `version.json` and pushing to main, then waiting for the prerelease before building a release.
+- The built QEMU trees are committed as `vendor/qemu/qemu-<target-triple>.tar.gz` (linux x86_64 and aarch64, macOS x86_64 and aarch64, windows x86_64; checksums in `SHA256SUMS`), so no CI or network is involved. `build.sh` compiles QEMU from source on each OS (MSYS2 on Windows) and is run by hand to produce them.
+- `scripts/qemu/fetch.mjs` unpacks the archive for the target triple (`$TAURI_ENV_TARGET_TRIPLE`, else the host) and stamps `.version`. `tauri.conf.json` bundles `resources/qemu/` as `qemu/`. Everything in that directory except its README is git-ignored.
+- Upgrading QEMU means building it on each OS with `build.sh`, replacing the archives in `vendor/qemu`, updating `SHA256SUMS` and bumping `version.json`.
 
 **Agent VM base image** (`scripts/images/`)
-- `build.sh <x86_64|aarch64> <out> <agentd-binary>` builds an Alpine qcow2 with Claude Code, using the vendored `vendor/alpine-make-vm-image` (v0.13.4, with a marked LOCAL PATCH that kills processes still holding the image before unmounting). Alpine is pinned in `version.json`. Claude Code comes from the official installer at build time, unpinned. It needs root and Linux, and must run natively per arch. `provision.sh` runs in the chroot.
+- The base image is plain Alpine (`alpine-base`, 8G disk, DHCP on eth0, serial console, no SSH, nothing else), committed as `vendor/images/alpine-<x86_64|aarch64>.qcow2` (~60 MB each, qcow2 compressed). No CI builds it. To rebuild (new Alpine version in `version.json`), run `scripts/images/build-plain.sh <arch> <out>` natively per arch (root, Linux; uses the vendored `vendor/alpine-make-vm-image` v0.13.4 with a marked LOCAL PATCH that kills processes still holding the image before unmounting), and replace the file. x86_64 boots with BIOS, aarch64 with UEFI.
+- Claude Code and `agentd` are **not** in the image yet. The app is meant to install them in a builder VM on the user's machine (Claude Code from the official installer, `agentd` built from `crates/agentd` as static musl per arch), cache the result as the real base, and rebuild when the app updates. Not built yet; `provision.sh` is the old in-image installer (Claude Code, the `agent` user, the `agentd` OpenRC service) kept as the model for that step. The builder VM also needs a way to run commands in the plain image (planned: a first-boot hook that mounts a setup disk and runs its script).
 - Profiles are presets and user-made specs applied on top of the base image by the app, in a builder VM (not built in CI, not built yet). A profile is `<name>.json` (`description`, `packages`, `disk_size`) plus an optional `<name>.sh` hook run as root in the guest after the packages. Presets live in `src-tauri/resources/profiles/` (`base`, `developer`), ship with the app and cannot be edited or deleted in the UI, only built; user profiles live in the app data dir. Built images are cached by hash of the spec and the base image. After a build the app checks `agentd` and its service are still intact. A profile that needs a bigger disk than the base (4G) must grow it (`qemu-img resize` plus `resize2fs`).
-- The base image ships inside the app: `scripts/images/fetch.mjs` (`pnpm images:fetch [--required]`, run by the dev and build before-commands) downloads `agent-base-<arch>.qcow2` for the target (aarch64 targets get aarch64, everything else x86_64) from the `image-base` release into `src-tauri/resources/images/` (git-ignored), and `tauri.conf.json` bundles it as `images/` together with `profiles/`. The release is rolling, so the asset's id and update time are its version (stamped next to the file); a release build needs `image-base` published first.
+- The plain image ships inside the app: `scripts/images/fetch.mjs` (`pnpm images:fetch [--required]`, run by the dev and build before-commands) copies `alpine-<arch>.qcow2` for the target (aarch64 targets get aarch64, everything else x86_64) from `vendor/images/` into `src-tauri/resources/images/` (git-ignored), and `tauri.conf.json` bundles it as `images/` together with `profiles/`.
 - Custom images are valid only for the base they were built from. Their cache key is the hash of the profile spec plus the base image's stamp. After an app update with a new base, the app marks such images stale (shown as "needs rebuild", with a rebuild-all action), keeps the old one usable until its replacement builds, then deletes it. Custom images are built standalone (flattened), not as overlays: the bundled base sits in the install directory, which an update replaces and an AppImage mounts at a different path each run, so a backing file would break.
-- `build-images.yml` builds `agentd` (musl, per arch) and the **base** image for both arches on native runners and publishes `agent-base-<arch>.qcow2` to a rolling prerelease tagged `image-base`, overwriting the previous assets. `build.sh <arch> <out> <agentd-binary>` takes no profile.
-- Image/app version drift: `agentd` is built into the image (same CI run, same commit), but the app is released separately on tags, and there is no protocol version number, so an app can meet an image whose `agentd` speaks different messages. Accepted for now; keep message changes backward compatible, or release app and image together.
-- The image has no SSH server, and `provision.sh` fails the build if one is present. The only host-to-guest control channel is the virtio-serial port `agent` (see Agent communication). Secrets must not go in command lines, fw_cfg strings or the disk.
+- There is no image or QEMU build in CI: both are committed (`vendor/qemu`, `vendor/images`).
+- Image/app version drift: `agentd` is no longer built into a published image, so the app that builds the final base always installs its own `agentd`. Keep message changes backward compatible anyway; there is no protocol version number.
+- The image has no SSH server, and the setup step must fail if one is present
 - Boot agents from a throwaway `qemu-img create -b` overlay, never from the base image itself.
 
 **Agent communication**
@@ -85,13 +86,13 @@ Pieces to build, in this order:
 5. UI: a run page with the live event stream, backed by the run log on disk (also gives replay).
 6. Orchestrator: the run store and engine first (run one agent end to end, handle `needs_input` by asking the user in the UI), then the planner, then the pipeline graph (stages, dependencies, conditions) on top of the messages, run by the engine. There is no direct agent-to-agent chat.
 
-**agentd (built; in the image via CI)**
+**agentd (built; installed into the image by the app, not yet implemented)**
 
 Code: `crates/protocol` (messages, `Bootstrap`, `RESULT_SCHEMA`) and `crates/agentd` (`main.rs`, `link.rs` the channel, `claude.rs` the run), a separate cargo workspace in `crates/` (the app depends on `protocol` by path). Flags: `--channel <device|unix:socket>` (default `/dev/virtio-ports/agent`), `--workspace`, `--claude`, `--run-as <user>` (drops to that user with no_new_privs), `--poweroff`. `src-tauri/src/agentd_e2e.rs` has two tests: the real binary with a fake `claude` over a unix socket, and `base_image_boots_and_runs_a_task`, which boots the fetched image under QEMU on KVM with `-nic none` and runs a task through virtio-serial (Claude fails there, the whole path is what is checked; skipped without KVM or the image). The image build compiles `agentd` per arch for musl in an `agentd` job, `build.sh` takes the binary, `provision.sh` installs it to `/usr/local/bin` with an OpenRC service (`--run-as agent --poweroff`, runlevel default, output to the serial console) and `finalize.sh` fails the build if it is missing. Not done yet: hidepid/ptrace hardening, a real `claude` run with a valid token. Workspaces over ~700 KB come back without a bundle (`workspace_error`) until large transfers get another path.
 
 Design:
 
-The program that runs inside each agent VM, one task per boot: it executes the task and reports. A static Rust (musl) binary, one per arch, built in `build-images.yml` and installed in the image as an OpenRC service. It shares its message types with the app through a Rust crate. No SSH, no MCP server, no decisions, no talking to other agents, no state kept between runs.
+The program that runs inside each agent VM, one task per boot: it executes the task and reports. A static Rust (musl) binary, one per arch, installed in the image by the app as an OpenRC service. It shares its message types with the app through a Rust crate. No SSH, no MCP server, no decisions, no talking to other agents, no state kept between runs.
 
 Lifecycle:
 1. Open the virtio-serial port and read the `Bootstrap` (waiting up to 5 minutes for the app to connect): the agent id and the Claude setup token.
@@ -128,6 +129,6 @@ The run store (events, finals, session transcripts, workspaces) lives on disk in
 Code goes in and out as messages (a `git bundle` or patch), each agent on its own branch, and the app owns the central repository and the merges. No folders are shared with the host. Treat everything an agent sends as untrusted: validate the schema and the size.
 
 **Release**
-- `release.yml` triggers on `v*` tags or manual dispatch, and builds macOS (aarch64 and x86_64), Linux and Windows.
+- `release.yml` triggers on `v*` tags or manual dispatch, and builds macOS (aarch64 and x86_64), Linux (x86_64 and aarch64, on `ubuntu-22.04` and `ubuntu-22.04-arm`) and Windows.
 - The version must be kept in sync in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`.
 - `release-cache.yml` warms Rust caches on main because tag builds can only restore default-branch caches.
