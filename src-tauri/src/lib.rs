@@ -1,5 +1,6 @@
 mod agent;
 mod builder;
+mod egress;
 mod engine;
 mod images;
 mod network;
@@ -11,6 +12,7 @@ mod protocol;
 mod qemu;
 mod runs;
 mod secrets;
+mod tunnel;
 
 /// Whether the updater can replace this installation. On Linux only an AppImage can;
 /// a .deb or .rpm belongs to the package manager.

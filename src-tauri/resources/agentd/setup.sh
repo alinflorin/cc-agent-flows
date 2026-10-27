@@ -3,7 +3,8 @@
 # succeed or the build fails.
 set -eu
 
-apk add --no-cache --no-progress jq setpriv ripgrep curl bash libgcc libstdc++ ca-certificates
+# openssh-client carries the agent's traffic to the app's egress proxy (see tunnel.rs)
+apk add --no-cache --no-progress jq setpriv ripgrep curl bash libgcc libstdc++ ca-certificates openssh-client
 
 # The user `claude` runs as. No password, no sudo/doas.
 adduser -D -s /bin/sh agent
@@ -26,11 +27,12 @@ rc-update add agentd default
 # Checks: everything agentd needs is there, and nothing that would let an agent be reached or
 # escalate.
 claude --version
-for c in agentd jq setpriv setsid rg; do command -v "$c" >/dev/null || { echo "missing $c"; exit 1; }; done
+for c in agentd jq setpriv setsid rg ssh timeout; do command -v "$c" >/dev/null || { echo "missing $c"; exit 1; }; done
 # busybox also has a setpriv, but without --reuid: it must be the util-linux one
 setpriv --reuid agent --regid agent --init-groups --no-new-privs true
-if apk info -e openssh openssh-server dropbear sudo doas >/dev/null; then
-	echo "unexpected ssh/sudo package"
+# the ssh *client* is wanted; a server, dropbear and privilege tools are not
+if apk info -e openssh openssh-server dropbear sudo doas >/dev/null || [ -e /usr/sbin/sshd ]; then
+	echo "unexpected ssh server or sudo package"
 	exit 1
 fi
 

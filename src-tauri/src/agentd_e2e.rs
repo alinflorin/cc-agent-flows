@@ -11,10 +11,10 @@ mod e2e {
     use tokio::net::unix::pipe;
 
     use crate::agent::drive;
-    use crate::protocol::{Bootstrap, Final, Outbound, Status, Task, TaskEnv};
+    use crate::protocol::{Bootstrap, Final, Outbound, Status, Task, TaskEnv, TunnelKeys};
 
     fn boot() -> Bootstrap {
-        Bootstrap { id: "spiffe://ccaf.local/test/agent-1".into(), claude_token: "sk-test-token".into() }
+        Bootstrap { id: "spiffe://ccaf.local/test/agent-1".into(), claude_token: "sk-test-token".into(), tunnel: None }
     }
 
     fn task(timeout_secs: u64) -> Task {
@@ -79,13 +79,22 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
 
     /// Starts the script on two fifos and `drive`s the app's side.
     fn start(tag: &str, claude: &str, task: Task) -> Run {
+        start_with(tag, claude, task, boot(), None)
+    }
+
+    fn executable(path: &Path, text: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::write(path, text).unwrap();
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// `ssh` is a stand-in script when given.
+    fn start_with(tag: &str, claude: &str, task: Task, boot: Bootstrap, ssh: Option<&str>) -> Run {
         let dir = temp(tag);
         let fake = dir.join("claude");
-        std::fs::write(&fake, claude).unwrap();
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        executable(&fake, claude);
+        let fake_ssh = dir.join("ssh");
+        executable(&fake_ssh, ssh.unwrap_or("#!/bin/sh\nexit 99\n"));
         let (to_agent, from_agent) = (dir.join("to-agent"), dir.join("from-agent"));
         shell(&format!("mkfifo '{}' '{}'", to_agent.display(), from_agent.display()));
         // Read-write on both ends, so neither open waits for the other side.
@@ -95,10 +104,10 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
         let agent = Command::new("sh")
             .arg(script)
             .args(["--channel", to_agent.to_str().unwrap(), "--out", from_agent.to_str().unwrap()])
-            .args(["--workspace", dir.join("work").to_str().unwrap(), "--claude", fake.to_str().unwrap()])
+            .args(["--workspace", dir.join("work").to_str().unwrap(), "--claude", fake.to_str().unwrap(), "--ssh", fake_ssh.to_str().unwrap()])
             .spawn()
             .unwrap();
-        let rx = drive(tokio::io::join(rx_pipe, tx_pipe), boot(), task);
+        let rx = drive(tokio::io::join(rx_pipe, tx_pipe), boot, task);
         Run { dir, agent, rx }
     }
 
@@ -140,6 +149,64 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
         assert_eq!(fin.output.as_ref().unwrap()["summary"], "half done", "the structured answer is passed on");
         assert!(run.dir.join("work/made-by-claude.txt").is_file(), "claude ran in the workspace");
 
+        let _ = std::fs::remove_dir_all(run.dir);
+    }
+
+    /// Stands in for `ssh`: checks how the tunnel is asked for and that the key is there while it
+    /// is read, leaves a note of the arguments.
+    const FAKE_SSH: &str = r#"#!/bin/sh
+echo "$@" > "$(dirname "$0")/ssh-args"
+for a in "$@"; do case $a in -i) next=1 ;; *) [ "${next:-0}" = 1 ] && key=$a; next=0 ;; esac; done
+[ "$(head -n1 "$key")" = "-----BEGIN FAKE KEY-----" ] || { echo "no key at $key" >&2; exit 11; }
+[ "$(stat -c %a "$key")" = 600 ] || { echo "key is not private" >&2; exit 12; }
+hosts=$(echo "$@" | sed -n 's/.*UserKnownHostsFile=\([^ ]*\).*/\1/p')
+[ "$(cat "$hosts")" = "10.0.2.100 ssh-ed25519 AAAAFAKE" ] || { echo "bad known hosts: $(cat "$hosts")" >&2; exit 13; }
+echo "$key" > "$(dirname "$0")/ssh-key-path"
+exit 0
+"#;
+
+    /// `claude` that must see the proxy, and must not find the key anywhere.
+    const PROXY_CLAUDE: &str = r#"#!/bin/sh
+[ "$HTTPS_PROXY" = "http://127.0.0.1:3128" ] && [ "$https_proxy" = "$HTTPS_PROXY" ] || { echo "no proxy: $HTTPS_PROXY" >&2; exit 2; }
+case "$NO_PROXY" in *127.0.0.1*) ;; *) echo "no NO_PROXY" >&2; exit 3;; esac
+[ -z "$(env | grep -i 'FAKE KEY')" ] || { echo "key in env" >&2; exit 4; }
+echo '{"type":"result","is_error":false,"result":"ok","session_id":"s"}'
+"#;
+
+    #[tokio::test]
+    async fn agentd_opens_the_tunnel_and_points_claude_at_it() {
+        if !have_jq() {
+            eprintln!("needs jq, skipping");
+            return;
+        }
+        let mut b = boot();
+        b.claude_token = "sk-test-token".into();
+        b.tunnel = Some(TunnelKeys { key: "-----BEGIN FAKE KEY-----\nabc\n-----END FAKE KEY-----".into(), host_key: "ssh-ed25519 AAAAFAKE".into() });
+        let mut run = start_with("agentd-tunnel", PROXY_CLAUDE, task(40), b, Some(FAKE_SSH));
+        let (_, fin) = run.finish(30).await;
+        assert_eq!(fin.status, Status::Done, "{}", fin.result);
+        let args = std::fs::read_to_string(run.dir.join("ssh-args")).unwrap();
+        assert!(args.contains("-L 127.0.0.1:3128:egress:3128"), "{args}");
+        assert!(args.contains("agent@10.0.2.100"), "{args}");
+        assert!(args.contains("StrictHostKeyChecking=yes"), "{args}");
+        let key = std::fs::read_to_string(run.dir.join("ssh-key-path")).unwrap();
+        assert!(!Path::new(key.trim()).exists(), "the key file is removed once ssh has it");
+        let _ = std::fs::remove_dir_all(run.dir);
+    }
+
+    #[tokio::test]
+    async fn agentd_fails_the_run_when_the_tunnel_does_not_open() {
+        if !have_jq() {
+            eprintln!("needs jq, skipping");
+            return;
+        }
+        let mut b = boot();
+        b.tunnel = Some(TunnelKeys { key: "k".into(), host_key: "ssh-ed25519 AAAAFAKE".into() });
+        // the default stand-in exits 99
+        let mut run = start_with("agentd-notunnel", FAKE_CLAUDE, task(40), b, None);
+        let (_, fin) = run.finish(30).await;
+        assert_eq!(fin.status, Status::Failed);
+        assert!(fin.result.starts_with("tunnel: cannot reach the network proxy (ssh exit 99)"), "{}", fin.result);
         let _ = std::fs::remove_dir_all(run.dir);
     }
 

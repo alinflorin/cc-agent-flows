@@ -319,7 +319,13 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
                 "developer" | "architect" | "reviewer" => "developer".into(),
                 _ => "base".into(),
             },
-            allow_hosts: vec![],
+            // the developer tools (git, npm, pip) need their registries once the network is sealed
+            allow_hosts: match id {
+                "developer" | "architect" | "reviewer" | "qa" => {
+                    ["github.com", "*.githubusercontent.com", "registry.npmjs.org", "pypi.org", "files.pythonhosted.org"].map(String::from).to_vec()
+                }
+                _ => vec![],
+            },
         };
         save(&dir, Some(id), &profile)?;
     }

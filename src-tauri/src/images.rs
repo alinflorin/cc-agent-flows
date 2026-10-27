@@ -565,7 +565,8 @@ fn host_cpus() -> u32 {
 }
 
 /// A QEMU command for a headless guest of this machine's architecture: hardware acceleration with
-/// a software fallback, `-cpu max` (Claude Code needs SSE4.2), user-mode networking, no reboot.
+/// a software fallback, `-cpu max` (Claude Code needs SSE4.2), no reboot. The caller adds the
+/// network card (`-nic`): open for builders, sealed for agents.
 /// `cpus` is the number of vCPUs (`None`: all of the host's). The caller adds the disk and the channels.
 pub fn machine(app: &AppHandle, mem_mb: u32, cpus: Option<u32>) -> Result<std::process::Command, String> {
     let arch = arch()?;
@@ -582,13 +583,15 @@ pub fn machine(app: &AppHandle, mem_mb: u32, cpus: Option<u32>) -> Result<std::p
         let fw = resources(app)?.join("qemu/share/qemu/edk2-aarch64-code.fd");
         cmd.args(["-M", "virt", "-bios"]).arg(fw);
     }
-    cmd.args(["-display", "none", "-monitor", "none", "-no-reboot", "-nic", "user"]);
+    cmd.args(["-display", "none", "-monitor", "none", "-no-reboot"]);
     Ok(cmd)
 }
 
 fn launch(app: &AppHandle, disk: &Path, serial: &Serial) -> Result<tokio::process::Child, String> {
     let mut cmd = machine(app, 1024, Some(2))?;
-    cmd.arg("-drive")
+    // builders need the internet (package managers, installers)
+    cmd.args(["-nic", "user"])
+        .arg("-drive")
         .arg(format!("file={},if=virtio,discard=unmap", disk.display()))
         .arg("-serial")
         .arg(&serial.qemu_arg);
