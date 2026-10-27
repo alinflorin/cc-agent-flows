@@ -39,6 +39,8 @@ export interface Injection {
   placeholder: string;
 }
 
+const METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+
 const EMPTY: Injection = {
   name: "",
   rules: [{ host: "", path: "", methods: [] }],
@@ -53,7 +55,8 @@ const useStyles = makeStyles({
   list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM, marginTop: tokens.spacingVerticalL },
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM },
   row: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-start" },
-  grow: { flex: 1 },
+  grow: { flex: 1, minWidth: 0 },
+  rule: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) 108px auto", gap: tokens.spacingHorizontalS, alignItems: "start" },
   mono: { fontFamily: tokens.fontFamilyMonospace },
 });
 
@@ -73,7 +76,6 @@ export function InjectionsSettings() {
   // the injection being edited and its position in the list (null = new); kept after closing so the dialog does not flicker while it fades out
   const [editing, setEditing] = useState<{ at: number | null; value: Injection } | null>(null);
   const [open, setOpen] = useState(false);
-  const [methods, setMethods] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -90,7 +92,6 @@ export function InjectionsSettings() {
 
   const edit = (at: number | null, value: Injection) => {
     setEditing({ at, value });
-    setMethods(value.rules.map((r) => r.methods.join(", ")));
     setOpen(true);
   };
 
@@ -106,13 +107,7 @@ export function InjectionsSettings() {
 
   const save = async () => {
     if (!editing) return;
-    const value = {
-      ...editing.value,
-      rules: editing.value.rules.map((r, i) => ({
-        ...r,
-        methods: (methods[i] ?? "").split(/[\s,]+/).filter(Boolean),
-      })),
-    };
+    const value = editing.value;
     const next = editing.at === null ? [...list, value] : list.map((x, i) => (i === editing.at ? value : x));
     if (await persist(next)) {
       setOpen(false);
@@ -155,11 +150,11 @@ export function InjectionsSettings() {
         ))}
       </div>
 
-      <Dialog open={open} onOpenChange={(_, d) => setOpen(d.open)}>
-        <DialogSurface>
+      <Dialog surfaceMotion={null} open={open} onOpenChange={(_, d) => setOpen(d.open)}>
+        <DialogSurface backdropMotion={null}>
           <DialogBody>
             <DialogTitle>{editing?.at === null ? t("settings.injections.new") : t("settings.injections.editTitle")}</DialogTitle>
-            <DialogContent>
+            <DialogContent style={{ overflowX: "hidden" }}>
               {v && (
                 <div className={styles.form}>
                   <Field label={t("settings.injections.name")} hint={t("settings.injections.nameHint")}>
@@ -169,25 +164,30 @@ export function InjectionsSettings() {
                   <Field label={t("settings.injections.rules")} hint={t("settings.injections.rulesHint")}>
                     <div className={styles.form}>
                       {v.rules.map((r, i) => (
-                        <div key={i} className={styles.row}>
-                          <Input className={`${styles.grow} ${styles.mono}`} placeholder="api.github.com" value={r.host} onChange={(_, d) => setRule(i, { host: d.value })} />
-                          <Input className={`${styles.grow} ${styles.mono}`} placeholder="/*" value={r.path} onChange={(_, d) => setRule(i, { path: d.value })} />
-                          <Input
-                            style={{ width: 120 }}
-                            className={styles.mono}
+                        <div key={i} className={styles.rule}>
+                          <Input className={styles.mono} placeholder="api.github.com" value={r.host} onChange={(_, d) => setRule(i, { host: d.value })} />
+                          <Input className={styles.mono} placeholder="/*" value={r.path} onChange={(_, d) => setRule(i, { path: d.value })} />
+                          <Dropdown
+                            multiselect
+                            style={{ minWidth: 0 }}
+                            button={{ style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "start" } }}
                             placeholder={t("settings.injections.allMethods")}
-                            value={methods[i] ?? ""}
-                            onChange={(_, d) => setMethods(methods.map((m, j) => (j === i ? d.value : m)))}
-                          />
+                            value={r.methods.join(", ")}
+                            selectedOptions={r.methods}
+                            onOptionSelect={(_, d) => setRule(i, { methods: METHODS.filter((m) => d.selectedOptions.includes(m)) })}
+                          >
+                            {METHODS.map((m) => (
+                              <Option key={m} value={m}>
+                                {m}
+                              </Option>
+                            ))}
+                          </Dropdown>
                           <Button
                             appearance="subtle"
                             icon={<Delete16Regular />}
                             aria-label={t("settings.injections.delete")}
                             disabled={v.rules.length < 2}
-                            onClick={() => {
-                              set({ rules: v.rules.filter((_, j) => j !== i) });
-                              setMethods(methods.filter((_, j) => j !== i));
-                            }}
+                            onClick={() => set({ rules: v.rules.filter((_, j) => j !== i) })}
                           />
                         </div>
                       ))}
@@ -195,10 +195,7 @@ export function InjectionsSettings() {
                         <Button
                           size="small"
                           icon={<Add16Regular />}
-                          onClick={() => {
-                            set({ rules: [...v.rules, { host: "", path: "", methods: [] }] });
-                            setMethods([...methods, ""]);
-                          }}
+                          onClick={() => set({ rules: [...v.rules, { host: "", path: "", methods: [] }] })}
                         >
                           {t("settings.injections.addRule")}
                         </Button>
