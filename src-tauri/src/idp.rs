@@ -74,7 +74,7 @@ fn parts(token: &str) -> Result<(&str, &str, &str), String> {
 }
 
 /// The claims of a token, without checking anything.
-fn unverified_claims(token: &str) -> Result<Value, String> {
+pub(crate) fn unverified_claims(token: &str) -> Result<Value, String> {
     let (_, p, _) = parts(token)?;
     serde_json::from_slice(&B64.decode(p).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }

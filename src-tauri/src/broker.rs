@@ -1,16 +1,16 @@
 //! The NATS broker the app runs for agent communication (see "Agent communication" in CLAUDE.md).
 //!
-//! Auth is NATS operator mode with JWTs minted in memory, so agent credentials can be created and
-//! scoped per agent without ever reloading the server. The operator and account keys are generated
-//! on each start and the JetStream store is wiped with them: nothing here outlives the app run.
+//! Agents authenticate to NATS with the OIDC access token the app's identity provider (`idp`)
+//! gave them, not with NATS credentials of their own. NATS hands every connection that is not the
+//! app itself to an auth callout (`callout`), which verifies the token and answers with a NATS
+//! user whose permissions are that agent's alone and whose session lasts `SESSION_TTL`. So
+//! `release` stops reconnects at once, and the agent needs nothing but its key.
 //!
 //! Agents never talk to each other. Every message an agent sends goes to the app (`Broker::inbox`),
 //! and the app alone decides the flow by sending messages to agents (`Broker::send`).
 //!
-//! An agent's identity is allocated by `Broker::allocate`: a guid, its place in a project and
-//! session, its profile and an expiry. It is registered with the OIDC provider (`idp`), where the
-//! agent gets tokens for any service, and gets NATS credentials here. `release` withdraws it from
-//! both at once.
+//! Keys are generated on each start and the JetStream store is wiped with them: nothing here
+//! outlives the app run.
 
 // Nothing drives runs yet; the pieces below are exercised by the tests only.
 #![allow(dead_code)]
@@ -21,25 +21,34 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_nats::jetstream::{self, consumer, stream};
-use async_nats::{AuthError, ConnectOptions};
-use nkeys::KeyPair;
+use async_nats::ConnectOptions;
 use futures::StreamExt;
+use nkeys::KeyPair;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tauri::Manager;
 
+use crate::callout;
 use crate::idp::{self, Identity, Idp, TRUST_DOMAIN, now};
 
-const STREAM: &str = "AGENTS";
+pub(crate) const STREAM: &str = "AGENTS";
+/// The NATS account everything runs in.
+pub(crate) const ACCOUNT: &str = "APP";
+/// Audience of the access tokens agents present to NATS.
+pub const AUDIENCE: &str = "nats";
 /// Default lifetime of an identity. A run is shorter; this bounds a leaked credential.
 pub const DEFAULT_TTL: Duration = Duration::from_secs(3600);
+/// How long one NATS connection lasts before the agent has to reconnect with a fresh token.
+pub const SESSION_TTL: Duration = Duration::from_secs(15 * 60);
 /// Largest message the router will forward.
 const MAX_MESSAGE: usize = 1 << 20;
 
-/// What an agent needs to connect, besides the broker address.
+/// A newly allocated identity with what the agent needs besides its tokens.
 #[derive(Serialize)]
-pub struct AgentCreds {
-    pub jwt: String,
+pub struct Issued {
+    #[serde(flatten)]
+    pub identity: Identity,
+    /// The agent's private key (nkey seed). It signs the proof that gets tokens from `idp`.
     pub seed: String,
     /// The pull consumer to read tasks from, on stream `AGENTS`.
     pub consumer: String,
@@ -53,14 +62,6 @@ impl Drop for ServerProcess {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
-}
-
-/// A newly allocated identity with everything the agent needs to prove it.
-#[derive(Serialize)]
-pub struct Issued {
-    #[serde(flatten)]
-    pub identity: Identity,
-    pub nats: AgentCreds,
 }
 
 /// What an agent sends on `agent.<id>.out`. The sender is not in it: the router takes it from the
@@ -83,11 +84,11 @@ pub struct Message {
 pub struct Broker {
     _server: ServerProcess,
     _router: AbortOnDrop,
+    _callout: AbortOnDrop,
+    _oidc: AbortOnDrop,
     pub port: u16,
-    account: KeyPair,
     /// The OIDC provider the agents' identities live in.
     pub idp: Arc<Idp>,
-    _oidc: AbortOnDrop,
     /// Everything agents send. The orchestrator subscribes and decides what happens next.
     pub inbox: tokio::sync::broadcast::Sender<Message>,
     pub client: async_nats::Client,
@@ -102,29 +103,22 @@ impl Drop for AbortOnDrop {
     }
 }
 
-/// A NATS JWT (operator, account or user).
-fn encode_jwt(issuer: &KeyPair, subject: &str, name: &str, nats: Value, ttl: Option<Duration>) -> Result<String, String> {
-    let iat = now();
-    let mut claims = json!({ "iat": iat, "iss": issuer.public_key(), "name": name, "sub": subject, "nats": nats });
-    if let Some(ttl) = ttl {
-        claims["exp"] = json!(iat + ttl.as_secs());
-    }
-    idp::sign_jwt(issuer, "ed25519-nkey", None, &claims)
-}
-
-fn user_jwt(account: &KeyPair, user: &KeyPair, name: &str, publish: &[String], subscribe: &[String], ttl: Duration) -> Result<String, String> {
-    let nats = json!({
-        "type": "user", "version": 2,
-        "pub": { "allow": publish }, "sub": { "allow": subscribe },
-        "subs": -1, "data": -1, "payload": -1,
-    });
-    encode_jwt(account, &user.public_key(), name, nats, Some(ttl))
-}
-
 /// Agent ids end up in subjects and consumer names, so keep them to a safe alphabet.
 fn check_id(id: &str) -> Result<(), String> {
     let ok = !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
     if ok { Ok(()) } else { Err(format!("invalid agent id: {id:?}")) }
+}
+
+/// The subjects an agent may use: publish on its own `out`, read its own consumer, nothing else.
+pub(crate) fn agent_permissions(id: &str) -> (Vec<String>, Vec<String>) {
+    let consumer = format!("in-{id}");
+    let publish = vec![
+        format!("agent.{id}.out"),
+        format!("$JS.API.CONSUMER.INFO.{STREAM}.{consumer}"),
+        format!("$JS.API.CONSUMER.MSG.NEXT.{STREAM}.{consumer}"),
+        format!("$JS.ACK.{STREAM}.{consumer}.>"),
+    ];
+    (publish, vec!["_INBOX.>".to_string()])
 }
 
 const PID_FILE: &str = "nats.pid";
@@ -158,40 +152,24 @@ impl Broker {
     /// Starts `nats-server` (built by the caller, see `nats::command`) with its state under `dir`.
     pub async fn start(mut server: Command, dir: &Path) -> Result<Broker, String> {
         let port = free_port()?;
-        let operator = KeyPair::new_operator();
-        let account = KeyPair::new_account();
-        // JetStream refuses to start without a system account, though nothing connects to it.
-        let system = KeyPair::new_account();
-
-        let operator_jwt = encode_jwt(&operator, &operator.public_key(), "app", json!({ "type": "operator", "version": 2 }), None)?;
-        let system_jwt = encode_jwt(&operator, &system.public_key(), "system", json!({ "type": "account", "version": 2 }), None)?;
-        let account_jwt = encode_jwt(
-            &operator,
-            &account.public_key(),
-            "agents",
-            json!({
-                "type": "account", "version": 2,
-                "limits": {
-                    "subs": -1, "data": -1, "payload": -1, "imports": -1, "exports": -1, "wildcards": true,
-                    "conn": -1, "leaf": -1, "mem_storage": -1, "disk_storage": -1, "streams": -1, "consumer": -1,
-                },
-            }),
-            None,
-        )?;
+        // The app's own connection: a key pair, so no secret ever sits in the config file.
+        let app_user = Arc::new(KeyPair::new_user());
+        // Signs the callout's answers. Only its public half goes in the config.
+        let issuer = KeyPair::new_account();
 
         kill_stale_server(dir);
         let _ = std::fs::remove_dir_all(dir);
         let store = dir.join("jetstream");
         std::fs::create_dir_all(&store).map_err(|e| e.to_string())?;
         let conf = format!(
-            "listen: 127.0.0.1:{port}\noperator: {}\nresolver: MEMORY\nsystem_account: {}\nresolver_preload: {{ {}: {}, {}: {} }}\njetstream: {{ store_dir: {} }}\n",
-            quoted(&operator_jwt),
-            system.public_key(),
-            account.public_key(),
-            quoted(&account_jwt),
-            system.public_key(),
-            quoted(&system_jwt),
-            quoted(&store.to_string_lossy()),
+            "listen: 127.0.0.1:{port}\n\
+             jetstream: {{ store_dir: {store} }}\n\
+             system_account: SYS\n\
+             accounts: {{\n  SYS: {{}}\n  {ACCOUNT}: {{ jetstream: enabled, users: [ {{ nkey: {app} }} ] }}\n}}\n\
+             authorization: {{ auth_callout: {{ issuer: {issuer}, account: {ACCOUNT}, auth_users: [ {app} ] }} }}\n",
+            store = quoted(&store.to_string_lossy()),
+            app = app_user.public_key(),
+            issuer = issuer.public_key(),
         );
         let conf_path = dir.join("nats.conf");
         std::fs::write(&conf_path, conf).map_err(|e| e.to_string())?;
@@ -207,41 +185,36 @@ impl Broker {
         let mut server = ServerProcess(child);
         let _ = std::fs::write(dir.join(PID_FILE), server.0.id().to_string());
 
-        let app_user = Arc::new(KeyPair::new_user());
-        let everything = vec![">".to_string()];
-        let jwt = user_jwt(&account, &app_user, "app", &everything, &everything, Duration::from_secs(10 * 365 * 24 * 3600))?;
         let mut last = String::new();
         for _ in 0..50 {
-            let signer = app_user.clone();
-            let opts = ConnectOptions::with_jwt(jwt.clone(), move |nonce| {
-                let signer = signer.clone();
-                async move { signer.sign(&nonce).map_err(AuthError::new) }
-            });
+            let opts = ConnectOptions::with_nkey(app_user.seed().map_err(|e| e.to_string())?);
             match tokio::time::timeout(Duration::from_millis(200), opts.connect(format!("127.0.0.1:{port}"))).await {
                 Ok(Ok(client)) => {
                     let js = jetstream::new(client.clone());
                     js.get_or_create_stream(stream::Config {
-                            name: STREAM.into(),
-                            subjects: vec!["agent.*.in".into(), "agent.*.out".into()],
-                            storage: stream::StorageType::File,
-                            max_age: Duration::from_secs(7 * 24 * 3600),
-                            ..Default::default()
-                        })
-                        .await
-                        .map_err(|e| format!("could not create stream: {e}"))?;
+                        name: STREAM.into(),
+                        subjects: vec!["agent.*.in".into(), "agent.*.out".into()],
+                        storage: stream::StorageType::File,
+                        max_age: Duration::from_secs(7 * 24 * 3600),
+                        ..Default::default()
+                    })
+                    .await
+                    .map_err(|e| format!("could not create stream: {e}"))?;
+
                     let idp = Idp::new();
                     let oidc = idp::serve(idp.clone()).await?;
                     let (inbox, _) = tokio::sync::broadcast::channel(256);
                     let router = tokio::spawn(route(client.clone(), js.clone(), idp.clone(), inbox.clone()));
-                    // Make sure the router is subscribed before anyone can publish.
+                    let callout = tokio::spawn(callout::serve(client.clone(), idp.clone(), issuer));
+                    // Make sure both are subscribed before anyone can connect or publish.
                     client.flush().await.map_err(|e| e.to_string())?;
                     return Ok(Broker {
                         _server: server,
                         _router: AbortOnDrop(router),
-                        port,
-                        account,
-                        idp,
+                        _callout: AbortOnDrop(callout),
                         _oidc: AbortOnDrop(oidc),
+                        port,
+                        idp,
                         inbox,
                         client,
                         jetstream: js,
@@ -258,25 +231,24 @@ impl Broker {
         Err(format!("nats-server did not come up: {last}"))
     }
 
-    /// Allocates an identity for a new agent: an id, its task queue and NATS credentials that can
-    /// touch nothing else. It reads `agent.<id>.in` through its own consumer and writes
-    /// `agent.<id>.out`, which only the app reads.
+    /// Allocates an identity for a new agent: a guid, its task queue and a key pair. It registers
+    /// the identity with the identity provider, where the agent trades a proof signed with that key
+    /// for tokens, including the one NATS accepts.
     pub async fn allocate(&self, project_id: &str, session_id: &str, profile: &str, ttl: Duration) -> Result<Issued, String> {
         // These become path segments of the SPIFFE name, so they must not smuggle in a `/`.
         for segment in [project_id, session_id, profile] {
             check_id(segment)?;
         }
-        let user = KeyPair::new_user();
+        let key = KeyPair::new_user();
         let id = uuid::Uuid::new_v4().to_string();
-        let name = format!("spiffe://{TRUST_DOMAIN}/{project_id}/{session_id}/{profile}/agent-{id}");
         let identity = Identity {
             id: id.clone(),
-            name,
+            name: format!("spiffe://{TRUST_DOMAIN}/{project_id}/{session_id}/{profile}/agent-{id}"),
             project_id: project_id.into(),
             session_id: session_id.into(),
             profile: profile.into(),
             expires_at: now() + ttl.as_secs(),
-            public_key: user.public_key(),
+            public_key: key.public_key(),
         };
 
         let consumer = format!("in-{id}");
@@ -293,22 +265,13 @@ impl Broker {
             .await
             .map_err(|e| format!("could not create consumer: {e}"))?;
 
-        let publish = vec![
-            format!("agent.{id}.out"),
-            format!("$JS.API.CONSUMER.INFO.{STREAM}.{consumer}"),
-            format!("$JS.API.CONSUMER.MSG.NEXT.{STREAM}.{consumer}"),
-            format!("$JS.ACK.{STREAM}.{consumer}.>"),
-        ];
-        let jwt = user_jwt(&self.account, &user, &identity.name, &publish, &["_INBOX.>".to_string()], ttl)?;
-        let nats = AgentCreds { jwt, seed: user.seed().map_err(|e| e.to_string())?, consumer };
-
         self.idp.register(identity.clone());
-        Ok(Issued { identity, nats })
+        Ok(Issued { identity, seed: key.seed().map_err(|e| e.to_string())?, consumer })
     }
 
-    /// Withdraws an identity: the router stops forwarding for it, its tokens stop verifying and its
-    /// queue is deleted. NATS credentials already handed out cannot be revoked from the server
-    /// (the resolver is in memory) and lapse at their expiry, but they reach nothing useful.
+    /// Withdraws an identity: the router stops forwarding for it, its tokens stop verifying, the
+    /// callout refuses its reconnects and its queue is deleted. A connection already open lasts
+    /// until its session ends (at most `SESSION_TTL`).
     pub async fn release(&self, id: &str) -> Result<(), String> {
         check_id(id)?;
         self.idp.remove(id);
@@ -341,8 +304,7 @@ async fn route(client: async_nats::Client, js: jetstream::Context, idp: Arc<Idp>
     let Ok(mut sub) = client.subscribe("agent.*.out").await else { return };
     while let Some(raw) = sub.next().await {
         let Some(from) = raw.subject.split('.').nth(1).map(str::to_string) else { continue };
-        let live = idp.live(&from).is_some();
-        if !live {
+        if idp.live(&from).is_none() {
             continue;
         }
         let parsed = if raw.payload.len() > MAX_MESSAGE {
@@ -355,7 +317,7 @@ async fn route(client: async_nats::Client, js: jetstream::Context, idp: Arc<Idp>
                 let _ = inbox.send(Message { from, kind: out.kind, body: out.body });
             }
             Err(reason) => {
-                let err = Message { from: "app".into(), kind: "error".into(), body: json!({ "reason": reason }) };
+                let err = Message { from: "app".into(), kind: "error".into(), body: serde_json::json!({ "reason": reason }) };
                 let _ = deliver(&js, &from, &err).await;
             }
         }
@@ -443,6 +405,7 @@ pub async fn broker_restart(app: tauri::AppHandle, state: tauri::State<'_, State
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     const TTL: Duration = Duration::from_secs(60);
 
@@ -460,22 +423,17 @@ mod tests {
         Some((Broker::start(cmd, &dir).await.unwrap(), dir))
     }
 
-    async fn connect(port: u16, issued: &Issued) -> async_nats::Client {
-        let kp = Arc::new(KeyPair::from_seed(&issued.nats.seed).unwrap());
-        ConnectOptions::with_jwt(issued.nats.jwt.clone(), move |nonce| {
-            let kp = kp.clone();
-            async move { kp.sign(&nonce).map_err(AuthError::new) }
-        })
-        .connect(format!("127.0.0.1:{port}"))
-        .await
-        .unwrap()
+    /// Connects as the agent would: with the OIDC access token for NATS as its auth token.
+    async fn connect(broker: &Broker, issued: &Issued) -> async_nats::Client {
+        let token = broker.idp.mint(&issued.identity.id, AUDIENCE).unwrap().access_token;
+        ConnectOptions::with_token(token).connect(format!("127.0.0.1:{}", broker.port)).await.unwrap()
     }
 
     /// Reads the next message from the agent's own queue, as `agentd` would.
     async fn next(client: &async_nats::Client, issued: &Issued) -> Option<Message> {
         let js = jetstream::new(client.clone());
         // An agent may only touch its own consumer, so it cannot look the stream up first.
-        let cons: consumer::PullConsumer = js.get_consumer_from_stream(&issued.nats.consumer, STREAM).await.unwrap();
+        let cons: consumer::PullConsumer = js.get_consumer_from_stream(&issued.consumer, STREAM).await.unwrap();
         let mut batch = cons.fetch().max_messages(1).expires(Duration::from_secs(2)).messages().await.unwrap();
         let msg = batch.next().await?.unwrap();
         msg.ack().await.unwrap();
@@ -501,7 +459,7 @@ mod tests {
         broker.send(&a.identity.id, &task).await.unwrap();
         broker.send(&b.identity.id, &task).await.unwrap();
 
-        let client = connect(broker.port, &a).await;
+        let client = connect(&broker, &a).await;
         assert_eq!(
             a.identity.name,
             format!("spiffe://ccagentflows.local/proj/sess/developer/agent-{}", a.identity.id)
@@ -513,7 +471,7 @@ mod tests {
 
         // Another agent's consumer is off limits.
         let js = jetstream::new(client.clone());
-        let other = js.get_consumer_from_stream::<consumer::pull::Config, _, _>(&b.nats.consumer, STREAM).await;
+        let other = js.get_consumer_from_stream::<consumer::pull::Config, _, _>(&b.consumer, STREAM).await;
         assert!(other.is_err());
 
         drop(broker);
@@ -525,8 +483,8 @@ mod tests {
         let Some((broker, dir)) = start("inbox").await else { return };
         let a = broker.allocate("proj", "sess", "developer", TTL).await.unwrap();
         let b = broker.allocate("proj", "sess", "developer", TTL).await.unwrap();
-        let a_c = connect(broker.port, &a).await;
-        let b_c = connect(broker.port, &b).await;
+        let a_c = connect(&broker, &a).await;
+        let b_c = connect(&broker, &b).await;
         let mut inbox = broker.inbox.subscribe();
         // The sender is stamped by the router, not claimed by the agent.
         a_c.publish(format!("agent.{}.out", a.identity.id), out("report")).await.unwrap();
@@ -551,6 +509,33 @@ mod tests {
         a_c.publish(format!("agent.{}.out", a.identity.id), "not json".into()).await.unwrap();
         let err = next(&a_c, &a).await.unwrap();
         assert_eq!((err.from.as_str(), err.kind.as_str()), ("app", "error"));
+
+        drop(broker);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn only_valid_agent_tokens_get_in() {
+        let Some((broker, dir)) = start("callout").await else { return };
+        let a = broker.allocate("proj", "sess", "developer", TTL).await.unwrap();
+        let url = format!("127.0.0.1:{}", broker.port);
+        let attempt = |token: String| {
+            let url = url.clone();
+            async move { tokio::time::timeout(Duration::from_secs(3), ConnectOptions::with_token(token).connect(url)).await }
+        };
+
+        // A real token works, and its NATS session is no longer than SESSION_TTL.
+        let token = broker.idp.mint(&a.identity.id, AUDIENCE).unwrap().access_token;
+        assert!(matches!(attempt(token.clone()).await, Ok(Ok(_))));
+
+        assert!(!matches!(attempt("nonsense".into()).await, Ok(Ok(_))), "garbage token");
+        assert!(!matches!(attempt(String::new()).await, Ok(Ok(_))), "no token");
+        let other_audience = broker.idp.mint(&a.identity.id, "git").unwrap().access_token;
+        assert!(!matches!(attempt(other_audience).await, Ok(Ok(_))), "token meant for another service");
+
+        // After release even a token that was still valid is refused.
+        broker.release(&a.identity.id).await.unwrap();
+        assert!(!matches!(attempt(token).await, Ok(Ok(_))), "released identity");
 
         drop(broker);
         let _ = std::fs::remove_dir_all(dir);
