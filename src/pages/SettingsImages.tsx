@@ -13,6 +13,7 @@ import {
   DialogTitle,
   Field,
   Input,
+  Select,
   Textarea,
   makeStyles,
   tokens,
@@ -29,6 +30,7 @@ interface Image {
   script: string;
   state: "missing" | "building" | "ready" | "stale";
   can_build: boolean;
+  parent: string | null;
   built_at: number | null;
   size: number | null;
   error: string | null;
@@ -38,6 +40,7 @@ interface Image {
 interface Spec {
   name: string;
   description: string;
+  parent: string;
   script: string;
 }
 
@@ -107,13 +110,14 @@ export function ImagesSettings() {
 
   if (!desktop) return <Body1>{t("profiles.desktopOnly")}</Body1>;
   if (!images) return null;
+  const nameOf = (id: string) => (id === "base" ? t("settings.images.base") : (images.find((x) => x.id === id)?.name ?? id));
   const busy = images.some((i) => i.state === "building");
 
   return (
     <>
       <div className={styles.head}>
         <Body1>{t("settings.images.intro")}</Body1>
-        <Button icon={<Add16Regular />} onClick={() => setEditing({ id: null, spec: { name: "", description: "", script: "" } })}>
+        <Button icon={<Add16Regular />} onClick={() => setEditing({ id: null, spec: { name: "", description: "", parent: "base", script: "" } })}>
           {t("settings.images.new")}
         </Button>
       </div>
@@ -137,7 +141,7 @@ export function ImagesSettings() {
                     appearance="subtle"
                     icon={<Edit16Regular />}
                     aria-label={t("profiles.edit")}
-                    onClick={() => setEditing({ id: i.id, spec: { name: i.name, description: i.description, script: i.script } })}
+                    onClick={() => setEditing({ id: i.id, spec: { name: i.name, description: i.description, parent: i.parent ?? "base", script: i.script } })}
                   />
                   <Button
                     size="small"
@@ -151,6 +155,7 @@ export function ImagesSettings() {
               )}
             </div>
             <Caption1>{i.builtin ? t("settings.images.baseDescription") : i.description}</Caption1>
+            {i.parent && <Caption1>{t("settings.images.basedOn", { name: nameOf(i.parent) })}</Caption1>}
             {i.built_at && (
               <Caption1>
                 {t("settings.images.builtAt", { date: new Date(i.built_at * 1000).toLocaleString() })}
@@ -175,6 +180,17 @@ export function ImagesSettings() {
                   </Field>
                   <Field label={t("profiles.description")}>
                     <Input value={editing.spec.description} onChange={(_, d) => setEditing({ ...editing, spec: { ...editing.spec, description: d.value } })} />
+                  </Field>
+                  <Field label={t("settings.images.parent")} hint={t("settings.images.parentHint")}>
+                    <Select value={editing.spec.parent} onChange={(_, d) => setEditing({ ...editing, spec: { ...editing.spec, parent: d.value } })}>
+                      {images
+                        .filter((x) => x.id !== editing.id)
+                        .map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {nameOf(x.id)}
+                          </option>
+                        ))}
+                    </Select>
                   </Field>
                   <Field label={t("settings.images.script")} hint={t("settings.images.scriptHint")}>
                     <Textarea
