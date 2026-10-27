@@ -72,6 +72,9 @@ pub struct Pending {
     pub prompt: String,
     #[serde(default)]
     pub questions: Vec<String>,
+    /// The user's node of the workflow that this goes through, if any.
+    #[serde(default)]
+    pub human: Option<String>,
 }
 
 /// A finished agent run, in the order they finished.
@@ -94,9 +97,6 @@ pub struct State {
     pub replies: HashMap<String, Reply>,
     #[serde(default)]
     pub pending: Option<Pending>,
-    /// What the agents assumed instead of asking, for the user to check.
-    #[serde(default)]
-    pub assumptions: Vec<String>,
     #[serde(default)]
     pub runs: u32,
     #[serde(default)]
@@ -193,15 +193,25 @@ pub struct Opt {
     pub id: String,
     pub label: String,
     pub desc: String,
-    pub approval: bool,
+    /// The approval gate (a node of the workflow) the handover goes through.
+    pub gate: Option<String>,
+    /// Agents that must have finished, in the same call, before this one may be called.
+    pub needs: Vec<String>,
 }
 
 pub fn options(wf: &Workflow, from: &str) -> Vec<Opt> {
     let mut out: Vec<Opt> = vec![];
-    for e in wf.edges.iter().filter(|e| e.from == from) {
+    for e in wf.call_edges().into_iter().filter(|e| e.from == from) {
         let Some(n) = wf.nodes.iter().find(|n| n.id == e.to) else { continue };
+        if out.iter().any(|o| o.id == n.id) {
+            continue;
+        }
         let role = if n.prompt.trim().is_empty() { String::new() } else { format!(": {}", clip(n.prompt.trim(), 240)) };
-        out.push(Opt { id: n.id.clone(), label: label_of(n), desc: format!("{} agent{role}", n.profile), approval: e.approval });
+        out.push(Opt { id: n.id.clone(), label: label_of(n), desc: format!("{} agent{role}", n.profile), gate: e.gate, needs: vec![] });
+    }
+    let ids: Vec<String> = out.iter().map(|o| o.id.clone()).collect();
+    for o in &mut out {
+        o.needs = wf.must_precede(&o.id).into_iter().filter(|a| ids.contains(a)).collect();
     }
     out
 }
@@ -241,6 +251,8 @@ pub struct TurnContext<'a> {
     pub inbox: &'a [Reported],
     pub options: &'a [Opt],
     pub is_root: bool,
+    /// The agent may put its questions to the user directly (the root, or one linked to the user's node).
+    pub may_ask: bool,
     pub can_ask_user: bool,
     pub feedback: Option<&'a str>,
 }
@@ -273,8 +285,22 @@ pub fn coordinator_prompt(n: &Node, c: &TurnContext) -> String {
     if !c.inbox.is_empty() {
         p += &section("Results since your last turn", &render_reported(c.inbox));
     }
-    let list: Vec<String> = c.options.iter().map(|o| format!("- `{}`: {} ({}){}", o.id, o.label, o.desc, if o.approval { " [the user approves each handover]" } else { "" })).collect();
-    let up = if c.is_root {
+    let name = |id: &String| c.options.iter().find(|o| &o.id == id).map_or(id.clone(), |o| o.label.clone());
+    let list: Vec<String> = c
+        .options
+        .iter()
+        .map(|o| {
+            let mut line = format!("- `{}`: {} ({})", o.id, o.label, o.desc);
+            if o.gate.is_some() {
+                line += " [the user approves each handover]";
+            }
+            if !o.needs.is_empty() {
+                line += &format!(" [only after {} finished]", o.needs.iter().map(&name).collect::<Vec<_>>().join(" and "));
+            }
+            line
+        })
+        .collect();
+    let up = if c.may_ask {
         if c.can_ask_user { "the user" } else { "nobody: the user cannot be asked in this session, decide yourself" }
     } else {
         "whoever called you"
@@ -306,7 +332,6 @@ pub enum Action {
 pub struct Decision {
     pub action: Action,
     pub notes: String,
-    pub assumptions: Vec<String>,
 }
 
 fn strings(v: Option<&Value>) -> Vec<String> {
@@ -318,12 +343,11 @@ pub fn assumptions_of(output: Option<&Value>) -> Vec<String> {
 }
 
 /// Reads a coordinator's answer and checks it against the agents it may call.
-pub fn parse_decision(output: Option<&Value>, options: &[Opt]) -> Result<Decision, String> {
+pub fn parse_decision(output: Option<&Value>, options: &[Opt], finished: &std::collections::HashSet<String>) -> Result<Decision, String> {
     let Some(o) = output.and_then(Value::as_object) else {
         return Err("the answer was not the structured object with `action` and `notes`".into());
     };
     let notes = o.get("notes").and_then(Value::as_str).unwrap_or("").to_string();
-    let assumptions = strings(o.get("assumptions"));
     let action = match o.get("action").and_then(Value::as_str).unwrap_or("") {
         "delegate" => {
             let calls = o.get("calls").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -337,6 +361,10 @@ pub fn parse_decision(output: Option<&Value>, options: &[Opt]) -> Result<Decisio
                     let ids: Vec<&str> = options.iter().map(|x| x.id.as_str()).collect();
                     return Err(format!("`to` was {to:?}, which you may not call; the options are: {}", ids.join(", ")));
                 };
+                if let Some(missing) = opt.needs.iter().find(|a| !finished.contains(*a)) {
+                    let name = options.iter().find(|x| &x.id == missing).map_or(missing.as_str(), |x| x.label.as_str());
+                    return Err(format!("`{}` cannot be called yet: {name} must have finished first (in an earlier answer of yours)", opt.id));
+                }
                 let instructions = c.get("instructions").and_then(Value::as_str).unwrap_or("").trim().to_string();
                 if instructions.is_empty() {
                     return Err(format!("the call to {} has no `instructions`", opt.id));
@@ -361,7 +389,7 @@ pub fn parse_decision(output: Option<&Value>, options: &[Opt]) -> Result<Decisio
         }
         other => return Err(format!("`action` was {other:?}; it must be delegate, finish or ask")),
     };
-    Ok(Decision { action, notes, assumptions })
+    Ok(Decision { action, notes })
 }
 
 // ---- running ----
@@ -437,11 +465,17 @@ impl<H: Host> Ctx<H> {
         if self.cancelled() {
             return Err(Stop::Cancelled);
         }
+        self.host.log("run_start", json!({"call": req.call, "node": req.node, "depth": req.depth, "profile": req.profile}));
+        let (node, call_key) = (req.node.clone(), req.call.clone());
         let f = self.host.run_agent(req).await;
         drop(permit);
         if self.cancelled() {
             return Err(Stop::Cancelled);
         }
+        self.host.log(
+            "run_end",
+            json!({"call": call_key, "node": node, "status": f.status, "cost_usd": f.cost_usd, "summary": clip(&f.result, 4000), "questions": f.questions, "assumptions": assumptions_of(f.output.as_ref())}),
+        );
         {
             let mut s = self.state.lock().unwrap();
             s.cost_usd += f.cost_usd.unwrap_or(0.0);
@@ -451,17 +485,6 @@ impl<H: Host> Ctx<H> {
         }
         self.save();
         Ok((f, false))
-    }
-
-    fn keep_assumptions(&self, label: &str, output: Option<&Value>) {
-        let list = assumptions_of(output);
-        if list.is_empty() {
-            return;
-        }
-        let mut s = self.state.lock().unwrap();
-        for a in list {
-            s.assumptions.push(format!("{label}: {a}"));
-        }
     }
 
     /// Puts something in front of the user and waits for the answer. `gate`: an approval, which is
@@ -480,7 +503,7 @@ impl<H: Host> Ctx<H> {
         }
         let mut rx = self.human.lock().await;
         let id = pending.id.clone();
-        self.host.log("wait", json!({"id": id, "node": pending.node, "label": pending.label, "kind": pending.kind, "prompt": pending.prompt, "questions": pending.questions}));
+        self.host.log("wait", json!({"id": id, "node": pending.node, "label": pending.label, "kind": pending.kind, "prompt": pending.prompt, "questions": pending.questions, "human": pending.human}));
         self.state.lock().unwrap().pending = Some(pending);
         self.save();
         let mut cancel = self.cancel.clone();
@@ -513,8 +536,9 @@ fn find<'a>(wf: &'a Workflow, id: &str) -> Res<&'a Node> {
 
 type Call = Pin<Box<dyn Future<Output = Res<Reported>> + Send>>;
 
-/// One call of an agent, to its end. `path` identifies the call in the journal.
-fn call<H: Host>(ctx: Arc<Ctx<H>>, node_id: String, path: String, asked: String, depth: usize) -> Call {
+/// One call of an agent, to its end. `path` identifies the call in the journal; `parent` is the
+/// agent that made it.
+fn call<H: Host>(ctx: Arc<Ctx<H>>, node_id: String, path: String, asked: String, depth: usize, parent: Option<String>) -> Call {
     Box::pin(async move {
         let n = find(&ctx.wf, &node_id)?.clone();
         if depth > MAX_DEPTH {
@@ -529,7 +553,20 @@ fn call<H: Host>(ctx: Arc<Ctx<H>>, node_id: String, path: String, asked: String,
             *c += 1;
         }
         let opts = options(&ctx.wf, &n.id);
-        if opts.is_empty() { worker(ctx, n, path, asked, depth).await } else { coordinator(ctx, n, opts, path, asked, depth).await }
+        // A call that was already replayed from the journal says nothing again.
+        let first_run = if opts.is_empty() { path.clone() } else { format!("{path}:1:1") };
+        let started = !ctx.replayed(&first_run);
+        let seq = ctx.state.lock().unwrap().seq;
+        if started {
+            ctx.host.log("call_start", json!({"call": path, "node": n.id, "label": label_of(&n), "depth": depth, "parent": parent, "asked": clip(&asked, 2000)}));
+        }
+        let res = if opts.is_empty() { worker(ctx.clone(), n.clone(), path.clone(), asked, depth).await } else { coordinator(ctx.clone(), n.clone(), opts, path.clone(), asked, depth).await };
+        if let Ok(r) = &res
+            && (started || ctx.state.lock().unwrap().seq != seq)
+        {
+            ctx.host.log("call_end", json!({"call": path, "node": n.id, "status": r.status, "summary": clip(&r.summary, 4000), "questions": r.questions}));
+        }
+        res
     })
 }
 
@@ -537,32 +574,17 @@ fn request(n: &Node, call: &str, depth: usize, prompt: String, schema: &str) -> 
     AgentReq { node: n.id.clone(), call: call.into(), depth, profile: n.profile.clone(), prompt, schema: schema.into(), timeout_mins: n.timeout_mins }
 }
 
-fn log_step<H: Host>(ctx: &Ctx<H>, n: &Node, call: &str, depth: usize, info: Value) {
-    ctx.host.log("step", json!({"node": n.id, "label": label_of(n), "profile": n.profile, "call": call, "depth": depth, "info": info}));
-}
-
-fn log_step_end<H: Host>(ctx: &Ctx<H>, n: &Node, call: &str, depth: usize, r: &Reported, cost: Option<f64>) {
-    ctx.host.log("step_end", json!({"node": n.id, "label": label_of(n), "call": call, "depth": depth, "status": r.status, "summary": r.summary, "questions": r.questions, "cost_usd": cost}));
-}
-
 async fn worker<H: Host>(ctx: Arc<Ctx<H>>, n: Node, path: String, asked: String, depth: usize) -> Res<Reported> {
     let mut asked = if depth == 0 { ctx.task.clone() } else { asked };
     let mut round = 0;
     loop {
         let key = if round == 0 { path.clone() } else { format!("{path}~{round}") };
-        let replay = ctx.replayed(&key);
-        if !replay {
-            log_step(&ctx, &n, &key, depth, json!({"asked": clip(&asked, 2000)}));
-        }
-        let (f, replayed) = ctx.run(request(&n, &key, depth, worker_prompt(&ctx.task, &n, &asked), crate::protocol::RESULT_SCHEMA)).await?;
+        let (f, _) = ctx.run(request(&n, &key, depth, worker_prompt(&ctx.task, &n, &asked), crate::protocol::RESULT_SCHEMA)).await?;
         let r = reported(&n, &f);
-        if !replayed {
-            ctx.keep_assumptions(&label_of(&n), f.output.as_ref());
-            log_step_end(&ctx, &n, &key, depth, &r, f.cost_usd);
-        }
-        // The root has nobody above it: its blocking questions go to the user.
-        if depth == 0 && r.status == "needs_input" && round < MAX_ROUNDS {
-            let pending = Pending { id: format!("{key}:ask"), node: n.id.clone(), label: label_of(&n), kind: "questions".into(), prompt: clip(&r.summary, 2000), questions: r.questions.clone() };
+        // The root, or an agent linked to the user's node, puts its blocking questions to the user.
+        if (depth == 0 || ctx.wf.ask_node(&n.id).is_some()) && r.status == "needs_input" && round < MAX_ROUNDS {
+            let human = ctx.wf.ask_node(&n.id).map(|h| h.id.clone());
+            let pending = Pending { id: format!("{key}:ask"), node: n.id.clone(), label: label_of(&n), kind: "questions".into(), prompt: clip(&r.summary, 2000), questions: r.questions.clone(), human };
             asked = match ctx.ask_user(pending, false).await? {
                 Some(reply) => format!("{asked}\n\nYou stopped to ask:\n{}\n\nThe user answered:\n{}\n\nContinue with this answer.", r.questions.join("\n"), clip(reply.text.trim(), 20_000)),
                 None => format!("{asked}\n\nThe user cannot be asked in this session: decide yourself and list your assumptions."),
@@ -576,6 +598,8 @@ async fn worker<H: Host>(ctx: Arc<Ctx<H>>, n: Node, path: String, asked: String,
 
 async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: String, asked: String, depth: usize) -> Res<Reported> {
     let is_root = depth == 0;
+    let may_ask = is_root || ctx.wf.ask_node(&n.id).is_some();
+    let mut finished: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut notes = String::new();
     let mut log: Vec<String> = vec![];
     let mut inbox: Vec<Reported> = vec![];
@@ -586,33 +610,21 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
         if round > MAX_ROUNDS {
             return Ok(failure(&n, format!("{} took more than {MAX_ROUNDS} turns", label_of(&n))));
         }
-        let can_ask_user = is_root && ctx.host.autonomy() != "never";
+        let can_ask_user = may_ask && ctx.host.autonomy() != "never";
         let mut attempt = 0;
         let (decision, replayed) = loop {
             attempt += 1;
             let key = format!("{path}:{round}:{attempt}");
-            if !ctx.replayed(&key) {
-                log_step(&ctx, &n, &key, depth, json!({"round": round}));
-            }
             let prompt = coordinator_prompt(
                 &n,
-                &TurnContext { task: &ctx.task, asked: (!is_root).then_some(asked.as_str()), notes: &notes, log: &log, inbox: &inbox, options: &opts, is_root, can_ask_user, feedback: feedback.as_deref() },
+                &TurnContext { task: &ctx.task, asked: (!is_root).then_some(asked.as_str()), notes: &notes, log: &log, inbox: &inbox, options: &opts, is_root, may_ask, can_ask_user, feedback: feedback.as_deref() },
             );
             let (f, replayed) = ctx.run(request(&n, &key, depth, prompt, COORDINATOR_SCHEMA)).await?;
             if f.status == Status::Failed {
-                let r = reported(&n, &f);
-                if !replayed {
-                    log_step_end(&ctx, &n, &key, depth, &r, f.cost_usd);
-                }
-                return Ok(r);
+                return Ok(reported(&n, &f));
             }
-            match parse_decision(f.output.as_ref(), &opts) {
-                Ok(d) => {
-                    if !replayed {
-                        ctx.keep_assumptions(&label_of(&n), f.output.as_ref());
-                    }
-                    break (d, replayed);
-                }
+            match parse_decision(f.output.as_ref(), &opts, &finished) {
+                Ok(d) => break (d, replayed),
                 Err(e) if attempt < DECISION_ATTEMPTS => {
                     if !replayed {
                         ctx.host.log("decision_rejected", json!({"node": n.id, "label": label_of(&n), "call": key, "reason": e}));
@@ -632,7 +644,7 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
                 Action::Finish { result, success } => ("finish", json!({"result": result, "success": success})),
                 Action::Ask(q) => ("ask", json!({"questions": q})),
             };
-            ctx.host.log("decision", json!({"node": n.id, "label": label_of(&n), "depth": depth, "round": round, "action": action, "detail": detail, "notes": notes}));
+            ctx.host.log("decision", json!({"call": path, "node": n.id, "label": label_of(&n), "depth": depth, "round": round, "action": action, "detail": detail, "notes": notes}));
         }
 
         match decision.action {
@@ -640,10 +652,10 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
                 return Ok(Reported { label: label_of(&n), status: if success { "done" } else { "failed" }.into(), summary: result, questions: vec![] });
             }
             Action::Ask(questions) => {
-                if !is_root {
+                if !may_ask {
                     return Ok(Reported { label: label_of(&n), status: "needs_input".into(), summary: format!("{} cannot go on without answers.", label_of(&n)), questions });
                 }
-                let pending = Pending { id: format!("{path}:{round}:ask"), node: n.id.clone(), label: label_of(&n), kind: "questions".into(), prompt: String::new(), questions: questions.clone() };
+                let pending = Pending { id: format!("{path}:{round}:ask"), node: n.id.clone(), label: label_of(&n), kind: "questions".into(), prompt: String::new(), questions: questions.clone(), human: ctx.wf.ask_node(&n.id).map(|h| h.id.clone()) };
                 match ctx.ask_user(pending, false).await? {
                     Some(reply) => {
                         inbox = vec![Reported {
@@ -663,7 +675,7 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
                     let child_path = format!("{path}/{round}.{i}");
                     let from = n.clone();
                     set.spawn(async move {
-                        if opt.approval {
+                        if opt.gate.is_some() {
                             let pending = Pending {
                                 id: format!("{child_path}:gate"),
                                 node: opt.id.clone(),
@@ -671,6 +683,7 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
                                 kind: "approve".into(),
                                 prompt: format!("{} wants to hand work to {}:\n\n{}", label_of(&from), opt.label, clip(&instructions, 3000)),
                                 questions: vec![],
+                                human: opt.gate.clone(),
                             };
                             let approved = ctx.ask_user(pending, true).await?.is_some_and(|r| r.approved == Some(true));
                             if !approved {
@@ -678,7 +691,7 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
                                 return Ok((i, Reported { label: opt.label, status: "rejected".into(), summary, questions: vec![] }));
                             }
                         }
-                        let r = call(ctx, opt.id.clone(), child_path, instructions, depth + 1).await?;
+                        let r = call(ctx, opt.id.clone(), child_path, instructions, depth + 1, Some(from.id.clone())).await?;
                         Ok::<_, Stop>((i, r))
                     });
                 }
@@ -693,6 +706,9 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
                 inbox = Vec::new();
                 for ((opt, instructions), r) in calls.iter().zip(results) {
                     let r = r.unwrap_or_else(|| failure(&n, "no result"));
+                    if r.status == "done" {
+                        finished.insert(opt.id.clone());
+                    }
                     log.push(format!("- round {round}: {} ← {} → {}: {}", opt.label, clip(instructions, 160), r.status, clip(&r.summary, 200)));
                     inbox.push(r);
                 }
@@ -717,7 +733,7 @@ pub async fn drive<H: Host>(host: Arc<H>, wf: Workflow, task: String, state: Sta
         vms: Semaphore::new(MAX_VMS),
         asked_user: AtomicU32::new(0),
     });
-    let res = call(ctx.clone(), root, "r".into(), String::new(), 0).await;
+    let res = call(ctx.clone(), root, "r".into(), String::new(), 0, None).await;
     let ended = match res {
         Ok(r) => {
             ctx.state.lock().unwrap().result = Some(r.summary.clone());
@@ -959,7 +975,6 @@ pub struct SessionView {
     pub pending: Option<Pending>,
     pub live: bool,
     pub cost_usd: f64,
-    pub assumptions: Vec<String>,
     pub result: Option<String>,
 }
 
@@ -969,7 +984,7 @@ pub fn session_get(app: AppHandle, project: String, id: String) -> Result<Sessio
     let session = crate::projects::read_session(&root, &project, &id)?;
     let state = read_state(&root, &project, &id).unwrap_or_default();
     let live = app.state::<Sessions>().0.lock().unwrap().contains_key(&key(&project, &id));
-    Ok(SessionView { session, pending: state.pending.filter(|_| live), live, cost_usd: state.cost_usd, assumptions: state.assumptions, result: state.result })
+    Ok(SessionView { session, pending: state.pending.filter(|_| live), live, cost_usd: state.cost_usd, result: state.result })
 }
 
 /// The session's log (the last entries when it is long).
@@ -985,7 +1000,7 @@ pub fn session_log(app: AppHandle, project: String, id: String) -> Result<Vec<Va
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projects::{Edge, standard_workflow};
+    use crate::projects::{Edge, EdgeKind, NodeKind, standard_workflow};
 
     /// A host whose agents are a function of the request.
     type Script = Box<dyn FnMut(&AgentReq) -> Final + Send>;
@@ -1065,9 +1080,20 @@ mod tests {
             .iter()
             .flat_map(|(a, b)| [*a, *b])
             .filter(|i| seen.insert(*i))
-            .map(|id| Node { id: id.into(), label: id.into(), x: 0, y: 0, profile: "dev".into(), prompt: String::new(), max_calls: 20, timeout_mins: 30 })
+            .map(|id| Node { id: id.into(), label: id.into(), x: 0, y: 0, kind: NodeKind::Agent, profile: "dev".into(), prompt: String::new(), max_calls: 20, timeout_mins: 30 })
             .collect();
-        Workflow { nodes, edges: edges.iter().map(|(a, b)| Edge { id: format!("{a}-{b}"), from: (*a).into(), to: (*b).into(), approval: false }).collect() }
+        Workflow { nodes, edges: edges.iter().map(|(a, b)| Edge { id: format!("{a}-{b}"), from: (*a).into(), to: (*b).into(), kind: EdgeKind::Delegate }).collect() }
+    }
+
+    /// `wf` with the user's node `id` of `kind`, wired with delegate edges `from -> id` and `id -> to`.
+    fn with_human(mut wf: Workflow, id: &str, kind: NodeKind, from: &str, to: Option<&str>) -> Workflow {
+        wf.nodes.push(Node { id: id.into(), label: id.into(), x: 0, y: 0, kind, profile: String::new(), prompt: String::new(), max_calls: 20, timeout_mins: 30 });
+        let edge = |a: &str, b: &str| Edge { id: format!("{a}-{b}"), from: a.into(), to: b.into(), kind: EdgeKind::Delegate };
+        wf.edges.push(edge(from, id));
+        if let Some(to) = to {
+            wf.edges.push(edge(id, to));
+        }
+        wf
     }
 
     #[tokio::test]
@@ -1220,9 +1246,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_edge_with_approval_waits_for_the_user() {
-        let mut wf = chart(&[("root", "dev")]);
-        wf.edges[0].approval = true;
+    async fn an_approval_gate_waits_for_the_user() {
+        // root -> gate -> dev: the direct edge is replaced by the gate
+        let wf = with_human(Workflow { nodes: chart(&[("root", "dev")]).nodes, edges: vec![] }, "gate", NodeKind::Approve, "root", Some("dev"));
         let mut n = 0;
         let host = Fake::new(move |req| match req.node.as_str() {
             "root" => {
@@ -1235,7 +1261,7 @@ mod tests {
         let (ended, _) = run(&host, &wf, vec![Reply { approved: Some(false), text: "not yet".into() }]).await;
         assert_eq!(ended, Ended::Done);
         assert_eq!(host.nodes(), ["root", "root"], "the dev never ran");
-        assert!(host.prompt(1).contains("did not approve"));
+        assert!(host.prompt(0).contains("approves each handover") && host.prompt(1).contains("did not approve"));
 
         let mut n = 0;
         let host = Fake::new(move |req| match req.node.as_str() {
@@ -1248,6 +1274,85 @@ mod tests {
         let (_, state) = run(&host, &wf, vec![Reply { approved: Some(true), text: String::new() }]).await;
         assert_eq!(host.nodes(), ["root", "dev", "root"]);
         assert_eq!(state.replies.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn only_agents_linked_to_the_user_ask_directly() {
+        // lead -> ba -> you: the analyst asks the user itself; the architect's question goes to the lead
+        let wf = with_human(chart(&[("lead", "ba"), ("lead", "arch"), ("root", "lead")]), "you", NodeKind::Ask, "ba", None);
+        let (mut lead, mut ba, mut arch) = (0, 0, 0);
+        let host = Fake::new(move |req| match req.node.as_str() {
+            "root" => {
+                if req.prompt.contains("Results since") { finish("done") } else { delegate(&[("lead", "go")], "") }
+            }
+            "lead" => {
+                lead += 1;
+                match lead {
+                    1 => delegate(&[("ba", "requirements"), ("arch", "design")], ""),
+                    _ => finish("delivered"),
+                }
+            }
+            "ba" => {
+                ba += 1;
+                if ba == 1 { Final { questions: vec!["Who signs off?".into()], ..fin(Status::NeedsInput, "blocked", None) } } else { done("written") }
+            }
+            _ => {
+                arch += 1;
+                if arch == 1 { Final { questions: vec!["Which cloud?".into()], ..fin(Status::NeedsInput, "blocked", None) } } else { done("designed") }
+            }
+        });
+        let (ended, state) = run(&host, &wf, vec![Reply { approved: None, text: "the CTO".into() }]).await;
+        assert_eq!(ended, Ended::Done);
+        assert_eq!(state.replies.len(), 1, "only the analyst's question reached the user");
+        let ba_again = host.seen.lock().unwrap().iter().filter(|s| s.0 == "ba").map(|s| s.2.clone()).collect::<Vec<_>>();
+        assert!(ba_again[1].contains("Who signs off?") && ba_again[1].contains("the CTO"));
+        let lead_second = host.seen.lock().unwrap().iter().filter(|s| s.0 == "lead").nth(1).unwrap().2.clone();
+        assert!(lead_second.contains("Which cloud?"), "the architect's question went up to the lead");
+        assert!(!lead_second.contains("Who signs off?"));
+    }
+
+    #[tokio::test]
+    async fn order_arrows_make_a_coordinator_follow_the_order() {
+        let mut wf = chart(&[("lead", "arch"), ("lead", "dev")]);
+        wf.edges.push(Edge { id: "arch-dev-before".into(), from: "arch".into(), to: "dev".into(), kind: EdgeKind::Before });
+        let mut n = 0;
+        let host = Fake::new(move |req| match req.node.as_str() {
+            "lead" => {
+                n += 1;
+                match n {
+                    1 => delegate(&[("dev", "just build it")], "skipping the design"), // refused
+                    2 => delegate(&[("arch", "design"), ("dev", "build")], ""),           // same answer: refused too
+                    3 => delegate(&[("arch", "design")], ""),
+                    4 => delegate(&[("dev", "build")], ""),
+                    _ => finish("shipped"),
+                }
+            }
+            other => done(&format!("{other} done")),
+        });
+        // the lead is the root: two refusals in a row end the call, so give it a chance on each turn
+        let (ended, _) = run(&host, &wf, vec![]).await;
+        assert!(matches!(&ended, Ended::Failed(r) if r.contains("no valid decision") && r.contains("arch")), "{ended:?}");
+        assert!(host.prompt(1).contains("cannot be called yet") && host.prompt(1).contains("arch"));
+        assert!(host.prompt(0).contains("only after arch finished"));
+        assert_eq!(host.nodes(), ["lead", "lead"]);
+
+        // following the order works, and a later turn may call dev again (the loop after a review)
+        let mut n = 0;
+        let host = Fake::new(move |req| match req.node.as_str() {
+            "lead" => {
+                n += 1;
+                match n {
+                    1 => delegate(&[("arch", "design")], ""),
+                    2 => delegate(&[("dev", "build")], ""),
+                    3 => delegate(&[("dev", "fix the review comments")], ""),
+                    _ => finish("shipped"),
+                }
+            }
+            other => done(&format!("{other} done")),
+        });
+        let (ended, _) = run(&host, &wf, vec![]).await;
+        assert_eq!(ended, Ended::Done);
+        assert_eq!(host.nodes(), ["lead", "arch", "lead", "dev", "lead", "dev", "lead"]);
     }
 
     #[tokio::test]
@@ -1320,9 +1425,11 @@ mod tests {
         let wf = standard_workflow();
         let opts = options(&wf, "lead");
         assert_eq!(opts.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), ["ba", "arch", "dev", "rev", "qa"]);
-        let ok = parse_decision(Some(&json!({"action": "delegate", "calls": [{"to": "Developer", "instructions": "x"}], "notes": "n", "assumptions": ["a"]})), &opts).unwrap();
+        let ok = parse_decision(Some(&json!({"action": "delegate", "calls": [{"to": "Developer", "instructions": "x"}], "notes": "n"})), &opts, &["arch".to_string()].into()).unwrap();
         assert!(matches!(&ok.action, Action::Delegate(c) if c[0].0.id == "dev"));
-        assert_eq!(ok.assumptions, ["a"]);
+        // the developer comes after the architect
+        let early = json!({"action": "delegate", "calls": [{"to": "dev", "instructions": "x"}], "notes": ""});
+        assert!(parse_decision(Some(&early), &opts, &Default::default()).unwrap_err().contains("Architect"));
         for bad in [
             json!({"action": "delegate", "calls": [], "notes": ""}),
             json!({"action": "delegate", "calls": [{"to": "pm", "instructions": "x"}], "notes": ""}),
@@ -1331,11 +1438,11 @@ mod tests {
             json!({"action": "ask", "questions": [], "notes": ""}),
             json!({"action": "dance", "notes": ""}),
         ] {
-            assert!(parse_decision(Some(&bad), &opts).is_err(), "{bad}");
+            assert!(parse_decision(Some(&bad), &opts, &Default::default()).is_err(), "{bad}");
         }
         let six: Vec<Value> = (0..6).map(|_| json!({"to": "dev", "instructions": "x"})).collect();
-        assert!(parse_decision(Some(&json!({"action": "delegate", "calls": six, "notes": ""})), &opts).is_err());
-        assert!(parse_decision(None, &opts).is_err());
+        assert!(parse_decision(Some(&json!({"action": "delegate", "calls": six, "notes": ""})), &opts, &Default::default()).is_err());
+        assert!(parse_decision(None, &opts, &Default::default()).is_err());
         serde_json::from_str::<Value>(COORDINATOR_SCHEMA).unwrap();
     }
 }

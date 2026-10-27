@@ -70,7 +70,19 @@ pub struct SessionEntry {
     pub session: Session,
 }
 
-/// An agent of the workflow.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeKind {
+    /// An agent (a role backed by a profile).
+    #[default]
+    Agent,
+    /// The user: an agent with an arrow to it may ask the user its questions directly.
+    Ask,
+    /// A gate on the way from one agent to another: each handover through it needs the user's approval.
+    Approve,
+}
+
+/// A node of the workflow: an agent, or the user.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Node {
     pub id: String,
@@ -78,6 +90,10 @@ pub struct Node {
     pub label: String,
     pub x: i32,
     pub y: i32,
+    #[serde(default)]
+    pub kind: NodeKind,
+    /// Agents only.
+    #[serde(default)]
     pub profile: String,
     /// What this agent does in this workflow (added to its prompts).
     #[serde(default)]
@@ -98,14 +114,31 @@ fn thirty() -> u32 {
     30
 }
 
-/// `from` may hand work to `to`. With `approval`, the user must approve each such handover.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum EdgeKind {
+    /// `from` may hand work to `to` (an agent, or an approval gate leading to one), or ask the user (`to` is an `Ask` node).
+    #[default]
+    Delegate,
+    /// Order: `to` may be called only after `from` has finished, within the same coordinator's call.
+    Before,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Edge {
     pub id: String,
     pub from: String,
     pub to: String,
     #[serde(default)]
-    pub approval: bool,
+    pub kind: EdgeKind,
+}
+
+/// `from` may hand work to `to`, through the approval gate `gate` if there is one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallEdge {
+    pub from: String,
+    pub to: String,
+    pub gate: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -127,6 +160,10 @@ fn problem(code: &'static str, node: Option<&str>) -> Problem {
 }
 
 impl Workflow {
+    fn node(&self, id: &str) -> Option<&Node> {
+        self.nodes.iter().find(|n| n.id == id)
+    }
+
     /// Errors that make the data unusable (bad references, wrong shape).
     pub fn validate(&self) -> Result<(), String> {
         if self.nodes.len() > MAX_NODES || self.edges.len() > MAX_EDGES {
@@ -135,10 +172,13 @@ impl Workflow {
         let mut ids = std::collections::HashSet::new();
         for n in &self.nodes {
             if n.id.is_empty() || n.id.len() > 64 || n.label.len() > 120 {
-                return Err("an agent has a bad id or label".into());
+                return Err("a node has a bad id or label".into());
             }
             if !ids.insert(n.id.as_str()) {
-                return Err(format!("agent {} appears twice", n.id));
+                return Err(format!("node {} appears twice", n.id));
+            }
+            if n.kind != NodeKind::Agent {
+                continue;
             }
             if n.profile.is_empty() {
                 return Err("an agent needs a profile".into());
@@ -159,22 +199,92 @@ impl Workflow {
             if !edge_ids.insert(e.id.as_str()) {
                 return Err(format!("edge {} appears twice", e.id));
             }
-            if !ids.contains(e.from.as_str()) || !ids.contains(e.to.as_str()) {
-                return Err("an edge points to a missing agent".into());
-            }
+            let (Some(from), Some(to)) = (self.node(&e.from), self.node(&e.to)) else {
+                return Err("an edge points to a missing node".into());
+            };
             if e.from == e.to {
-                return Err("an agent cannot hand work to itself".into());
+                return Err("a node cannot point to itself".into());
             }
-            if !pairs.insert((e.from.as_str(), e.to.as_str())) {
-                return Err("two edges connect the same agents".into());
+            if !pairs.insert((e.from.as_str(), e.to.as_str(), e.kind)) {
+                return Err("two edges connect the same nodes".into());
+            }
+            match e.kind {
+                EdgeKind::Before if from.kind != NodeKind::Agent || to.kind != NodeKind::Agent => {
+                    return Err("an order arrow connects two agents".into());
+                }
+                EdgeKind::Delegate => {
+                    if from.kind == NodeKind::Ask {
+                        return Err("nothing leaves the user's node".into());
+                    }
+                    if from.kind == NodeKind::Approve && to.kind != NodeKind::Agent {
+                        return Err("an approval hands work to an agent".into());
+                    }
+                }
+                EdgeKind::Before => {}
+            }
+        }
+        for g in self.nodes.iter().filter(|n| n.kind == NodeKind::Approve) {
+            if self.edges.iter().filter(|e| e.from == g.id).count() > 1 {
+                return Err("an approval gate leads to one agent".into());
+            }
+        }
+        // an order that loops can never be satisfied
+        let order: Vec<&Edge> = self.edges.iter().filter(|e| e.kind == EdgeKind::Before).collect();
+        for start in &order {
+            let (mut stack, mut seen) = (vec![start.to.as_str()], std::collections::HashSet::new());
+            while let Some(id) = stack.pop() {
+                if id == start.from {
+                    return Err("the order arrows form a loop".into());
+                }
+                if seen.insert(id) {
+                    stack.extend(order.iter().filter(|e| e.from == id).map(|e| e.to.as_str()));
+                }
             }
         }
         Ok(())
     }
 
+    /// Who may hand work to whom: agent to agent, or agent to agent through an approval gate.
+    pub fn call_edges(&self) -> Vec<CallEdge> {
+        let mut out = vec![];
+        for e in self.edges.iter().filter(|e| e.kind == EdgeKind::Delegate) {
+            let (Some(from), Some(to)) = (self.node(&e.from), self.node(&e.to)) else { continue };
+            if from.kind != NodeKind::Agent {
+                continue;
+            }
+            match to.kind {
+                NodeKind::Agent => out.push(CallEdge { from: from.id.clone(), to: to.id.clone(), gate: None }),
+                NodeKind::Approve => {
+                    for e2 in self.edges.iter().filter(|x| x.from == to.id && x.kind == EdgeKind::Delegate) {
+                        if self.node(&e2.to).is_some_and(|t| t.kind == NodeKind::Agent) {
+                            out.push(CallEdge { from: from.id.clone(), to: e2.to.clone(), gate: Some(to.id.clone()) });
+                        }
+                    }
+                }
+                NodeKind::Ask => {}
+            }
+        }
+        out
+    }
+
+    /// The user's node an agent is connected to, if any: it may ask the user directly.
+    pub fn ask_node(&self, agent: &str) -> Option<&Node> {
+        self.edges
+            .iter()
+            .filter(|e| e.from == agent && e.kind == EdgeKind::Delegate)
+            .filter_map(|e| self.node(&e.to))
+            .find(|n| n.kind == NodeKind::Ask)
+    }
+
+    /// The agents that must have finished before `agent` may be called (its order arrows).
+    pub fn must_precede(&self, agent: &str) -> Vec<String> {
+        self.edges.iter().filter(|e| e.kind == EdgeKind::Before && e.to == agent).map(|e| e.from.clone()).collect()
+    }
+
     /// The agent nobody hands work to; it gets the user's request. `None` unless there is exactly one.
     pub fn root(&self) -> Option<&Node> {
-        let mut roots = self.nodes.iter().filter(|n| !self.edges.iter().any(|e| e.to == n.id));
+        let calls = self.call_edges();
+        let mut roots = self.nodes.iter().filter(|n| n.kind == NodeKind::Agent && !calls.iter().any(|c| c.to == n.id));
         let first = roots.next()?;
         roots.next().is_none().then_some(first)
     }
@@ -182,17 +292,26 @@ impl Workflow {
     /// Soft problems: a draft may have them, a run would refuse them.
     pub fn problems(&self, profiles: &[String]) -> Vec<Problem> {
         let mut out = vec![];
-        if self.nodes.is_empty() {
+        if !self.nodes.iter().any(|n| n.kind == NodeKind::Agent) {
             return vec![problem("empty", None)];
         }
-        for n in &self.nodes {
+        for n in self.nodes.iter().filter(|n| n.kind == NodeKind::Agent) {
             if !profiles.contains(&n.profile) {
                 out.push(problem("unknown_profile", Some(&n.id)));
             }
         }
+        for n in self.nodes.iter().filter(|n| n.kind != NodeKind::Agent) {
+            if !self.edges.iter().any(|e| e.to == n.id && e.kind == EdgeKind::Delegate) {
+                out.push(problem("human_unused", Some(&n.id)));
+            }
+            if n.kind == NodeKind::Approve && !self.edges.iter().any(|e| e.from == n.id) {
+                out.push(problem("gate_no_target", Some(&n.id)));
+            }
+        }
+        let calls = self.call_edges();
         match self.root() {
             None => {
-                let roots = self.nodes.iter().filter(|n| !self.edges.iter().any(|e| e.to == n.id)).count();
+                let roots = self.nodes.iter().filter(|n| n.kind == NodeKind::Agent && !calls.iter().any(|c| c.to == n.id)).count();
                 out.push(problem(if roots == 0 { "no_root" } else { "many_roots" }, None));
             }
             Some(root) => {
@@ -200,10 +319,10 @@ impl Workflow {
                 let mut stack = vec![root.id.as_str()];
                 while let Some(id) = stack.pop() {
                     if seen.insert(id) {
-                        stack.extend(self.edges.iter().filter(|e| e.from == id).map(|e| e.to.as_str()));
+                        stack.extend(calls.iter().filter(|c| c.from == id).map(|c| c.to.as_str()));
                     }
                 }
-                for n in self.nodes.iter().filter(|n| !seen.contains(n.id.as_str())) {
+                for n in self.nodes.iter().filter(|n| n.kind == NodeKind::Agent && !seen.contains(n.id.as_str())) {
                     out.push(problem("unreachable", Some(&n.id)));
                 }
             }
@@ -229,6 +348,7 @@ impl Workflow {
                 label: text(n, "label"),
                 x: num(n, "x", 0) as i32,
                 y: num(n, "y", 0) as i32,
+                kind: NodeKind::Agent,
                 profile: text(n, "profile"),
                 prompt: text(n, "prompt"),
                 max_calls: num(n, "max_runs", 20).max(20),
@@ -242,7 +362,7 @@ impl Workflow {
             let known = |id: &str| agents.iter().any(|a| a.id == id);
             let linked = edges.iter().any(|k| (k.from == from && k.to == to) || (k.from == to && k.to == from));
             if known(&from) && known(&to) && to != coordinator && from != to && !linked {
-                edges.push(Edge { id: format!("{from}-{to}"), from, to, approval: false });
+                edges.push(Edge { id: format!("{from}-{to}"), from, to, kind: EdgeKind::Delegate });
             }
         }
         Some(Workflow { nodes: agents, edges })
@@ -251,19 +371,21 @@ impl Workflow {
 
 /// The standard delivery workflow, as an org chart: the orchestrator takes the request to the
 /// project manager, who goes through the work items one by one, handing each to the delivery lead,
-/// who has the business analyst, architect, developer, reviewer and tester do it. The order is in
-/// the prompts, not in the graph: the agents decide.
+/// who has the business analyst, architect, developer, reviewer and tester do it, in that order
+/// (the dashed arrows; the engine holds the lead to it). The business analyst may ask the user
+/// directly. How often and in which loops is up to the agents, as their prompts say.
 pub fn standard_workflow() -> Workflow {
     fn node(id: &str, label: &str, x: i32, y: i32, profile: &str, prompt: &str) -> Node {
-        Node { id: id.into(), label: label.into(), x, y, profile: profile.into(), prompt: prompt.into(), max_calls: 20, timeout_mins: 30 }
+        Node { id: id.into(), label: label.into(), x, y, kind: NodeKind::Agent, profile: profile.into(), prompt: prompt.into(), max_calls: 20, timeout_mins: 30 }
     }
-    fn edge(from: &str, to: &str) -> Edge {
-        Edge { id: format!("{from}-{to}"), from: from.into(), to: to.into(), approval: false }
+    fn edge(from: &str, to: &str, kind: EdgeKind) -> Edge {
+        let tag = if kind == EdgeKind::Before { "-before" } else { "" };
+        Edge { id: format!("{from}-{to}{tag}"), from: from.into(), to: to.into(), kind }
     }
     let mut nodes = vec![
         node("orch", "Orchestrator", 0, 200, "orchestrator", "You receive the user's request. Restate it precisely, with its goal and what done means, and hand it to the project manager. When the project manager reports back, check the report against the request and finish with a short summary for the user: what was delivered and what was not."),
         node("pm", "Project manager", 280, 200, "project-manager", "Turn the request into work items. If it refers to a list of items (tickets, tasks), fetch the list yourself and go through the items one at a time: hand each to the delivery lead and wait for its report before the next. Keep your progress in your notes (items done, blocked, remaining). Finish with a summary per item."),
-        node("lead", "Delivery lead", 560, 200, "delivery-lead", "Deliver one work item from start to finish. Typical order: the business analyst writes the requirements, the architect designs the change, the developer implements it in a branch and opens a pull request, the reviewer reviews it; while the reviewer asks for changes, send the developer back; then the developer merges and the tester verifies the result. Give each agent everything it needs (item id, links, branch, pull request number): it knows only what you tell it. Finish with a short report: delivered, or blocked and why."),
+        node("lead", "Delivery lead", 560, 200, "delivery-lead", "Deliver one work item from start to finish, going through the specialists in order: the business analyst writes the requirements, the architect designs the change, the developer implements it in a branch and opens a pull request, the reviewer reviews it, the tester verifies the result once it is deployed. While the reviewer asks for changes, send the developer back, then the reviewer again; when the pull request is approved, have the developer merge it before the tester starts. Give each agent everything it needs (item id, links, branch, pull request number): it knows only what you tell it. Finish with a short report: delivered, or blocked and why."),
         node("ba", "Business analyst", 880, 0, "business-analyst", "Write testable requirements for the item you are given: user stories with acceptance criteria and the edge cases."),
         node("arch", "Architect", 880, 100, "architect", "Design the change for the item you are given: which parts of the code change and how, risks, and the order of the work. Do not write code."),
         node("dev", "Developer", 880, 200, "developer", "Implement what you are asked in the repository: work in a feature branch, run the tests, open a pull request and wait for its checks. When asked to, address review comments, and merge when the pull request is approved."),
@@ -271,8 +393,11 @@ pub fn standard_workflow() -> Workflow {
         node("qa", "Tester", 880, 400, "qa", "Test the item you are given against its acceptance criteria once it is deployed (watch the build until the deployment finishes), and report what passed and what failed, with steps to reproduce."),
     ];
     nodes.iter_mut().for_each(|n| n.max_calls = if n.id == "orch" || n.id == "pm" { 20 } else { 40 });
-    let mut edges = vec![edge("orch", "pm"), edge("pm", "lead")];
-    edges.extend(["ba", "arch", "dev", "rev", "qa"].map(|w| edge("lead", w)));
+    nodes.push(Node { id: "you".into(), label: "You".into(), x: 1160, y: 0, kind: NodeKind::Ask, profile: String::new(), prompt: String::new(), max_calls: 20, timeout_mins: 30 });
+    let mut edges = vec![edge("orch", "pm", EdgeKind::Delegate), edge("pm", "lead", EdgeKind::Delegate)];
+    edges.extend(["ba", "arch", "dev", "rev", "qa"].map(|w| edge("lead", w, EdgeKind::Delegate)));
+    edges.push(edge("ba", "you", EdgeKind::Delegate));
+    edges.extend([("ba", "arch"), ("arch", "dev"), ("dev", "rev"), ("rev", "qa")].map(|(a, b)| edge(a, b, EdgeKind::Before)));
     Workflow { nodes, edges }
 }
 
@@ -577,11 +702,19 @@ mod tests {
     }
 
     fn n(id: &str) -> Node {
-        Node { id: id.into(), label: String::new(), x: 0, y: 0, profile: "developer".into(), prompt: String::new(), max_calls: 20, timeout_mins: 30 }
+        Node { id: id.into(), label: String::new(), x: 0, y: 0, kind: NodeKind::Agent, profile: "developer".into(), prompt: String::new(), max_calls: 20, timeout_mins: 30 }
+    }
+
+    fn human(id: &str, kind: NodeKind) -> Node {
+        Node { kind, profile: String::new(), ..n(id) }
     }
 
     fn e(from: &str, to: &str) -> Edge {
-        Edge { id: format!("{from}-{to}"), from: from.into(), to: to.into(), approval: false }
+        Edge { id: format!("{from}-{to}"), from: from.into(), to: to.into(), kind: EdgeKind::Delegate }
+    }
+
+    fn before(from: &str, to: &str) -> Edge {
+        Edge { id: format!("{from}-{to}-before"), kind: EdgeKind::Before, ..e(from, to) }
     }
 
     #[test]
@@ -633,6 +766,53 @@ mod tests {
     }
 
     #[test]
+    fn human_nodes_and_order_arrows() {
+        // a -> gate -> b: the handover goes through the approval; a may also ask the user
+        let wf = Workflow {
+            nodes: vec![n("a"), human("gate", NodeKind::Approve), n("b"), human("you", NodeKind::Ask)],
+            edges: vec![e("a", "gate"), e("gate", "b"), e("a", "you")],
+        };
+        wf.validate().unwrap();
+        assert_eq!(wf.call_edges(), vec![CallEdge { from: "a".into(), to: "b".into(), gate: Some("gate".into()) }]);
+        assert_eq!(wf.root().unwrap().id, "a", "b is called through the gate, so it is not a root");
+        assert_eq!(wf.ask_node("a").unwrap().id, "you");
+        assert!(wf.ask_node("b").is_none());
+        assert_eq!(wf.problems(&["developer".into()]), vec![]);
+
+        // shapes that make no sense
+        let mut bad = wf.clone();
+        bad.edges.push(e("you", "b"));
+        assert!(bad.validate().is_err(), "nothing leaves the user's node");
+        let mut bad = wf.clone();
+        bad.edges.push(e("gate", "you"));
+        assert!(bad.validate().is_err(), "a gate hands work to an agent");
+        let mut bad = wf.clone();
+        bad.nodes.push(n("c"));
+        bad.edges.push(e("gate", "c"));
+        assert!(bad.validate().is_err(), "a gate leads to one agent");
+        let mut bad = wf.clone();
+        bad.edges.push(before("a", "you"));
+        assert!(bad.validate().is_err(), "an order arrow connects agents");
+
+        // unused human nodes and gates without a target are soft problems
+        let mut draft = wf.clone();
+        draft.edges.retain(|x| x.id != "gate-b" && x.id != "a-you");
+        draft.nodes.push(n("c"));
+        draft.edges.push(e("a", "c"));
+        let codes: Vec<_> = draft.problems(&["developer".into()]).into_iter().map(|p| p.code).collect();
+        assert!(codes.contains(&"human_unused") && codes.contains(&"gate_no_target"));
+
+        // order arrows: who must come first, and a loop is refused
+        let mut ord = Workflow { nodes: vec![n("l"), n("x"), n("y")], edges: vec![e("l", "x"), e("l", "y"), before("x", "y")] };
+        ord.validate().unwrap();
+        assert_eq!(ord.must_precede("y"), ["x"]);
+        assert!(ord.must_precede("x").is_empty());
+        ord.edges.push(before("y", "x"));
+        assert!(ord.validate().is_err());
+        assert_eq!(standard_workflow().must_precede("dev"), ["arch"]);
+    }
+
+    #[test]
     fn converts_the_old_step_graph() {
         let old = serde_json::json!({
             "nodes": [
@@ -679,7 +859,7 @@ mod tests {
         assert_eq!(workflow(&root, &id).unwrap(), standard_workflow());
         // saving the project again keeps its workflow
         save(&root, Some(&id), &Project { name: "Renamed".into(), description: String::new(), system_prompt: "x".into() }).unwrap();
-        assert_eq!(workflow(&root, &id).unwrap().nodes.len(), 8);
+        assert_eq!(workflow(&root, &id).unwrap().nodes.len(), 9);
 
         let s1 = create_session(&root, &id, "first", "do it").unwrap();
         let s2 = create_session(&root, &id, "second", "").unwrap();

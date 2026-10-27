@@ -188,15 +188,36 @@
     "timeoutHint": "Cât poate dura o rulare a acestui agent înainte să fie oprită. Implicit 30.",
     "remove": "Șterge agentul",
     "root": "rădăcină",
-    "approval": "Necesită aprobarea ta",
-    "approvalHint": "De fiecare dată când primul agent vrea să dea de lucru celui de-al doilea, aprobi sau respingi. Se cere chiar dacă sesiunea nu lasă agenții să te întrebe.",
-    "approvalLabel": "aprobare",
     "problem": {
       "empty": "Workflow-ul nu are niciun agent.",
       "no_root": "Niciun agent nu este rădăcină: fiecare e chemat de altul (ciclu).",
       "many_roots": "Mai mulți agenți nu sunt chemați de nimeni; este nevoie de exact o rădăcină.",
       "unreachable": "„{{node}}” nu poate fi atins din rădăcină.",
-      "unknown_profile": "„{{node}}” folosește un profil de agent care nu există."
+      "unknown_profile": "„{{node}}” folosește un profil de agent care nu există.",
+      "human_unused": "„{{node}}” nu are nicio săgeată spre el.",
+      "gate_no_target": "Poarta de aprobare „{{node}}” nu duce nicăieri: trage o săgeată de la ea la un agent."
+    },
+    "addAsk": "Adaugă utilizator (întreabă)",
+    "addApprove": "Adaugă poartă de aprobare",
+    "removeNode": "Șterge",
+    "orderLabel": "întâi",
+    "kind": {
+      "you": "Tu",
+      "ask": "Utilizatorul răspunde la întrebări",
+      "approve": "Utilizatorul aprobă predările"
+    },
+    "kindHint": {
+      "ask": "Un agent cu o săgeată spre acest nod își poate pune întrebările direct utilizatorului, în loc să le treacă mai sus, la cel care l-a chemat.",
+      "approve": "Pune-l pe drumul dintre doi agenți (A, poartă, B): de fiecare dată când A vrea să dea de lucru lui B, utilizatorul aprobă sau respinge. Se cere chiar dacă sesiunea nu lasă agenții să întrebe."
+    },
+    "edgeKind": "Săgeată",
+    "edgeKinds": {
+      "delegate": "Dă de lucru",
+      "before": "Trebuie să termine întâi (ordine)"
+    },
+    "edgeKindHint": {
+      "delegate": "Primul poate da de lucru celui de-al doilea (sau poate întreba utilizatorul, dacă al doilea e utilizatorul).",
+      "before": "Între doi agenți chemați de același coordonator: al doilea poate fi chemat doar după ce primul a terminat. Coordonatorul e ținut de regulă; îi poate chema din nou mai târziu (bucle)."
     }
   },
   "runs": {
@@ -224,7 +245,6 @@
       "approve": "Este nevoie de aprobarea ta",
       "questions": "{{label}} are întrebări"
     },
-    "waiting": "Te așteaptă: {{label}}",
     "rename": "Redenumește sesiunea",
     "firstMessage": "Spune-le agenților ce vrei să se facă.",
     "placeholder": "Ce vrei să faci? Enter trimite, Shift+Enter adaugă un rând.",
@@ -235,11 +255,34 @@
       "askHint": "Întrebările la care agenții nu pot răspunde între ei ajung la tine.",
       "neverHint": "Agenții decid singuri și își notează presupunerile."
     },
-    "turn": "runda {{n}}",
     "notes": "note",
-    "rejected": "Răspunsul lui {{label}} a fost refuzat: {{reason}}",
     "result": "Rezultat",
-    "assumptions": "Presupuneri făcute",
-    "assumptionsHint": "Ce au presupus agenții în loc să întrebe. Verifică-le."
+    "tabs": {
+      "chat": "Conversație",
+      "timeline": "Cronologie",
+      "agent": "Agent"
+    },
+    "node": {
+      "idle": "inactiv",
+      "running": "lucrează",
+      "busy": "așteaptă agenții chemați",
+      "waiting": "te așteaptă",
+      "done": "gata",
+      "failed": "eșuat"
+    },
+    "callsCount_one": "{{count}} apel",
+    "callsCount_few": "{{count}} apeluri",
+    "callsCount_other": "{{count}} de apeluri",
+    "run": "Rulare",
+    "activity_one": "{{count}} pas",
+    "activity_few": "{{count}} pași",
+    "activity_other": "{{count}} de pași",
+    "assumed": "presupus",
+    "thisIsTheRequest": "Cererea",
+    "refused": "Refuzat: {{reason}}",
+    "pickAgent": "Fă click pe un agent din graf ca să-i vezi apelurile.",
+    "noCalls": "Acest agent nu a fost chemat încă.",
+    "noEvents": "Nu s-a întâmplat nimic încă.",
+    "noWorkflow": "Proiectul nu are încă un workflow."
   }
 }

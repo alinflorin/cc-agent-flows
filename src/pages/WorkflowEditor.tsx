@@ -26,7 +26,6 @@ import {
   MessageBarBody,
   Select,
   Subtitle2,
-  Switch,
   Textarea,
   makeStyles,
   tokens,
@@ -34,14 +33,16 @@ import {
 import { Delete16Regular, Save16Regular } from "@fluentui/react-icons";
 import { useNotify } from "../notifications";
 
+type Kind = "agent" | "ask" | "approve";
 interface Agent {
+  kind: Kind;
   profile: string;
   prompt: string;
   max_calls: number;
   timeout_mins: number;
 }
 type WNode = { id: string; label: string; x: number; y: number } & Agent;
-type WEdge = { id: string; from: string; to: string; approval: boolean };
+type WEdge = { id: string; from: string; to: string; kind: "delegate" | "before" };
 interface Workflow {
   nodes: WNode[];
   edges: WEdge[];
@@ -61,7 +62,7 @@ interface ProfileInfo {
 
 type Data = { label: string; agent: Agent; problem?: boolean; root?: boolean; profileName?: string };
 type ANode = Node<Data, "agent">;
-type AEdge = Edge<{ approval: boolean }>;
+type AEdge = Edge<{ kind: "delegate" | "before" }>;
 
 const useStyles = makeStyles({
   root: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM },
@@ -89,6 +90,7 @@ const useStyles = makeStyles({
     backgroundColor: tokens.colorNeutralBackground1,
     color: tokens.colorNeutralForeground1,
   },
+  human: { borderLeft: `4px solid ${tokens.colorPaletteMarigoldBorderActive}` },
   selected: { border: `2px solid ${tokens.colorBrandStroke1}`, borderLeft: `4px solid ${tokens.colorBrandBackground}` },
   warn: { border: `1px solid ${tokens.colorPaletteYellowBorder2}`, borderLeft: `4px solid ${tokens.colorBrandBackground}` },
 });
@@ -96,18 +98,20 @@ const useStyles = makeStyles({
 function AgentNodeView({ data, selected }: NodeProps<ANode>) {
   const { t } = useTranslation();
   const styles = useStyles();
+  const human = data.agent.kind !== "agent";
   const cls = [styles.node];
+  if (human) cls.push(styles.human);
   if (data.problem) cls.push(styles.warn);
   if (selected) cls.push(styles.selected);
   return (
     <div className={cls.join(" ")}>
       <Handle type="target" position={Position.Left} />
       <Body1 block>
-        <b>{data.label || data.profileName || data.agent.profile}</b>
+        <b>{human ? `👤 ${data.label || t("wf.kind.you")}` : data.label || data.profileName || data.agent.profile}</b>
       </Body1>
-      <Caption1 block>{data.profileName || data.agent.profile}</Caption1>
+      <Caption1 block>{human ? t(`wf.kind.${data.agent.kind}`) : data.profileName || data.agent.profile}</Caption1>
       {data.root && <Caption1 block>★ {t("wf.root")}</Caption1>}
-      <Handle type="source" position={Position.Right} />
+      {data.agent.kind !== "ask" && <Handle type="source" position={Position.Right} />}
     </div>
   );
 }
@@ -130,12 +134,13 @@ function Editor({ project }: { project: string }) {
   const [dirty, setDirty] = useState(false);
 
   const mkEdge = useCallback(
-    (id: string, source: string, target: string, approval: boolean): AEdge => ({
+    (id: string, source: string, target: string, kind: "delegate" | "before"): AEdge => ({
       id,
       source,
       target,
-      data: { approval },
-      label: approval ? t("wf.approvalLabel") : undefined,
+      data: { kind },
+      label: kind === "before" ? t("wf.orderLabel") : undefined,
+      style: kind === "before" ? { strokeDasharray: "6 4" } : undefined,
       markerEnd: { type: MarkerType.ArrowClosed },
     }),
     [t],
@@ -149,7 +154,7 @@ function Editor({ project }: { project: string }) {
           return { id, type: "agent", position: { x, y }, data: { label, agent } };
         }),
       );
-      setEdges(v.workflow.edges.map((e) => mkEdge(e.id, e.from, e.to, e.approval)));
+      setEdges(v.workflow.edges.map((e) => mkEdge(e.id, e.from, e.to, e.kind)));
       setProblems(v.problems);
       setDirty(markDirty);
     },
@@ -170,16 +175,16 @@ function Editor({ project }: { project: string }) {
   const onConnect = useCallback(
     (c: Connection) => {
       if (!c.source || !c.target || c.source === c.target) return;
-      setEdges((es) => (es.some((e) => e.source === c.source && e.target === c.target) ? es : [...es, mkEdge(crypto.randomUUID(), c.source, c.target, false)]));
+      setEdges((es) => (es.some((e) => e.source === c.source && e.target === c.target) ? es : [...es, mkEdge(crypto.randomUUID(), c.source, c.target, "delegate")]));
       setDirty(true);
     },
     [setEdges, mkEdge],
   );
 
-  const add = () => {
+  const add = (kind: Kind = "agent") => {
     const id = crypto.randomUUID().slice(0, 8);
     const at = nodes.reduce((m, n) => Math.max(m, n.position.x), 0);
-    const agent: Agent = { profile: profiles[0]?.id ?? "", prompt: "", max_calls: 20, timeout_mins: 30 };
+    const agent: Agent = { kind, profile: kind === "agent" ? (profiles[0]?.id ?? "") : "", prompt: "", max_calls: 20, timeout_mins: 30 };
     setNodes((ns) => [...ns, { id, type: "agent", position: { x: at + 40, y: 200 }, data: { label: "", agent } }]);
     setDirty(true);
   };
@@ -198,15 +203,15 @@ function Editor({ project }: { project: string }) {
     setDirty(true);
   };
 
-  const setApproval = (id: string, approval: boolean) => {
-    setEdges((es) => es.map((e) => (e.id === id ? { ...e, data: { approval }, label: approval ? t("wf.approvalLabel") : undefined } : e)));
+  const setEdgeKind = (id: string, kind: "delegate" | "before") => {
+    setEdges((es) => es.map((e) => (e.id === id ? mkEdge(e.id, e.source, e.target, kind) : e)));
     setDirty(true);
   };
 
   const save = async () => {
     const workflow: Workflow = {
       nodes: nodes.map((n) => ({ id: n.id, label: n.data.label, x: Math.round(n.position.x), y: Math.round(n.position.y), ...n.data.agent })),
-      edges: edges.map((e) => ({ id: e.id, from: e.source, to: e.target, approval: e.data?.approval ?? false })),
+      edges: edges.map((e) => ({ id: e.id, from: e.source, to: e.target, kind: e.data?.kind ?? "delegate" })),
     };
     try {
       const v = await call<View>("workflow_save", { project, workflow });
@@ -227,7 +232,12 @@ function Editor({ project }: { project: string }) {
   };
 
   const flagged = useMemo(() => new Set(problems.map((p) => p.node)), [problems]);
-  const roots = useMemo(() => nodes.filter((n) => !edges.some((e) => e.target === n.id)).map((n) => n.id), [nodes, edges]);
+  const roots = useMemo(() => {
+    // an agent is called by an agent that points to it, or by a gate that leads to it (its caller points to the gate)
+    const kindOf = new Map(nodes.map((n) => [n.id, n.data.agent.kind]));
+    const called = new Set(edges.filter((e) => (e.data?.kind ?? "delegate") === "delegate" && kindOf.get(e.source) !== "ask" && kindOf.get(e.target) === "agent").map((e) => e.target));
+    return nodes.filter((n) => n.data.agent.kind === "agent" && !called.has(n.id)).map((n) => n.id);
+  }, [nodes, edges]);
   const shown = useMemo(
     () =>
       nodes.map((n) => ({
@@ -250,8 +260,14 @@ function Editor({ project }: { project: string }) {
           {t("common.save")}
         </Button>
         <span className={styles.grow} />
-        <Button size="small" onClick={add}>
+        <Button size="small" onClick={() => add("agent")}>
           {t("wf.addAgent")}
+        </Button>
+        <Button size="small" onClick={() => add("ask")}>
+          {t("wf.addAsk")}
+        </Button>
+        <Button size="small" onClick={() => add("approve")}>
+          {t("wf.addApprove")}
         </Button>
         <Button size="small" appearance="subtle" onClick={useStandard}>
           {t("wf.loadStandard")}
@@ -298,13 +314,28 @@ function Editor({ project }: { project: string }) {
               <Subtitle2>
                 {nameOf(selectedEdge.source)} → {nameOf(selectedEdge.target)}
               </Subtitle2>
-              <Field hint={t("wf.approvalHint")}>
-                <Switch label={t("wf.approval")} checked={selectedEdge.data?.approval ?? false} onChange={(_, d) => setApproval(selectedEdge.id, d.checked)} />
+              <Field label={t("wf.edgeKind")} hint={t(`wf.edgeKindHint.${selectedEdge.data?.kind ?? "delegate"}`)}>
+                <Select value={selectedEdge.data?.kind ?? "delegate"} onChange={(_, d) => setEdgeKind(selectedEdge.id, d.value as "delegate" | "before")}>
+                  <option value="delegate">{t("wf.edgeKinds.delegate")}</option>
+                  <option value="before">{t("wf.edgeKinds.before")}</option>
+                </Select>
               </Field>
             </>
           ) : !selected || !agent ? (
             <Caption1>{t("wf.pick")}</Caption1>
           ) : (
+            agent.kind !== "agent" ? (
+              <>
+                <Subtitle2>{t(`wf.kind.${agent.kind}`)}</Subtitle2>
+                <Caption1>{t(`wf.kindHint.${agent.kind}`)}</Caption1>
+                <Field label={t("wf.label")}>
+                  <Input value={selected.data.label} maxLength={120} placeholder={t("wf.kind.you")} onChange={(_, d) => patchData(selected.id, (x) => ({ ...x, label: d.value }))} />
+                </Field>
+                <Button icon={<Delete16Regular />} onClick={() => remove(selected.id)}>
+                  {t("wf.removeNode")}
+                </Button>
+              </>
+            ) : (
             <>
               <Subtitle2>{t("wf.agent")}</Subtitle2>
               <Caption1>{outgoing > 0 ? t("wf.coordinates", { count: outgoing }) : t("wf.worker")}</Caption1>
@@ -346,6 +377,7 @@ function Editor({ project }: { project: string }) {
                 {t("wf.remove")}
               </Button>
             </>
+            )
           )}
         </div>
       </div>
