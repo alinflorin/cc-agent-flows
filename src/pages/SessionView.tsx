@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useTranslation } from "react-i18next";
-import { Background, Controls, Handle, MarkerType, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type NodeProps } from "@xyflow/react";
+import { Background, Controls, Handle, MarkerType, Position, ReactFlow, ReactFlowProvider, useNodesState, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Badge, Body1, Button, Caption1, Field, Input, MessageBar, MessageBarBody, Select, Spinner, Subtitle2, Tab, TabList, Textarea, Title2, makeStyles, mergeClasses, tokens } from "@fluentui/react-components";
 import { Edit16Regular } from "@fluentui/react-icons";
@@ -140,22 +140,30 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
     return out;
   }, [d]);
 
-  const nodes: LiveNode[] = wf.nodes.map((n) => ({
-    id: n.id,
-    type: "live",
-    position: { x: n.x, y: n.y },
-    draggable: false,
-    connectable: false,
-    data: {
-      label: n.label || (n.kind === "agent" ? n.profile : t("wf.kind.you")),
-      sub: n.kind === "agent" ? n.profile : t(`wf.kind.${n.kind}`),
-      human: n.kind !== "agent",
-      state: states.get(n.id) ?? "idle",
-      calls: stats.get(n.id)?.calls ?? 0,
-      cost: stats.get(n.id)?.cost ?? 0,
-      picked: picked === n.id,
-    },
-  }));
+  // The nodes live in React Flow's state: it keeps their measured size there. Handing it brand new
+  // node objects on every render (the log streams in) makes it forget the sizes and hide the nodes.
+  const [nodes, setNodes, onNodesChange] = useNodesState<LiveNode>([]);
+  useEffect(() => {
+    setNodes((prev) =>
+      wf.nodes.map((n): LiveNode => ({
+        ...prev.find((p) => p.id === n.id),
+        id: n.id,
+        type: "live",
+        position: { x: n.x, y: n.y },
+        draggable: false,
+        connectable: false,
+        data: {
+          label: n.label || (n.kind === "agent" ? n.profile : t("wf.kind.you")),
+          sub: n.kind === "agent" ? n.profile : t(`wf.kind.${n.kind}`),
+          human: n.kind !== "agent",
+          state: states.get(n.id) ?? "idle",
+          calls: stats.get(n.id)?.calls ?? 0,
+          cost: stats.get(n.id)?.cost ?? 0,
+          picked: picked === n.id,
+        },
+      })),
+    );
+  }, [wf, states, stats, picked, t, setNodes]);
   const edges: Edge[] = wf.edges.map((e) => ({
     id: e.id,
     source: e.from,
@@ -169,9 +177,15 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
     <ReactFlow
       nodes={nodes}
       edges={edges}
+      onNodesChange={onNodesChange}
       nodeTypes={nodeTypes}
       nodesDraggable={false}
       nodesConnectable={false}
+      // the wheel moves the graph (the page is scrolled elsewhere); zoom is ctrl/cmd + wheel or the controls
+      panOnScroll
+      zoomOnScroll={false}
+      zoomOnDoubleClick={false}
+      minZoom={0.2}
       onNodeClick={(_, n) => onPick(n.id)}
       colorMode="system"
       fitView

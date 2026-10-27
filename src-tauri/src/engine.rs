@@ -860,8 +860,8 @@ fn prepare(app: &AppHandle, project: &str) -> Result<(Workflow, crate::projects:
         let codes: Vec<String> = problems.iter().map(|p| format!("{} ({})", p.code, p.node.as_deref().unwrap_or("-"))).collect();
         return Err(format!("the workflow has problems: {}", codes.join(", ")));
     }
-    for n in &wf.nodes {
-        let image = &profiles[&n.profile].image;
+    for n in wf.nodes.iter().filter(|n| n.kind == crate::projects::NodeKind::Agent) {
+        let image = &profiles.get(&n.profile).ok_or_else(|| format!("the profile {} does not exist", n.profile))?.image;
         if crate::images::path(app, image).is_none() {
             return Err(format!("the image {image} (profile {}) is not built yet", n.profile));
         }

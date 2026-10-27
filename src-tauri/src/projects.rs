@@ -372,8 +372,9 @@ impl Workflow {
 /// The standard delivery workflow, as an org chart: the orchestrator takes the request to the
 /// project manager, who goes through the work items one by one, handing each to the delivery lead,
 /// who has the business analyst, architect, developer, reviewer and tester do it, in that order
-/// (the dashed arrows; the engine holds the lead to it). The business analyst may ask the user
-/// directly. How often and in which loops is up to the agents, as their prompts say.
+/// (the dashed arrows; the engine holds the lead to it). Only the root reaches the user: the others'
+/// questions go up the chain (add a user node to give an agent a direct line). How often and in
+/// which loops is up to the agents, as their prompts say.
 pub fn standard_workflow() -> Workflow {
     fn node(id: &str, label: &str, x: i32, y: i32, profile: &str, prompt: &str) -> Node {
         Node { id: id.into(), label: label.into(), x, y, kind: NodeKind::Agent, profile: profile.into(), prompt: prompt.into(), max_calls: 20, timeout_mins: 30 }
@@ -393,10 +394,8 @@ pub fn standard_workflow() -> Workflow {
         node("qa", "Tester", 880, 400, "qa", "Test the item you are given against its acceptance criteria once it is deployed (watch the build until the deployment finishes), and report what passed and what failed, with steps to reproduce."),
     ];
     nodes.iter_mut().for_each(|n| n.max_calls = if n.id == "orch" || n.id == "pm" { 20 } else { 40 });
-    nodes.push(Node { id: "you".into(), label: "You".into(), x: 1160, y: 0, kind: NodeKind::Ask, profile: String::new(), prompt: String::new(), max_calls: 20, timeout_mins: 30 });
     let mut edges = vec![edge("orch", "pm", EdgeKind::Delegate), edge("pm", "lead", EdgeKind::Delegate)];
     edges.extend(["ba", "arch", "dev", "rev", "qa"].map(|w| edge("lead", w, EdgeKind::Delegate)));
-    edges.push(edge("ba", "you", EdgeKind::Delegate));
     edges.extend([("ba", "arch"), ("arch", "dev"), ("dev", "rev"), ("rev", "qa")].map(|(a, b)| edge(a, b, EdgeKind::Before)));
     Workflow { nodes, edges }
 }
@@ -859,7 +858,7 @@ mod tests {
         assert_eq!(workflow(&root, &id).unwrap(), standard_workflow());
         // saving the project again keeps its workflow
         save(&root, Some(&id), &Project { name: "Renamed".into(), description: String::new(), system_prompt: "x".into() }).unwrap();
-        assert_eq!(workflow(&root, &id).unwrap().nodes.len(), 9);
+        assert_eq!(workflow(&root, &id).unwrap().nodes.len(), 8);
 
         let s1 = create_session(&root, &id, "first", "do it").unwrap();
         let s2 = create_session(&root, &id, "second", "").unwrap();
