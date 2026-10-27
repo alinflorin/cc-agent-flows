@@ -12,13 +12,13 @@
   },
   "nav": {
     "menu": "Menu",
-    "more": "More options",
     "home": "Home",
     "about": "About",
     "settings": "Settings",
     "profiles": "Agent profiles",
-    "projects": "Projects",
-    "runs": "Runs"
+    "runs": "Runs",
+    "workflow": "Workflow",
+    "sessions": "Sessions"
   },
   "theme": {
     "label": "Theme",
@@ -129,33 +129,20 @@
   },
   "welcome": {
     "title": "Welcome",
-    "text": "Set up a starting point? This creates two images, Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with playwright-cli), built on the base image in the background, eight agent profiles (orchestrator, project manager, delivery lead, business analyst, architect, developer, reviewer, tester), and a Demo project with the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one; for each, the delivery lead has the analyst, architect, developer, reviewer and tester do their part. You can edit or delete all of it later.",
+    "text": "Set up demo content? This creates two images, Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with playwright-cli), built on the base image in the background, eight agent profiles (orchestrator, project manager, delivery lead, business analyst, architect, developer, reviewer, tester), and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one; for each, the delivery lead has the analyst, architect, developer, reviewer and tester do their part. You can edit or delete all of it later.",
     "yes": "Yes, set it up",
-    "no": "No, thanks",
-    "done": "Starter images and profiles created. The images are building."
-  },
-  "projects": {
-    "title": "Projects",
-    "new": "New project",
-    "empty": "No projects yet. Create one to design its workflow and start sessions.",
-    "desktopOnly": "Available in the desktop app only.",
-    "noDescription": "No description",
-    "delete": "Delete project",
-    "deleteConfirm": "Delete \"{{name}}\" with its workflow and sessions? This cannot be undone.",
-    "name": "Name",
-    "description": "Description",
-    "missing": "Project not found.",
-    "tabs": {
-      "sessions": "Sessions",
-      "workflow": "Workflow"
-    },
-    "edit": "Edit project",
-    "systemPrompt": "System prompt",
-    "systemPromptHint": "Added to the system prompt of every agent in this project, before the agent profile's own."
+    "no": "Skip",
+    "done": "Demo content created. The images are building.",
+    "step": "Step {{n}} of 2",
+    "step1Title": "Language and theme",
+    "step1Text": "Pick how the app looks and speaks. You can change both later in Settings.",
+    "step2Title": "Demo content",
+    "next": "Next",
+    "back": "Back"
   },
   "sessions": {
     "new": "New session",
-    "empty": "No sessions yet. A session is one run of the project's workflow for a task you describe.",
+    "empty": "No sessions yet. A session runs the workflow for a request you write in chat.",
     "notRunnable": "Running sessions is not available yet.",
     "delete": "Delete session",
     "status": {
@@ -167,7 +154,6 @@
       "cancelled": "Cancelled",
       "interrupted": "Interrupted"
     },
-    "hint": "Open a session to run its workflow.",
     "untitled": "Untitled"
   },
   "wf": {
@@ -218,7 +204,10 @@
     "edgeKindHint": {
       "delegate": "The first may hand work to the second (or ask the user, if the second is the user).",
       "before": "Between two agents called by the same coordinator: the second can be called only after the first has finished. The coordinator is held to it; it may still call them again later (loops)."
-    }
+    },
+    "intro": "The agents and who may hand work to whom. A session runs this workflow for a request you write in chat.",
+    "instructions": "Instructions for every agent",
+    "instructionsHint": "Added to the system prompt of every agent, before its profile's own."
   },
   "runs": {
     "title": "Run an agent",
@@ -282,5 +271,8 @@
     "noCalls": "This agent has not been called yet.",
     "noEvents": "Nothing has happened yet.",
     "noWorkflow": "This project has no workflow yet."
+  },
+  "app": {
+    "desktopOnly": "Only available in the desktop app."
   }
 }

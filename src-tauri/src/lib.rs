@@ -5,7 +5,7 @@ mod images;
 #[cfg(test)]
 mod agentd_e2e;
 mod profiles;
-mod projects;
+mod workflow;
 mod protocol;
 mod qemu;
 mod runs;
@@ -79,17 +79,14 @@ pub fn run() {
             profiles::profiles_list,
             profiles::profiles_save,
             profiles::profiles_delete,
-            projects::projects_list,
-            projects::projects_save,
-            projects::projects_delete,
-            projects::workflow_get,
-            projects::workflow_save,
-            projects::workflow_standard,
-            projects::sessions_list,
-            projects::sessions_create,
-            projects::sessions_rename,
-            projects::sessions_autonomy,
-            projects::sessions_delete,
+            workflow::workflow_get,
+            workflow::workflow_save,
+            workflow::workflow_standard,
+            workflow::sessions_list,
+            workflow::sessions_create,
+            workflow::sessions_rename,
+            workflow::sessions_autonomy,
+            workflow::sessions_delete,
             engine::session_start,
             engine::session_continue,
             engine::session_cancel,

@@ -250,7 +250,7 @@ function CallCard({ c, d, names }: { c: CallInfo; d: Digest; names: Record<strin
 }
 
 export function SessionView() {
-  const { id = "", sid = "" } = useParams();
+  const { sid = "" } = useParams();
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
@@ -266,11 +266,11 @@ export function SessionView() {
 
   const refresh = useCallback(async () => {
     try {
-      setView(await call<View>("session_get", { project: id, id: sid }));
+      setView(await call<View>("session_get", { id: sid }));
     } catch (e) {
       notify(String(e), "error");
     }
-  }, [id, sid, notify]);
+  }, [sid, notify]);
 
   useEffect(() => {
     if (!inTauri()) return;
@@ -278,15 +278,15 @@ export function SessionView() {
     let gone = false;
     void (async () => {
       try {
-        setWf((await call<{ workflow: { nodes: WNode[]; edges: WEdge[] } }>("workflow_get", { project: id })).workflow);
+        setWf((await call<{ workflow: { nodes: WNode[]; edges: WEdge[] } }>("workflow_get")).workflow);
       } catch (e) {
         notify(String(e), "error");
       }
-      setLog(await call<Entry[]>("session_log", { project: id, id: sid }));
+      setLog(await call<Entry[]>("session_log", { id: sid }));
       await refresh();
       const { listen } = await import("@tauri-apps/api/event");
-      const u = await listen<{ project: string; session: string; entry: Entry }>("session-log", (e) => {
-        if (e.payload.project !== id || e.payload.session !== sid) return;
+      const u = await listen<{ session: string; entry: Entry }>("session-log", (e) => {
+        if (e.payload.session !== sid) return;
         setLog((l) => [...l, e.payload.entry]);
         if (["status", "wait", "reply", "call_end"].includes(e.payload.entry.kind)) void refresh();
       });
@@ -297,7 +297,7 @@ export function SessionView() {
       gone = true;
       off?.();
     };
-  }, [id, sid, refresh, notify]);
+  }, [sid, refresh, notify]);
 
   const names = useMemo(() => Object.fromEntries((wf?.nodes ?? []).map((n) => [n.id, n.label || n.profile || t("wf.kind.you")])), [wf, t]);
   const d = useMemo(() => digest(log, names), [log, names]);
@@ -308,7 +308,7 @@ export function SessionView() {
 
   const act = async (cmd: string, args: Record<string, unknown> = {}) => {
     try {
-      await call(cmd, { project: id, id: sid, ...args });
+      await call(cmd, { id: sid, ...args });
       setAnswer("");
       setMessage("");
       await refresh();
@@ -329,7 +329,7 @@ export function SessionView() {
     setTab("agent");
   };
 
-  if (!inTauri()) return <Body1 block>{t("projects.desktopOnly")}</Body1>;
+  if (!inTauri()) return <Body1 block>{t("app.desktopOnly")}</Body1>;
   if (!view) return null;
   const { session, pending, live } = view;
   const canStart = session.status === "new";
@@ -341,7 +341,7 @@ export function SessionView() {
   return (
     <>
       <div className={styles.head}>
-        <Caption1><Link to={`/projects/${id}`}>{t("session.back")}</Link></Caption1>
+        <Caption1><Link to="/sessions">{t("session.back")}</Link></Caption1>
         {title === null ? (
           <div className={styles.title}>
             <Title2 as="h1" className={session.name ? undefined : styles.muted}>{session.name || t("sessions.untitled")}</Title2>

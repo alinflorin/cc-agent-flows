@@ -7,6 +7,7 @@ import { Button, Field, Input, Subtitle1, Switch, Tab, TabList, Title2, makeStyl
 import { getPref, setPref } from "../prefs";
 import { useNotify } from "../notifications";
 import { useUpdates } from "../updates";
+import { AppearanceFields } from "../components/AppearanceFields";
 import { ImagesSettings } from "./SettingsImages";
 import { LlmSettings } from "./SettingsLlm";
 
@@ -59,7 +60,10 @@ function GeneralSettings() {
 
   return (
     <>
-      <form className={styles.form} onSubmit={handleSubmit(onSubmit)} noValidate>
+      <div className={styles.form}>
+        <AppearanceFields />
+      </div>
+      <form className={styles.form} onSubmit={handleSubmit(onSubmit)} noValidate style={{ marginTop: 16 }}>
         <Field
           label={t("settings.displayName")}
           validationState={errors.displayName ? "error" : "none"}
