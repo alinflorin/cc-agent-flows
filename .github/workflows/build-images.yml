@@ -1,11 +1,9 @@
 name: Build agent images
 
 # Builds the base Alpine image (Claude Code and agentd preinstalled) natively on x86_64 and arm64
-# runners and publishes it to a rolling prerelease, image-base-p<protocol>, replacing the previous
-# assets. <protocol> is the agent protocol number in scripts/images/version.json: the app downloads
-# the image for the protocol it speaks, so an older or newer app never gets an agentd it cannot
-# talk to. Bump it on every protocol change that breaks old messages. Profiles (developer and the
-# like) are not built here: the app applies them on top of this image on the user's machine.
+# runners and publishes it to a rolling prerelease, image-base, replacing the previous assets.
+# Profiles (developer and the like) are not built here: the app applies them on top of this image on
+# the user's machine.
 # Push to main (or run manually) to rebuild.
 on:
   push:
@@ -110,9 +108,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          protocol=$(jq -r .protocol scripts/images/version.json)
-          tag="image-base-p$protocol"
+          tag=image-base
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
-            --prerelease --latest=false --title "Base agent image (protocol $protocol)" \
-            --notes "Latest Alpine base image with Claude Code and agentd for agent protocol $protocol, for x86_64 and aarch64; replaced on every build. The app downloads it and builds profiles on top of it. Not an app release."
+            --prerelease --latest=false --title "Base agent image" \
+            --notes "Latest Alpine base image with Claude Code and agentd, for x86_64 and aarch64; replaced on every build. The app downloads it and builds profiles on top of it. Not an app release."
           gh release upload "$tag" dist/agent-base-*.qcow2 --clobber

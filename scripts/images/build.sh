@@ -26,14 +26,13 @@ trap 'sudo rm -rf "$work"' EXIT
 mkdir -p "$out"
 
 # alpine-make-vm-image copies a single script into the chroot, so splice provisioning and cleanup
-# into one. Its directory is /mnt in the chroot: agentd and the protocol it must speak go in there.
+# into one. Its directory is /mnt in the chroot: agentd goes in there.
 script="$work/provision.sh"
 cat "$here/provision.sh" >"$script"
 printf '\n' >>"$script"
 cat "$here/finalize.sh" >>"$script"
 chmod +x "$script"
 cp "$agentd" "$work/agentd"
-jq -r .protocol "$cfg" >"$work/protocol"
 
 # alpine-make-vm-image downloads a static apk-tools from gitlab.alpinelinux.org when the host has no
 # apk, and that host is often unreachable from CI. Take it from the Alpine CDN instead. It must be

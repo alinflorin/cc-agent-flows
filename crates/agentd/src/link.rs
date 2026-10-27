@@ -77,13 +77,13 @@ impl Link {
         self.send(&Outbound::Event(Event { seq, event: json!({ "truncated": true, "bytes": size, "head": head }) })).await
     }
 
-    /// The first heartbeat goes out at once (it carries the protocol), then one every 10 seconds.
+    /// The first heartbeat goes out at once then one every 10 seconds.
     pub fn start_heartbeat(self: &Arc<Self>) {
         let me = self.clone();
         tokio::spawn(async move {
             loop {
                 let seq = me.seq.fetch_add(1, Ordering::Relaxed);
-                let _ = me.send(&Outbound::Heartbeat(Heartbeat { protocol: protocol::PROTOCOL, seq })).await;
+                let _ = me.send(&Outbound::Heartbeat(Heartbeat { seq })).await;
                 tokio::time::sleep(Duration::from_secs(10)).await;
             }
         });
@@ -103,8 +103,7 @@ impl Link {
             let msg = msg.map_err(|e| e.to_string())?;
             msg.ack().await.map_err(|e| e.to_string())?;
             match serde_json::from_slice::<Inbound>(&msg.payload).map_err(|e| format!("bad task: {e}"))? {
-                Inbound::Task(t) if t.protocol == protocol::PROTOCOL => return Ok(t),
-                Inbound::Task(t) => return Err(format!("task speaks protocol {}, this agentd {}", t.protocol, protocol::PROTOCOL)),
+                Inbound::Task(t) => return Ok(t),
                 Inbound::Error { reason } => eprintln!("agentd: the app refused a message: {reason}"),
             }
         }

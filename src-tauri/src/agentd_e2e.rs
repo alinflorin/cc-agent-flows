@@ -1,25 +1,6 @@
 //! Runs the real `agentd` binary against the real broker and identity provider, with a stand-in
 //! for `claude`. Skipped if `nats-server` was not fetched (`pnpm nats:fetch`), and on Windows.
 
-use std::path::Path;
-
-use protocol::PROTOCOL;
-use serde_json::Value;
-
-#[test]
-fn protocol_matches_the_image_version() {
-    let raw = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/images/version.json"),
-    )
-    .unwrap();
-    let v: Value = serde_json::from_str(&raw).unwrap();
-    assert_eq!(
-        v["protocol"].as_u64(),
-        Some(PROTOCOL as u64),
-        "bump scripts/images/version.json together with PROTOCOL"
-    );
-}
-
 /// Needs a Unix shell for the stand-in `claude` and Unix file modes.
 #[cfg(unix)]
 mod e2e {
@@ -27,7 +8,7 @@ mod e2e {
     use std::process::Command;
     use std::time::Duration;
 
-    use protocol::{Bootstrap, Inbound, PROTOCOL, Task};
+    use protocol::{Bootstrap, Inbound, Task};
     use serde_json::json;
 
     use crate::broker::{Broker, Message};
@@ -76,7 +57,6 @@ mod e2e {
             std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         let boot = Bootstrap {
-            protocol: PROTOCOL,
             id: issued.identity.id.clone(),
             name: issued.identity.name.clone(),
             seed: issued.seed.clone(),
@@ -98,7 +78,6 @@ mod e2e {
 
         // Queued before the agent starts, as when the VM is still booting.
         let task = Inbound::Task(Task {
-            protocol: PROTOCOL,
             prompt: "do the thing".into(),
             model: Some("sonnet".into()),
             effort: Some("low".into()),
@@ -151,11 +130,6 @@ mod e2e {
         assert!(agent.wait().unwrap().success());
 
         assert_eq!(seen[0].kind, "heartbeat");
-        assert_eq!(
-            seen[0].body["protocol"],
-            json!(PROTOCOL),
-            "first message reports the protocol"
-        );
         let events: Vec<_> = seen.iter().filter(|m| m.kind == "event").collect();
         assert_eq!(events.len(), 3);
         assert_eq!(events[1].body["seq"], json!(2));

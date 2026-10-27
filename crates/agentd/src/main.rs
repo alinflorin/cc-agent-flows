@@ -39,7 +39,7 @@ fn args() -> Result<Args, String> {
             "--run-as" => a.run_as = Some(value()?),
             "--poweroff" => a.poweroff = true,
             "--version" => {
-                println!("agentd {} protocol {}", env!("CARGO_PKG_VERSION"), protocol::PROTOCOL);
+                println!("agentd {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             _ => return Err(format!("unknown argument {flag}")),
@@ -55,9 +55,6 @@ async fn read_bootstrap(path: &PathBuf) -> Result<Bootstrap, String> {
     let mut line = String::new();
     BufReader::new(file).read_line(&mut line).await.map_err(|e| e.to_string())?;
     let b: Bootstrap = serde_json::from_str(&line).map_err(|e| format!("bad bootstrap: {e}"))?;
-    if b.protocol != protocol::PROTOCOL {
-        return Err(format!("bootstrap speaks protocol {}, this agentd {}", b.protocol, protocol::PROTOCOL));
-    }
     Ok(b)
 }
 
