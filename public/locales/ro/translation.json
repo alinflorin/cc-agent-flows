@@ -116,7 +116,7 @@
   },
   "welcome": {
     "title": "Bun venit",
-    "text": "Configurăm un punct de plecare? Se creează două imagini, Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu playwright-cli), construite în fundal peste imaginea de bază, și câte un profil de agent pentru fiecare. Poți modifica sau șterge totul mai târziu.",
+    "text": "Configurăm un punct de plecare? Se creează două imagini, Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu playwright-cli), construite în fundal peste imaginea de bază, și câte un profil de agent pentru fiecare. Poți modifica sau șterge totul mai târziu. Un workflow simplu de delivery care le folosește va veni mai târziu.",
     "yes": "Da, configurează",
     "no": "Nu, mulțumesc",
     "done": "Imaginile și profilurile de start au fost create. Imaginile se construiesc."
