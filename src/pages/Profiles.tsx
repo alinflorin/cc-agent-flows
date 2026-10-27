@@ -15,7 +15,6 @@ import {
   Field,
   Input,
   Select,
-  Switch,
   Textarea,
   Title2,
   makeStyles,
@@ -27,8 +26,7 @@ import { useNotify } from "../notifications";
 
 interface EnvVar {
   name: string;
-  /** null: supplied by the app when a task starts. */
-  value: string | null;
+  value: string;
 }
 
 interface Profile {
@@ -170,16 +168,7 @@ export function Profiles() {
                             value={v.name}
                             onChange={(_, d) => setEnv(i, { name: d.value })}
                           />
-                          {v.value === null ? (
-                            <Input className={styles.grow} disabled value={t("profiles.atRuntime")} />
-                          ) : (
-                            <Input className={`${styles.grow} ${styles.mono}`} value={v.value} onChange={(_, d) => setEnv(i, { value: d.value })} />
-                          )}
-                          <Switch
-                            label={t("profiles.runtime")}
-                            checked={v.value === null}
-                            onChange={(_, d) => setEnv(i, { value: d.checked ? null : "" })}
-                          />
+                          <Input className={`${styles.grow} ${styles.mono}`} value={v.value} onChange={(_, d) => setEnv(i, { value: d.value })} />
                           <Button
                             appearance="subtle"
                             icon={<Delete16Regular />}

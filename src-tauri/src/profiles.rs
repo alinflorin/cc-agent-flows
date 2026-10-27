@@ -4,8 +4,7 @@
 //! app ships none.
 //!
 //! Everything in a profile travels in the `Task` when a run starts, nothing is baked into an
-//! image. An environment variable with a value is sent as is; one without is supplied by the run
-//! engine at that moment (e.g. a token from the keyring).
+//! image (variables baked into an image are set on the image itself).
 
 use std::path::{Path, PathBuf};
 
@@ -17,9 +16,8 @@ const RESERVED: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN", "PATH", "HOME", "USER", "
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EnvVar {
     pub name: String,
-    /// `None`: supplied by the run engine when the task starts.
     #[serde(default)]
-    pub value: Option<String>,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -75,7 +73,7 @@ impl Profile {
         if self.name.trim().is_empty() || self.name.len() > 80 {
             return Err("the name must be 1 to 80 characters".into());
         }
-        validate_env(self.env.iter().map(|v| (v.name.as_str(), v.value.as_deref())))?;
+        validate_env(self.env.iter().map(|v| (v.name.as_str(), Some(v.value.as_str()))))?;
         if self.system_prompt.len() > 64 * 1024 {
             return Err("the system prompt is too large".into());
         }
@@ -83,12 +81,6 @@ impl Profile {
             return Err("pick an image".into());
         }
         Ok(())
-    }
-
-    #[allow(dead_code)] // used by the run engine
-    /// Names of the variables the app must supply for each run.
-    pub fn runtime_env(&self) -> Vec<&str> {
-        self.env.iter().filter(|v| v.value.is_none()).map(|v| v.name.as_str()).collect()
     }
 }
 
@@ -206,15 +198,14 @@ mod tests {
     #[test]
     fn validates_env() {
         let mut x = p("a");
-        x.env = vec![EnvVar { name: "1BAD".into(), value: None }];
+        x.env = vec![EnvVar { name: "1BAD".into(), value: String::new() }];
         assert!(x.validate().is_err());
-        x.env = vec![EnvVar { name: "PATH".into(), value: Some("/".into()) }];
+        x.env = vec![EnvVar { name: "PATH".into(), value: "/".into() }];
         assert!(x.validate().is_err());
-        x.env = vec![EnvVar { name: "A".into(), value: None }, EnvVar { name: "A".into(), value: None }];
+        x.env = vec![EnvVar { name: "A".into(), value: String::new() }, EnvVar { name: "A".into(), value: String::new() }];
         assert!(x.validate().is_err());
-        x.env = vec![EnvVar { name: "GH_TOKEN".into(), value: None }, EnvVar { name: "LANG".into(), value: Some("C".into()) }];
+        x.env = vec![EnvVar { name: "GH_TOKEN".into(), value: String::new() }, EnvVar { name: "LANG".into(), value: "C".into() }];
         assert!(x.validate().is_ok());
-        assert_eq!(x.runtime_env(), ["GH_TOKEN"]);
     }
 
     #[test]

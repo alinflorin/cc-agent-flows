@@ -96,6 +96,8 @@ impl Spec {
 struct Inner {
     /// The image being built (one at a time).
     building: Option<String>,
+    /// Images waiting for their turn: the ones built on an image that was just rebuilt.
+    queue: Vec<String>,
     logs: HashMap<String, Vec<String>>,
     errors: HashMap<String, String>,
 }
@@ -119,7 +121,7 @@ pub struct Info {
     description: String,
     script: String,
     env: Vec<EnvVar>,
-    /// `missing`, `building`, `ready` or `stale`.
+    /// `missing`, `queued`, `building`, `ready` or `stale`.
     state: &'static str,
     /// Whether it can be built now (its parent must be built).
     can_build: bool,
@@ -241,6 +243,8 @@ fn info(app: &AppHandle, id: &str, spec: Option<&Spec>) -> Info {
     }
     if g.building.as_deref() == Some(id) {
         state = "building";
+    } else if g.queue.iter().any(|q| q == id) {
+        state = "queued";
     }
     let (name, description, script, env) = match spec {
         Some(s) => (s.name.clone(), s.description.clone(), s.script.clone(), s.env.clone()),
@@ -322,8 +326,13 @@ pub fn images_delete(app: AppHandle, id: String) -> Result<(), String> {
     if let Some((child, _)) = read_specs(&app).into_iter().find(|(_, s)| s.parent == id) {
         return Err(format!("the image {child} is built on it"));
     }
-    if app.state::<Images>().0.lock().unwrap().building.as_deref() == Some(id.as_str()) {
-        return Err("it is being built".into());
+    {
+        let images = app.state::<Images>();
+        let mut g = images.0.lock().unwrap();
+        if g.building.as_deref() == Some(id.as_str()) {
+            return Err("it is being built".into());
+        }
+        g.queue.retain(|q| *q != id);
     }
     std::fs::remove_file(spec_dir(&app)?.join(format!("{id}.json"))).map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(disk(&app, &id)?);
@@ -370,12 +379,44 @@ fn start(app: &AppHandle, id: &str) -> Result<(), String> {
     let (app, id) = (app.clone(), id.to_string());
     tauri::async_runtime::spawn(async move {
         let result = build(&app, &id, spec.as_ref()).await;
-        let images = app.state::<Images>();
-        let mut g = images.0.lock().unwrap();
-        g.building = None;
-        if let Err(e) = result {
-            g.logs.entry(id.clone()).or_default().push(format!("build failed: {e}"));
-            g.errors.insert(id, e);
+        {
+            let images = app.state::<Images>();
+            let mut g = images.0.lock().unwrap();
+            g.building = None;
+            match result {
+                Ok(()) => {
+                    // A rebuilt image changes everything built on it: rebuild those next, and
+                    // theirs after each of them (a chain reaction, one build at a time).
+                    for (child, _) in read_specs(&app).into_iter().filter(|(_, s)| s.parent == id) {
+                        if !g.queue.contains(&child) {
+                            g.queue.push(child);
+                        }
+                    }
+                }
+                Err(e) => {
+                    g.logs.entry(id.clone()).or_default().push(format!("build failed: {e}"));
+                    g.errors.insert(id.clone(), e);
+                }
+            }
+        }
+        loop {
+            let next = {
+                let images = app.state::<Images>();
+                let mut g = images.0.lock().unwrap();
+                if g.queue.is_empty() { None } else { Some(g.queue.remove(0)) }
+            };
+            let Some(n) = next else { break };
+            if start(&app, &n).is_ok() {
+                break;
+            }
+            // Busy (someone started a build meanwhile): that build will drain the queue when it
+            // ends. Otherwise the image is gone, so skip it.
+            let images = app.state::<Images>();
+            let mut g = images.0.lock().unwrap();
+            if g.building.is_some() {
+                g.queue.insert(0, n);
+                break;
+            }
         }
     });
     Ok(())

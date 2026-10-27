@@ -34,7 +34,7 @@ interface Image {
   description: string;
   script: string;
   env: EnvVar[];
-  state: "missing" | "building" | "ready" | "stale";
+  state: "missing" | "queued" | "building" | "ready" | "stale";
   can_build: boolean;
   parent: string | null;
   built_at: number | null;
@@ -85,7 +85,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   return invoke<T>(cmd, args);
 }
 
-const COLORS = { missing: "danger", building: "informative", ready: "success", stale: "warning" } as const;
+const COLORS = { missing: "danger", queued: "informative", building: "informative", ready: "success", stale: "warning" } as const;
 
 /** The images agents can run on: the built-in base and the user's own, each with its build state. */
 export function ImagesSettings() {
