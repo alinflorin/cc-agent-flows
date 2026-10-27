@@ -125,7 +125,9 @@
     "cpusAll": "All of the host's",
     "cpusHint": "Virtual CPUs of the VM. Empty gives it all the host's cores. This limits how many cores it can use, not their share of time.",
     "memory": "Memory (MB)",
-    "memoryHint": "RAM of the VM, at least 1024. Default 2048."
+    "memoryHint": "RAM of the VM, at least 1024. Default 2048.",
+    "allowHosts": "Allowed hosts",
+    "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). The Claude API is always allowed; everything else is blocked. Not enforced yet."
   },
   "welcome": {
     "title": "Welcome",

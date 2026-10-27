@@ -45,6 +45,32 @@ pub struct Profile {
     /// The image the agent runs on.
     #[serde(default = "base_image")]
     pub image: String,
+    /// Hosts the agent may reach over HTTPS (port 443), besides the Claude API which is always
+    /// allowed: an exact name (`github.com`) or all the subdomains of one (`*.github.com`).
+    /// Lowercase, no scheme, port or path. Empty means only the Claude API.
+    #[serde(default)]
+    pub allow_hosts: Vec<String>,
+}
+
+/// Most entries in a profile's host allowlist.
+const MAX_ALLOW_HOSTS: usize = 100;
+
+/// Normalizes one allowlist entry (trim, lowercase, no trailing dot) and checks it is a host name
+/// or a `*.` wildcard over one. IP addresses and single-label names are refused.
+pub fn clean_host(entry: &str) -> Result<String, String> {
+    let host = entry.trim().trim_end_matches('.').to_ascii_lowercase();
+    let bad = || format!("{entry:?} is not a host name (use example.com or *.example.com)");
+    let name = host.strip_prefix("*.").unwrap_or(&host);
+    let labels: Vec<&str> = name.split('.').collect();
+    let label_ok = |l: &&str| {
+        !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-') && l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    };
+    // The last label must not be all digits, so `1.2.3.4` is not taken for a name.
+    let tld_ok = labels.last().is_some_and(|l| l.chars().any(|c| c.is_ascii_alphabetic()));
+    if host.len() > 253 || labels.len() < 2 || !labels.iter().all(label_ok) || !tld_ok {
+        return Err(bad());
+    }
+    Ok(host)
 }
 
 pub const DEFAULT_MEMORY_MB: u32 = 2048;
@@ -115,6 +141,18 @@ impl Profile {
         if self.image.is_empty() {
             return Err("pick an image".into());
         }
+        if self.allow_hosts.len() > MAX_ALLOW_HOSTS {
+            return Err(format!("at most {MAX_ALLOW_HOSTS} allowed hosts"));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for h in &self.allow_hosts {
+            if clean_host(h)? != *h {
+                return Err(format!("{h:?} is not in normal form"));
+            }
+            if !seen.insert(h) {
+                return Err(format!("{h} is listed twice"));
+            }
+        }
         Ok(())
     }
 }
@@ -161,6 +199,17 @@ fn user_path(user: &Path, id: &str) -> Result<PathBuf, String> {
 
 /// Saves a profile. `id` is `None` for a new one (derived from the name). Returns the id.
 pub fn save(user: &Path, id: Option<&str>, profile: &Profile) -> Result<String, String> {
+    // Normalize the allowlist (case, blanks, duplicates) before checking it.
+    let mut profile = profile.clone();
+    let mut hosts: Vec<String> = vec![];
+    for h in profile.allow_hosts.iter().filter(|h| !h.trim().is_empty()) {
+        let h = clean_host(h)?;
+        if !hosts.contains(&h) {
+            hosts.push(h);
+        }
+    }
+    profile.allow_hosts = hosts;
+    let profile = &profile;
     profile.validate()?;
     let id = match id {
         Some(id) => id.to_string(),
@@ -270,6 +319,7 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
                 "developer" | "architect" | "reviewer" => "developer".into(),
                 _ => "base".into(),
             },
+            allow_hosts: vec![],
         };
         save(&dir, Some(id), &profile)?;
     }
@@ -305,7 +355,22 @@ mod tests {
     use super::*;
 
     fn p(name: &str) -> Profile {
-        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: DEFAULT_MEMORY_MB, image: "base".into() }
+        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: DEFAULT_MEMORY_MB, image: "base".into(), allow_hosts: vec![] }
+    }
+
+    #[test]
+    fn allowlist_is_normalized_and_validated() {
+        let dir = tmp("allow");
+        let mut x = p("a");
+        x.allow_hosts = vec![" GitHub.com. ".into(), "".into(), "*.NPMjs.org".into(), "github.com".into()];
+        let id = save(&dir, None, &x).unwrap();
+        let saved = list(&dir).into_iter().find(|e| e.id == id).unwrap();
+        assert_eq!(saved.profile.allow_hosts, vec!["github.com", "*.npmjs.org"]);
+        for bad in ["1.2.3.4", "localhost", "https://a.com", "a.com:443", "a.com/x", "*", "a.*.com", "-a.com", "a b.com", "a..com"] {
+            x.allow_hosts = vec![bad.into()];
+            assert!(save(&dir, None, &x).is_err(), "{bad}");
+        }
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn tmp(tag: &str) -> PathBuf {

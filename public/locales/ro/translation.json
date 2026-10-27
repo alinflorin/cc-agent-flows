@@ -125,7 +125,9 @@
     "cpusAll": "Toate ale gazdei",
     "cpusHint": "CPU-uri virtuale ale VM-ului. Gol înseamnă toate nucleele gazdei. Limitează câte nuclee poate folosi, nu cât timp din ele.",
     "memory": "Memorie (MB)",
-    "memoryHint": "RAM-ul VM-ului, minimum 1024. Implicit 2048."
+    "memoryHint": "RAM-ul VM-ului, minimum 1024. Implicit 2048.",
+    "allowHosts": "Gazde permise",
+    "allowHostsHint": "Gazdele de internet la care agentul poate ajunge prin HTTPS, câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). API-ul Claude este mereu permis; restul este blocat. Încă nu este aplicat."
   },
   "welcome": {
     "title": "Bun venit",
