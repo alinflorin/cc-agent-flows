@@ -3,7 +3,9 @@
 //! and flattens the result into a standalone qcow2. The console is the only way in, which is also
 //! how progress is streamed.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::time::Duration;
 
 use base64::Engine;
@@ -147,20 +149,31 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
-/// Where the builder VM's console is exposed.
+/// Where the builder VM's console is exposed: a unix socket in the work directory, or on Windows
+/// a named pipe (reachable only by the current user). QEMU creates it and waits for us.
 pub struct Serial {
     pub qemu_arg: String,
+    #[cfg(unix)]
     path: PathBuf,
+    #[cfg(windows)]
+    name: String,
 }
 
 impl Serial {
-    /// A unix socket in `dir` (only the user can reach it).
+    #[cfg(unix)]
     pub fn new(dir: &Path) -> Self {
         let path = dir.join("console.sock");
         Serial { qemu_arg: format!("unix:{},server=on,wait=off", path.display()), path }
     }
 
-    /// Connects once QEMU has created the socket.
+    #[cfg(windows)]
+    pub fn new(_dir: &Path) -> Self {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+        let name = format!(r"\\.\pipe\ccaf-console-{}-{nanos:08x}", std::process::id());
+        Serial { qemu_arg: format!("pipe:{name}"), name }
+    }
+
+    /// Connects once QEMU has created the socket or pipe.
     #[cfg(unix)]
     pub async fn connect(&self) -> Result<Box<dyn Stream>, String> {
         let end = Instant::now() + Duration::from_secs(20);
@@ -173,9 +186,17 @@ impl Serial {
         }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     pub async fn connect(&self) -> Result<Box<dyn Stream>, String> {
-        Err("the builder VM is not supported on this OS yet".into())
+        use tokio::net::windows::named_pipe::ClientOptions;
+        let end = Instant::now() + Duration::from_secs(20);
+        loop {
+            match ClientOptions::new().open(&self.name) {
+                Ok(p) => return Ok(Box::new(p)),
+                Err(e) if Instant::now() > end => return Err(format!("cannot reach the VM console: {e}")),
+                Err(_) => sleep(Duration::from_millis(100)).await,
+            }
+        }
     }
 }
 
@@ -187,6 +208,7 @@ pub async fn within<T>(secs: u64, what: &str, f: impl Future<Output = Result<T, 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn cleans_terminal_noise() {
