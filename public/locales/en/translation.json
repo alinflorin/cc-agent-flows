@@ -77,11 +77,13 @@
       "build": "Build",
       "rebuild": "Rebuild",
       "script": "Script (sh)",
-      "scriptHint": "Runs once as root when the image is built, on top of the image it is based on (Alpine; apk is available). Editing it makes the image out of date until you rebuild.",
+      "scriptHint": "Runs once as root when the image is built, on top of the image it is based on (Alpine; apk is available). Saving builds the image; editing it later makes it out of date until you rebuild.",
       "needBase": "Build the image it is based on first.",
       "basedOn": "Based on {{name}}",
       "parent": "Based on",
-      "parentHint": "The image the script runs on. Rebuilding it makes this one out of date."
+      "parentHint": "The image the script runs on. Rebuilding it makes this one out of date.",
+      "env": "Environment variables",
+      "envHint": "Built into the image, for every agent that runs on it (and on images built on this one). Saved in plain text in the image, so do not put secrets here."
     }
   },
   "updates": {

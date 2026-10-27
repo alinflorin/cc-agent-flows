@@ -77,11 +77,13 @@
       "build": "Construiește",
       "rebuild": "Reconstruiește",
       "script": "Script (sh)",
-      "scriptHint": "Rulează o dată ca root la construirea imaginii, peste imaginea pe care se bazează (Alpine; apk este disponibil). Modificarea lui face imaginea depășită până o reconstruiești.",
+      "scriptHint": "Rulează o dată ca root la construirea imaginii, peste imaginea pe care se bazează (Alpine; apk este disponibil). Salvarea pornește construirea; o modificare ulterioară face imaginea depășită până o reconstruiești.",
       "needBase": "Construiește mai întâi imaginea pe care se bazează.",
       "basedOn": "Bazată pe {{name}}",
       "parent": "Bazată pe",
-      "parentHint": "Imaginea peste care rulează scriptul. Reconstruirea ei face această imagine depășită."
+      "parentHint": "Imaginea peste care rulează scriptul. Reconstruirea ei face această imagine depășită.",
+      "env": "Variabile de mediu",
+      "envHint": "Incluse în imagine, pentru fiecare agent care rulează pe ea (și pe imaginile construite peste ea). Sunt salvate în clar în imagine, deci nu pune secrete aici."
     }
   },
   "updates": {
