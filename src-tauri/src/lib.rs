@@ -1,6 +1,7 @@
 mod agent;
 #[cfg(test)]
 mod agentd_e2e;
+mod protocol;
 mod qemu;
 mod secrets;
 
