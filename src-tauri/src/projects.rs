@@ -513,8 +513,8 @@ pub fn sessions(root: &Path, project: &str) -> Vec<SessionEntry> {
 }
 
 pub fn create_session(root: &Path, project: &str, name: &str, task: &str) -> Result<String, String> {
-    if name.trim().is_empty() || name.len() > 120 || task.len() > 64 * 1024 {
-        return Err("the session needs a name (up to 120 characters)".into());
+    if name.len() > 120 || task.len() > 64 * 1024 {
+        return Err("the name is up to 120 characters and the task up to 64 KB".into());
     }
     if !project_dir(root, project)?.join("project.json").exists() {
         return Err("no such project".into());
@@ -529,6 +529,27 @@ pub fn create_session(root: &Path, project: &str, name: &str, task: &str) -> Res
     let session = Session { name: name.trim().into(), task: task.into(), created: now.as_secs(), status: new_status() };
     write_json(&session_path(root, project, &id)?, &session)?;
     Ok(id)
+}
+
+/// Sets a session's name (empty = untitled) and/or its task (only before it starts).
+pub fn edit_session(root: &Path, project: &str, sid: &str, name: Option<&str>, task: Option<&str>) -> Result<(), String> {
+    let mut session = read_session(root, project, sid)?;
+    if let Some(name) = name {
+        if name.len() > 120 {
+            return Err("the name is up to 120 characters".into());
+        }
+        session.name = name.trim().into();
+    }
+    if let Some(task) = task {
+        if session.status != "new" {
+            return Err("the task cannot change once the session has started".into());
+        }
+        if task.len() > 64 * 1024 {
+            return Err("the task is too large".into());
+        }
+        session.task = task.into();
+    }
+    write_json(&session_path(root, project, sid)?, &session)
 }
 
 pub fn delete_session(root: &Path, project: &str, sid: &str) -> Result<(), String> {
@@ -610,8 +631,14 @@ pub fn sessions_list(app: tauri::AppHandle, project: String) -> Result<Vec<Sessi
 }
 
 #[tauri::command]
-pub fn sessions_create(app: tauri::AppHandle, project: String, name: String, task: String) -> Result<String, String> {
-    create_session(&root(&app)?, &project, &name, &task)
+pub fn sessions_create(app: tauri::AppHandle, project: String) -> Result<String, String> {
+    create_session(&root(&app)?, &project, "", "")
+}
+
+/// Renames a session; an empty name makes it untitled again.
+#[tauri::command]
+pub fn sessions_rename(app: tauri::AppHandle, project: String, id: String, name: String) -> Result<(), String> {
+    edit_session(&root(&app)?, &project, &id, Some(&name), None)
 }
 
 #[tauri::command]
@@ -751,7 +778,7 @@ mod tests {
         let s2 = create_session(&root, &id, "second", "").unwrap();
         assert_ne!(s1, s2);
         assert_eq!(sessions(&root, &id).len(), 2);
-        assert!(create_session(&root, &id, " ", "").is_err());
+        assert!(create_session(&root, &id, &"x".repeat(121), "").is_err());
         delete_session(&root, &id, &s1).unwrap();
         assert_eq!(sessions(&root, &id).len(), 1);
 

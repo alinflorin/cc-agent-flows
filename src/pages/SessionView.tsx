@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useTranslation } from "react-i18next";
-import { Badge, Body1, Button, Caption1, Field, MessageBar, MessageBarBody, Textarea, Title2, makeStyles, tokens } from "@fluentui/react-components";
+import { Badge, Body1, Button, Caption1, Field, Input, MessageBar, MessageBarBody, Textarea, Title2, makeStyles, tokens } from "@fluentui/react-components";
+import { Edit16Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
@@ -34,6 +35,10 @@ const useStyles = makeStyles({
   tool: { fontFamily: tokens.fontFamilyMonospace, color: tokens.colorNeutralForeground3 },
   muted: { color: tokens.colorNeutralForeground3 },
   ask: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS, maxWidth: "720px", padding: tokens.spacingHorizontalM, border: `1px solid ${tokens.colorBrandStroke1}`, borderRadius: tokens.borderRadiusMedium, marginBottom: tokens.spacingVerticalL },
+  title: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS },
+  user: { whiteSpace: "pre-wrap", wordBreak: "break-word", padding: tokens.spacingVerticalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorBrandBackground2, alignSelf: "flex-end", maxWidth: "80%" },
+  composer: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-end", maxWidth: "900px", marginTop: tokens.spacingVerticalL },
+  grow: { flexGrow: 1 },
   actions: { display: "flex", gap: tokens.spacingHorizontalS },
 });
 
@@ -53,6 +58,8 @@ export function SessionView() {
   const [view, setView] = useState<View | null>(null);
   const [log, setLog] = useState<Entry[]>([]);
   const [answer, setAnswer] = useState("");
+  const [message, setMessage] = useState("");
+  const [title, setTitle] = useState<string | null>(null);
   const end = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
@@ -93,10 +100,18 @@ export function SessionView() {
     try {
       await call(cmd, { project: id, id: sid, ...args });
       setAnswer("");
+      setMessage("");
       await refresh();
     } catch (e) {
       notify(String(e), "error");
     }
+  };
+
+  const rename = async () => {
+    if (title === null) return;
+    const name = title;
+    setTitle(null);
+    await act("sessions_rename", { name });
   };
 
   if (!inTauri()) return <Body1 block>{t("projects.desktopOnly")}</Body1>;
@@ -157,13 +172,29 @@ export function SessionView() {
     <>
       <div className={styles.head}>
         <Caption1><Link to={`/projects/${id}`}>{t("session.back")}</Link></Caption1>
-        <Title2 as="h1">{session.name}</Title2>
-        {session.task && <Body1 className={styles.muted}>{session.task}</Body1>}
+        {title === null ? (
+          <div className={styles.title}>
+            <Title2 as="h1" className={session.name ? undefined : styles.muted}>{session.name || t("sessions.untitled")}</Title2>
+            <Button appearance="subtle" icon={<Edit16Regular />} aria-label={t("session.rename")} onClick={() => setTitle(session.name)} />
+          </div>
+        ) : (
+          <Input
+            autoFocus
+            maxLength={120}
+            placeholder={t("sessions.untitled")}
+            value={title}
+            onChange={(_, d) => setTitle(d.value)}
+            onBlur={rename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void rename();
+              if (e.key === "Escape") setTitle(null);
+            }}
+          />
+        )}
       </div>
       <div className={styles.bar}>
         <Badge appearance="filled" color={statusColor(session.status)}>{t(`sessions.status.${session.status}`, session.status)}</Badge>
         {view.cost_usd > 0 && <Caption1>${view.cost_usd.toFixed(2)}</Caption1>}
-        {canStart && <Button appearance="primary" onClick={() => act("session_start")}>{t("session.start")}</Button>}
         {canContinue && <Button appearance="primary" onClick={() => act("session_continue")}>{t("session.continue")}</Button>}
         {live && <Button onClick={() => act("session_cancel")}>{t("runs.cancel")}</Button>}
       </div>
@@ -193,9 +224,33 @@ export function SessionView() {
       )}
 
       <div className={styles.feed}>
+        {session.task && <div className={styles.user}>{session.task}</div>}
+        {canStart && <Body1 className={styles.muted}>{t("session.firstMessage")}</Body1>}
         {log.map(render)}
         <div ref={end} />
       </div>
+
+      {canStart && (
+        <div className={styles.composer}>
+          <Textarea
+            className={styles.grow}
+            rows={3}
+            autoFocus
+            placeholder={t("session.placeholder")}
+            value={message}
+            onChange={(_, d) => setMessage(d.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && message.trim()) {
+                e.preventDefault();
+                void act("session_start", { task: message.trim() });
+              }
+            }}
+          />
+          <Button appearance="primary" disabled={!message.trim()} onClick={() => act("session_start", { task: message.trim() })}>
+            {t("session.send")}
+          </Button>
+        </div>
+      )}
     </>
   );
 }

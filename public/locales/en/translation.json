@@ -158,9 +158,6 @@
     "empty": "No sessions yet. A session is one run of the project's workflow for a task you describe.",
     "notRunnable": "Running sessions is not available yet.",
     "delete": "Delete session",
-    "name": "Name",
-    "task": "Task",
-    "taskHint": "What the workflow should deliver. It is the first input of the first step.",
     "status": {
       "new": "New",
       "running": "Running",
@@ -170,7 +167,8 @@
       "cancelled": "Cancelled",
       "interrupted": "Interrupted"
     },
-    "hint": "Open a session to run its workflow."
+    "hint": "Open a session to run its workflow.",
+    "untitled": "Untitled"
   },
   "wf": {
     "saved": "Workflow saved.",
@@ -253,7 +251,6 @@
   },
   "session": {
     "back": "Sessions",
-    "start": "Start",
     "continue": "Continue",
     "approve": "Approve",
     "reject": "Reject",
@@ -268,6 +265,9 @@
     "rejected": "The coordinator's answer was refused: {{reason}}",
     "condition": "Condition on {{field}}: {{result}}",
     "waiting": "Waiting for you at \"{{label}}\"",
-    "ended": "Ended: {{outcome}}"
+    "ended": "Ended: {{outcome}}",
+    "rename": "Rename session",
+    "firstMessage": "Tell the agents what you want done.",
+    "placeholder": "What do you want to do? Enter sends, Shift+Enter adds a line."
   }
 }

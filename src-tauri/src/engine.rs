@@ -792,7 +792,10 @@ pub fn recover(app: &AppHandle) {
 }
 
 #[tauri::command]
-pub fn session_start(app: AppHandle, project: String, id: String) -> Result<(), String> {
+pub fn session_start(app: AppHandle, project: String, id: String, task: Option<String>) -> Result<(), String> {
+    if let Some(task) = task {
+        crate::projects::edit_session(&crate::projects::root(&app)?, &project, &id, None, Some(&task))?;
+    }
     launch(app, project, id, true)
 }
 

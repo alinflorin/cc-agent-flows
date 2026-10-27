@@ -158,9 +158,6 @@
     "empty": "Încă nu există sesiuni. O sesiune este o rulare a workflow-ului proiectului pentru o sarcină descrisă de tine.",
     "notRunnable": "Rularea sesiunilor nu este disponibilă încă.",
     "delete": "Șterge sesiunea",
-    "name": "Nume",
-    "task": "Sarcină",
-    "taskHint": "Ce trebuie să livreze workflow-ul. Este intrarea primului pas.",
     "status": {
       "new": "Nouă",
       "running": "Rulează",
@@ -170,7 +167,8 @@
       "cancelled": "Anulată",
       "interrupted": "Întreruptă"
     },
-    "hint": "Deschide o sesiune ca să-i rulezi workflow-ul."
+    "hint": "Deschide o sesiune ca să-i rulezi workflow-ul.",
+    "untitled": "Fără titlu"
   },
   "wf": {
     "saved": "Workflow salvat.",
@@ -253,7 +251,6 @@
   },
   "session": {
     "back": "Sesiuni",
-    "start": "Pornește",
     "continue": "Continuă",
     "approve": "Aprobă",
     "reject": "Respinge",
@@ -268,6 +265,9 @@
     "rejected": "Răspunsul coordonatorului a fost refuzat: {{reason}}",
     "condition": "Condiție pe {{field}}: {{result}}",
     "waiting": "Te așteaptă la „{{label}}”",
-    "ended": "Încheiat: {{outcome}}"
+    "ended": "Încheiat: {{outcome}}",
+    "rename": "Redenumește sesiunea",
+    "firstMessage": "Spune-le agenților ce vrei să se facă.",
+    "placeholder": "Ce vrei să faci? Enter trimite, Shift+Enter adaugă un rând."
   }
 }

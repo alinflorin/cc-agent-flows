@@ -87,6 +87,7 @@ pub fn run() {
             projects::workflow_standard,
             projects::sessions_list,
             projects::sessions_create,
+            projects::sessions_rename,
             projects::sessions_delete,
             engine::session_start,
             engine::session_continue,

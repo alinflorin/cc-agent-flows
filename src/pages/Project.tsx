@@ -61,7 +61,6 @@ function Sessions({ project }: { project: string }) {
   const notify = useNotify();
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [draft, setDraft] = useState<{ name: string; task: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -76,11 +75,9 @@ function Sessions({ project }: { project: string }) {
   }, [load]);
 
   const create = async () => {
-    if (!draft) return;
     try {
-      await call("sessions_create", { project, ...draft });
-      setDraft(null);
-      await load();
+      const sid = await call<string>("sessions_create", { project });
+      navigate(`/projects/${project}/sessions/${sid}`);
     } catch (e) {
       notify(String(e), "error");
     }
@@ -99,7 +96,7 @@ function Sessions({ project }: { project: string }) {
     <>
       <div className={styles.bar}>
         <Caption1>{t("sessions.hint")}</Caption1>
-        <Button appearance="primary" icon={<Add16Regular />} onClick={() => setDraft({ name: "", task: "" })}>
+        <Button appearance="primary" icon={<Add16Regular />} onClick={create}>
           {t("sessions.new")}
         </Button>
       </div>
@@ -108,7 +105,7 @@ function Sessions({ project }: { project: string }) {
         {sessions.map((s) => (
           <Card key={s.id} onClick={() => navigate(`/projects/${project}/sessions/${s.id}`)}>
             <CardHeader
-              header={<Body1><b>{s.name}</b></Body1>}
+              header={<Body1><b>{s.name || t("sessions.untitled")}</b></Body1>}
               description={<Caption1>{new Date(s.created * 1000).toLocaleString()} · {t(`sessions.status.${s.status}`, s.status)}</Caption1>}
               action={
                 <Button appearance="subtle" icon={<Delete16Regular />} aria-label={t("sessions.delete")}
@@ -123,34 +120,6 @@ function Sessions({ project }: { project: string }) {
           </Card>
         ))}
       </div>
-
-      <Dialog open={draft !== null} onOpenChange={(_, d) => !d.open && setDraft(null)}>
-        <DialogSurface>
-          <DialogBody>
-            <DialogTitle>{t("sessions.new")}</DialogTitle>
-            <DialogContent className={styles.form}>
-              {draft && (
-                <>
-                  <Field label={t("sessions.name")} required>
-                    <Input value={draft.name} maxLength={120} onChange={(_, d) => setDraft({ ...draft, name: d.value })} />
-                  </Field>
-                  <Field label={t("sessions.task")} hint={t("sessions.taskHint")}>
-                    <Textarea rows={6} value={draft.task} onChange={(_, d) => setDraft({ ...draft, task: d.value })} />
-                  </Field>
-                </>
-              )}
-            </DialogContent>
-            <DialogActions>
-              <Button appearance="secondary" onClick={() => setDraft(null)}>
-                {t("common.cancel")}
-              </Button>
-              <Button appearance="primary" disabled={!draft?.name.trim()} onClick={create}>
-                {t("common.save")}
-              </Button>
-            </DialogActions>
-          </DialogBody>
-        </DialogSurface>
-      </Dialog>
     </>
   );
 }
