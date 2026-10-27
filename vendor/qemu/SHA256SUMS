@@ -1,0 +1,5 @@
+2414a12c49b9e967a999b903af46639433b9b67a586c3fadb7a6e2c5efb7d3ff  qemu-aarch64-apple-darwin.tar.gz
+daaf25897e2815aea07cebceb79935fe4920831afbc2b4349af61d47d259c360  qemu-aarch64-unknown-linux-gnu.tar.gz
+6f07f39ee744126be9db06652ba15953d4eab41ccc222e5487fed6baa6213c76  qemu-x86_64-apple-darwin.tar.gz
+32228945e19715db375f7f6a5b7484774cb57ba27bdc56810eb2160246fbe45a  qemu-x86_64-pc-windows-msvc.tar.gz
+b41fcf57d3dede5b62a315814802ee7b0caf4a5ab31b1fe2eab394f8e32bd153  qemu-x86_64-unknown-linux-gnu.tar.gz
