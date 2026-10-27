@@ -1,8 +1,16 @@
 #!/bin/sh
 # Runs inside the image's chroot (alpine-make-vm-image --script-chroot).
 #
-#   provision.sh
+#   provision.sh [extra-apk-package...]
+#
+# The extra packages come from the profile (profiles/<profile>.json). build.sh runs this as one
+# script: this file, then the profile's hook (profiles/<profile>.sh, if any), then finalize.sh.
 set -eu
+
+# bash/curl/ca-certificates: the installer below; ripgrep: see the note below; libgcc/libstdc++:
+# runtime libs of the Claude Code native binary. git is left out: not every agent needs it
+apk add --no-cache bash curl ca-certificates ripgrep libgcc libstdc++
+[ $# -eq 0 ] || apk add --no-cache "$@"
 
 adduser -D -s /bin/bash agent
 
@@ -24,11 +32,3 @@ NET
 echo agent > /etc/hostname
 
 rc-update add networking boot
-
-# Deleted files keep their blocks in the image, and the final qemu-img convert only drops zeroed
-# ones. Remove leftovers, then overwrite the free space with zeros so they don't ship.
-rm -rf /home/agent/.claude/downloads /var/cache/apk/*
-dd if=/dev/zero of=/zero bs=1M 2>/dev/null || true # runs until the disk is full
-sync
-rm -f /zero
-sync

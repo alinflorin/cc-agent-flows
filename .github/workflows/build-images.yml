@@ -1,9 +1,10 @@
 name: Build agent images
 
-# Builds the Alpine base image (Claude Code preinstalled) the app boots agents from, natively on
-# x86_64 and arm64 runners, and publishes it to a single rolling prerelease, image-base, replacing
-# the previous assets. Only the latest image of each type is kept. Push to main (or run manually)
-# to rebuild.
+# Builds the Alpine images (Claude Code preinstalled) the app boots agents from, one per profile in
+# scripts/images/profiles/, natively on x86_64 and arm64 runners. Each profile is published to its
+# own rolling prerelease, image-<profile>, replacing the previous assets. Only the latest image of
+# each profile is kept. Add a profile: create its JSON file and add it to the matrix below. Push to
+# main (or run manually) to rebuild.
 on:
   push:
     branches: [main]
@@ -18,10 +19,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-22.04
-            arch: x86_64
-          - platform: ubuntu-24.04-arm
-            arch: aarch64
+          - { profile: base, platform: ubuntu-22.04, arch: x86_64 }
+          - { profile: base, platform: ubuntu-24.04-arm, arch: aarch64 }
+          - { profile: developer, platform: ubuntu-22.04, arch: x86_64 }
+          - { profile: developer, platform: ubuntu-24.04-arm, arch: aarch64 }
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v7
@@ -32,12 +33,12 @@ jobs:
           sudo apt-get install -y qemu-utils rsync dosfstools fdisk e2fsprogs jq
 
       - name: Build image
-        run: scripts/images/build.sh "${{ matrix.arch }}" image-out
+        run: scripts/images/build.sh "${{ matrix.arch }}" image-out "${{ matrix.profile }}"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: agent-base-${{ matrix.arch }}
-          path: image-out/agent-base-${{ matrix.arch }}.qcow2
+          name: agent-${{ matrix.profile }}-${{ matrix.arch }}
+          path: image-out/agent-${{ matrix.profile }}-${{ matrix.arch }}.qcow2
 
   publish:
     needs: build
@@ -57,8 +58,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tag="image-base"
-          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
-            --prerelease --latest=false --title "Agent base image" \
-            --notes "Latest Alpine base image with Claude Code, for x86_64 and aarch64; replaced on every build. Used by the app; not an app release."
-          gh release upload "$tag" dist/*.qcow2 --clobber
+          for cfg in scripts/images/profiles/*.json; do
+            profile=$(basename "$cfg" .json)
+            tag="image-$profile"
+            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
+              --prerelease --latest=false --title "Agent image: $profile" \
+              --notes "Latest Alpine $profile image with Claude Code, for x86_64 and aarch64; replaced on every build. Used by the app; not an app release."
+            gh release upload "$tag" dist/agent-"$profile"-*.qcow2 --clobber
+          done
