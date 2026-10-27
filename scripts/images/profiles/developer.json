@@ -1,0 +1,5 @@
+{
+  "description": "Software development: git, a C toolchain, Node.js and Python",
+  "packages": ["git", "build-base", "nodejs", "npm", "python3"],
+  "image_size": "8G"
+}
