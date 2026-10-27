@@ -178,8 +178,8 @@ export function ImagesSettings() {
         ))}
       </div>
 
-      <Dialog open={editing !== null} onOpenChange={(_, d) => !d.open && setEditing(null)}>
-        <DialogSurface>
+      <Dialog surfaceMotion={null} open={editing !== null} onOpenChange={(_, d) => !d.open && setEditing(null)}>
+        <DialogSurface backdropMotion={null}>
           <DialogBody>
             <DialogTitle>{editing?.id ? t("settings.images.edit") : t("settings.images.new")}</DialogTitle>
             <DialogContent className={styles.form}>
