@@ -30,6 +30,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 uuid = { version = "1.29.0", features = ["v4"] }
 axum = { version = "0.8.9", default-features = false, features = ["http1", "tokio", "json", "form"] }
+protocol = { path = "../crates/protocol" }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

@@ -89,7 +89,11 @@ Pieces to build, in this order:
 5. UI: a run page with the live event stream, backed by the JetStream log (also gives replay).
 6. Orchestrator: the run store and engine first (run one agent end to end, handle `needs_input` by asking the user in the UI), then the planner, then the pipeline graph (stages, dependencies, conditions) on top of the messages, run by the engine. There is no direct agent-to-agent chat.
 
-**agentd (planned, not built yet)**
+**agentd (built, runs locally; not in the image yet)**
+
+Code: `crates/protocol` (messages, `PROTOCOL`, `Bootstrap`, `RESULT_SCHEMA`) and `crates/agentd` (`main.rs`, `identity.rs` token exchange, `link.rs` NATS + heartbeat + task queue, `claude.rs` the run), a separate cargo workspace in `crates/` (the app depends on `protocol` by path). Flags: `--bootstrap <path>` (default `/dev/virtio-ports/bootstrap`), `--workspace`, `--claude`, `--run-as <user>` (drops to that user with no_new_privs), `--poweroff`. `src-tauri/src/agentd_e2e.rs` runs the real binary against the real broker with a fake `claude` (and checks `PROTOCOL` equals `scripts/images/version.json`). Not done yet: the musl build and image install, the bootstrap channel on the app side (virtio-serial), hidepid/ptrace hardening, real `claude` run. Workspaces over ~700 KB come back without a bundle (`workspace_error`) until large transfers get another path.
+
+Design:
 
 The program that runs inside each agent VM, one task per boot: it executes the task and reports. A static Rust (musl) binary, one per arch, built in `build-images.yml` and installed in the image as an OpenRC service. It shares its message types with the app through a Rust crate (TypeScript types generated from it, messages carry a protocol version). No SSH, no MCP server, no decisions, no talking to other agents, no state kept between runs.
 
