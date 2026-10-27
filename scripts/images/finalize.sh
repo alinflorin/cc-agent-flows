@@ -1,5 +1,10 @@
 # Last part of the chroot script (see provision.sh); not run on its own.
 
+# agentd must be installed and speak the protocol this image is published under
+[ "$(/usr/local/bin/agentd --version | awk '{print $NF}')" = "$(cat /mnt/protocol)" ] \
+  || { echo "agentd missing or speaks another protocol" >&2; exit 1; }
+rc-update show default | grep -q agentd || { echo "agentd service not enabled" >&2; exit 1; }
+
 # Deleted files keep their blocks in the image, and the final qemu-img convert only drops zeroed
 # ones. Remove leftovers, then overwrite the free space with zeros so they don't ship.
 rm -rf /home/agent/.claude/downloads /var/cache/apk/*

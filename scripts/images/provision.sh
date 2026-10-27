@@ -32,3 +32,25 @@ NET
 echo agent > /etc/hostname
 
 rc-update add networking boot
+
+# agentd (built in the same CI run, see build-images.yml): root-owned, runs once per boot as an
+# OpenRC service and powers the VM off when the task is done. claude runs as the agent user.
+install -o root -g root -m 0755 /mnt/agentd /usr/local/bin/agentd
+cat > /etc/init.d/agentd <<'SERVICE'
+#!/sbin/openrc-run
+description="Runs the agent's task and reports to the app"
+command=/usr/local/bin/agentd
+command_args="--run-as agent --claude /home/agent/.local/bin/claude --workspace /home/agent/work --poweroff"
+command_background=true
+pidfile=/run/agentd.pid
+output_log=/var/log/agentd.log
+error_log=/var/log/agentd.log
+export USE_BUILTIN_RIPGREP=0
+
+depend() {
+	need localmount
+	after networking
+}
+SERVICE
+chmod 0755 /etc/init.d/agentd
+rc-update add agentd default

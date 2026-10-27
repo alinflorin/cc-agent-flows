@@ -43,6 +43,10 @@ fn command(program: &str, user: &Option<User>, name: &str) -> Command {
     if let Some(path) = std::env::var_os("PATH") {
         cmd.env("PATH", path);
     }
+    // Set by the image so `claude` uses the system ripgrep (the bundled one does not run on musl).
+    if let Some(v) = std::env::var_os("USE_BUILTIN_RIPGREP") {
+        cmd.env("USE_BUILTIN_RIPGREP", v);
+    }
     cmd.env("USER", name).env("LOGNAME", name);
     if let Some(u) = user {
         cmd.env("HOME", &u.home).uid(u.uid).gid(u.gid);

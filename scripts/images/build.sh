@@ -3,14 +3,18 @@
 # the profile's extra packages (profiles/<profile>.json).
 # Linux only; needs root (loop/nbd mounts) plus qemu-img, qemu-nbd, rsync, sfdisk, dosfstools, jq.
 #
-#   build.sh <x86_64|aarch64> <out-dir> [profile]   (profile defaults to base)
+#   build.sh <x86_64|aarch64> <out-dir> <agentd-binary> [profile]   (profile defaults to base)
+#
+# <agentd-binary> is the static musl build of crates/agentd for that arch.
 #
 # aarch64 must be built on an aarch64 host. x86_64 boots with BIOS, aarch64 with UEFI.
 set -euo pipefail
 
 arch=$1
 out=$2
-profile=${3:-base}
+agentd=$3
+profile=${4:-base}
+[ -x "$agentd" ] || { echo "agentd binary $agentd not found or not executable" >&2; exit 1; }
 here=$(cd "$(dirname "$0")" && pwd)
 cfg="$here/version.json"
 pcfg="$here/profiles/$profile.json"
@@ -37,6 +41,9 @@ script="$work/provision.sh"
   cat "$here/finalize.sh"
 } >"$script"
 chmod +x "$script"
+# the script directory is /mnt in the chroot: agentd and the protocol it must speak go in there
+cp "$agentd" "$work/agentd"
+jq -r .protocol "$cfg" >"$work/protocol"
 
 # alpine-make-vm-image downloads a static apk-tools from gitlab.alpinelinux.org when the host has no
 # apk, and that host is often unreachable from CI. Take it from the Alpine CDN instead. It must be

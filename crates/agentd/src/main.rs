@@ -38,6 +38,10 @@ fn args() -> Result<Args, String> {
             "--claude" => a.claude = value()?,
             "--run-as" => a.run_as = Some(value()?),
             "--poweroff" => a.poweroff = true,
+            "--version" => {
+                println!("agentd {} protocol {}", env!("CARGO_PKG_VERSION"), protocol::PROTOCOL);
+                std::process::exit(0);
+            }
             _ => return Err(format!("unknown argument {flag}")),
         }
     }
