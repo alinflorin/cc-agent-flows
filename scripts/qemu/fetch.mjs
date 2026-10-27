@@ -13,7 +13,6 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dest = join(here, "../../src-tauri/resources/qemu");
-const { version } = JSON.parse(readFileSync(join(here, "version.json"), "utf8"));
 
 const args = process.argv.slice(2);
 const required = args.includes("--required");
@@ -24,7 +23,7 @@ const triple =
 
 const archive = join(here, "../../vendor/qemu", `qemu-${triple}.tar.gz`);
 const marker = join(dest, ".version");
-const stamp = `${version} ${triple} ${existsSync(archive) ? statSync(archive).size : 0}`;
+const stamp = `${triple} ${existsSync(archive) ? statSync(archive).size : 0}`;
 if (existsSync(marker) && readFileSync(marker, "utf8") === stamp) {
   console.log(`QEMU ${stamp} already in place`);
   process.exit(0);
