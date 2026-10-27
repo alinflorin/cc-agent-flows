@@ -42,7 +42,8 @@
     "tabs": {
       "llm": "LLM",
       "general": "General",
-      "images": "Imagini"
+      "images": "Imagini",
+      "network": "Rețea"
     },
     "llm": {
       "token": "Setup token Claude Code",
@@ -87,6 +88,12 @@
       "parentHint": "Imaginea peste care rulează scriptul. Reconstruirea ei face această imagine depășită.",
       "env": "Variabile de mediu",
       "envHint": "Incluse în imagine, pentru fiecare agent care rulează pe ea (și pe imaginile construite peste ea). Sunt salvate în clar în imagine, deci nu pune secrete aici."
+    },
+    "network": {
+      "intro": "Gazdele de internet la care toți agenții pot ajunge prin HTTPS. Un profil poate permite și altele, peste acestea. Încă nu este aplicat: agenții au în continuare acces complet la rețea.",
+      "allowHosts": "Gazde permise",
+      "allowHostsHint": "Câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Tot ce nu e listat aici sau în profilul agentului va fi blocat. Valorile implicite sunt ce îi trebuie lui Claude Code ca să funcționeze.",
+      "defaults": "Restaurează valorile implicite"
     }
   },
   "updates": {

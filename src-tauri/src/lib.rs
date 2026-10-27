@@ -2,6 +2,7 @@ mod agent;
 mod builder;
 mod engine;
 mod images;
+mod network;
 #[cfg(test)]
 mod agentd_e2e;
 mod profiles;
@@ -75,6 +76,8 @@ pub fn run() {
             images::images_save,
             images::images_delete,
             images::images_build,
+            network::network_get,
+            network::network_set,
             profiles::provision_starters,
             profiles::profiles_list,
             profiles::profiles_save,

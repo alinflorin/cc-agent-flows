@@ -10,6 +10,7 @@ import { useUpdates } from "../updates";
 import { AppearanceFields } from "../components/AppearanceFields";
 import { ImagesSettings } from "./SettingsImages";
 import { LlmSettings } from "./SettingsLlm";
+import { NetworkSettings } from "./SettingsNetwork";
 
 const NAME_MAX = 40;
 
@@ -130,8 +131,9 @@ export function Settings() {
         <Tab value="general">{t("settings.tabs.general")}</Tab>
         <Tab value="llm">{t("settings.tabs.llm")}</Tab>
         <Tab value="images">{t("settings.tabs.images")}</Tab>
+        <Tab value="network">{t("settings.tabs.network")}</Tab>
       </TabList>
-      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : <ImagesSettings />}
+      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : tab === "network" ? <NetworkSettings /> : <ImagesSettings />}
     </>
   );
 }
