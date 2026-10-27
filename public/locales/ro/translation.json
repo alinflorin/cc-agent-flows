@@ -62,7 +62,7 @@
     },
     "saved": "Setările au fost salvate.",
     "images": {
-      "intro": "Sistemele pe care rulează agenții. Imaginea de bază este inclusă; adaugă-le pe ale tale cu un script care rulează peste ea. Un profil de agent alege imaginea.",
+      "intro": "Sistemele pe care rulează agenții. Imaginea de bază este inclusă; adaugă-le pe ale tale cu un script care rulează peste ea sau peste altă imagine a ta. Un profil de agent alege imaginea.",
       "new": "Imagine nouă",
       "edit": "Editează imaginea",
       "base": "Bază",
@@ -77,8 +77,11 @@
       "build": "Construiește",
       "rebuild": "Reconstruiește",
       "script": "Script (sh)",
-      "scriptHint": "Rulează o dată ca root la construirea imaginii, peste imaginea de bază (Alpine; apk este disponibil). Modificarea lui face imaginea depășită până o reconstruiești.",
-      "needBase": "Construiește întâi imaginea de bază."
+      "scriptHint": "Rulează o dată ca root la construirea imaginii, peste imaginea pe care se bazează (Alpine; apk este disponibil). Modificarea lui face imaginea depășită până o reconstruiești.",
+      "needBase": "Construiește mai întâi imaginea pe care se bazează.",
+      "basedOn": "Bazată pe {{name}}",
+      "parent": "Bazată pe",
+      "parentHint": "Imaginea peste care rulează scriptul. Reconstruirea ei face această imagine depășită."
     }
   },
   "updates": {

@@ -62,7 +62,7 @@
     },
     "saved": "Settings saved.",
     "images": {
-      "intro": "The systems agents run on. The base image is built in; add your own with a script that runs on top of it. An agent profile picks the image.",
+      "intro": "The systems agents run on. The base image is built in; add your own with a script that runs on top of it or on another of your images. An agent profile picks the image.",
       "new": "New image",
       "edit": "Edit image",
       "base": "Base",
@@ -77,8 +77,11 @@
       "build": "Build",
       "rebuild": "Rebuild",
       "script": "Script (sh)",
-      "scriptHint": "Runs once as root when the image is built, on top of the base image (Alpine; apk is available). Editing it makes the image out of date until you rebuild.",
-      "needBase": "Build the base image first."
+      "scriptHint": "Runs once as root when the image is built, on top of the image it is based on (Alpine; apk is available). Editing it makes the image out of date until you rebuild.",
+      "needBase": "Build the image it is based on first.",
+      "basedOn": "Based on {{name}}",
+      "parent": "Based on",
+      "parentHint": "The image the script runs on. Rebuilding it makes this one out of date."
     }
   },
   "updates": {

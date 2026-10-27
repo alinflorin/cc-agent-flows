@@ -29,9 +29,34 @@ pub struct Spec {
     pub name: String,
     #[serde(default)]
     pub description: String,
-    /// Shell script (busybox ash) run as root in the builder VM, on top of the base image.
+    /// The image this one is built on top of: `base` or another custom image.
+    #[serde(default = "base_id")]
+    pub parent: String,
+    /// Shell script (busybox ash) run as root in the builder VM, on top of the parent.
     #[serde(default)]
     pub script: String,
+}
+
+fn base_id() -> String {
+    BASE.into()
+}
+
+/// Whether making `parent` the parent of `id` would loop (or the chain is absurdly long).
+fn creates_cycle(specs: &[(String, Spec)], id: &str, parent: &str) -> bool {
+    let mut cur = parent;
+    for _ in 0..=specs.len() {
+        if cur == BASE {
+            return false;
+        }
+        if cur == id {
+            return true;
+        }
+        match specs.iter().find(|(i, _)| i == cur) {
+            Some((_, s)) => cur = &s.parent,
+            None => return false,
+        }
+    }
+    true
 }
 
 impl Spec {
@@ -41,6 +66,9 @@ impl Spec {
         }
         if self.script.len() > 256 * 1024 {
             return Err("the script is too large".into());
+        }
+        if self.parent.is_empty() {
+            return Err("pick the image to build on".into());
         }
         Ok(())
     }
@@ -74,8 +102,10 @@ pub struct Info {
     script: String,
     /// `missing`, `building`, `ready` or `stale`.
     state: &'static str,
-    /// Whether it can be built now (a custom image needs the base to exist).
+    /// Whether it can be built now (its parent must be built).
     can_build: bool,
+    /// What it is built on (`base` for the base's own plain image).
+    parent: Option<String>,
     built_at: Option<u64>,
     size: Option<u64>,
     error: Option<String>,
@@ -133,14 +163,14 @@ fn base_stamp(app: &AppHandle) -> Result<String, String> {
 }
 
 /// The stamp an image should have given its sources now. For a custom image: its script on top
-/// of the base's stamp as it was built (so a rebuilt base makes it stale).
+/// of its parent's stamp as it was built (so a rebuilt parent makes it stale, down the chain).
 fn wanted_stamp(app: &AppHandle, spec: Option<&Spec>) -> Result<String, String> {
     match spec {
         None => base_stamp(app),
         Some(spec) => {
-            let base: Meta = read_meta(app, BASE).ok_or("the base image is not built")?;
+            let parent: Meta = read_meta(app, &spec.parent).ok_or("the parent image is not built")?;
             let mut h = Sha256::new();
-            h.update(&base.stamp);
+            h.update(&parent.stamp);
             h.update(spec.script.as_bytes());
             Ok(hex(&h.finalize()))
         }
@@ -196,7 +226,8 @@ fn info(app: &AppHandle, id: &str, spec: Option<&Spec>) -> Info {
         None => ("Base".into(), "Alpine with agentd, Claude Code and ripgrep".into(), String::new()),
     };
     Info {
-        can_build: spec.is_none() || path(app, BASE).is_some(),
+        can_build: spec.is_none_or(|s| path(app, &s.parent).is_some()),
+        parent: spec.map(|s| s.parent.clone()),
         id: id.to_string(),
         builtin: spec.is_none(),
         name,
@@ -241,6 +272,14 @@ pub fn images_save(app: AppHandle, id: Option<String>, spec: Spec) -> Result<Str
             id
         }
     };
+    let mut specs = read_specs(&app);
+    if spec.parent != BASE && !specs.iter().any(|(i, _)| *i == spec.parent) {
+        return Err("the image to build on does not exist".into());
+    }
+    specs.retain(|(i, _)| *i != id);
+    if creates_cycle(&specs, &id, &spec.parent) {
+        return Err("an image cannot be built on itself or on one built on it".into());
+    }
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let text = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
     std::fs::write(dir.join(format!("{id}.json")), text).map_err(|e| e.to_string())?;
@@ -255,6 +294,9 @@ pub fn images_delete(app: AppHandle, id: String) -> Result<(), String> {
     if crate::profiles::used_images(&app).contains(&id) {
         return Err("an agent profile uses this image".into());
     }
+    if let Some((child, _)) = read_specs(&app).into_iter().find(|(_, s)| s.parent == id) {
+        return Err(format!("the image {child} is built on it"));
+    }
     if app.state::<Images>().0.lock().unwrap().building.as_deref() == Some(id.as_str()) {
         return Err("it is being built".into());
     }
@@ -267,9 +309,6 @@ pub fn images_delete(app: AppHandle, id: String) -> Result<(), String> {
 /// Starts a build in the background; progress is in `images_list`.
 #[tauri::command]
 pub fn images_build(app: AppHandle, id: String) -> Result<(), String> {
-    if id != BASE && path(&app, BASE).is_none() {
-        return Err("build the base image first".into());
-    }
     start(&app, &id)
 }
 
@@ -329,10 +368,10 @@ fn log(app: &AppHandle, id: &str, line: &str) {
 
 async fn build(app: &AppHandle, id: &str, spec: Option<&Spec>) -> Result<(), String> {
     let stamp = wanted_stamp(app, spec)?;
-    // The base is built from the plain image, a custom image from the finished base.
+    // The base is built from the plain image, a custom image from its finished parent.
     let source = match spec {
         None => plain_image(app)?,
-        Some(_) => path(app, BASE).ok_or("build the base image first")?,
+        Some(s) => path(app, &s.parent).ok_or_else(|| format!("build {} first", s.parent))?,
     };
     let out = root(app)?.join("built");
     let work = root(app)?.join("work");
@@ -432,5 +471,24 @@ async fn qemu_img(app: &AppHandle, args: &[&str]) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("qemu-img: {}", String::from_utf8_lossy(&out.stderr).trim()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spec(parent: &str) -> Spec {
+        Spec { name: "x".into(), description: String::new(), parent: parent.into(), script: String::new() }
+    }
+
+    #[test]
+    fn parents_cannot_loop() {
+        let specs = vec![("a".to_string(), spec("base")), ("b".to_string(), spec("a")), ("c".to_string(), spec("b"))];
+        assert!(!creates_cycle(&specs, "d", "c"), "a new image on the end of a chain");
+        assert!(!creates_cycle(&specs, "c", "a"), "moving down the chain");
+        assert!(creates_cycle(&specs, "a", "c"), "a on top of its own descendant");
+        assert!(creates_cycle(&specs, "a", "a"), "on itself");
+        assert!(!creates_cycle(&specs, "a", "base"));
     }
 }
