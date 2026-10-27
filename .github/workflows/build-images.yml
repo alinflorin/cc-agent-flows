@@ -2,8 +2,11 @@ name: Build agent images
 
 # Builds the Alpine images (Claude Code preinstalled) the app boots agents from, one per profile in
 # scripts/images/profiles/, natively on x86_64 and arm64 runners. Each profile is published to its
-# own rolling prerelease, image-<profile>, replacing the previous assets. Only the latest image of
-# each profile is kept. Add a profile: create its JSON file and add it to the matrix below. Push to
+# own rolling prerelease, image-<profile>-p<protocol>, replacing the previous assets. <protocol> is
+# the agent protocol number in scripts/images/version.json: the app downloads the image for the
+# protocol it speaks, so an older or newer app never gets an agentd it cannot talk to. Bump it on
+# every protocol change that breaks old messages. Only the latest image per profile and protocol is
+# kept. Add a profile: create its JSON file and add it to the matrix below. Push to
 # main (or run manually) to rebuild.
 on:
   push:
@@ -69,11 +72,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          protocol=$(jq -r .protocol scripts/images/version.json)
           for cfg in scripts/images/profiles/*.json; do
             profile=$(basename "$cfg" .json)
-            tag="image-$profile"
+            tag="image-$profile-p$protocol"
             gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
-              --prerelease --latest=false --title "Agent image: $profile" \
-              --notes "Latest Alpine $profile image with Claude Code, for x86_64 and aarch64; replaced on every build. Used by the app; not an app release."
+              --prerelease --latest=false --title "Agent image: $profile (protocol $protocol)" \
+              --notes "Latest Alpine $profile image with Claude Code for agent protocol $protocol, for x86_64 and aarch64; replaced on every build. Used by the app; not an app release."
             gh release upload "$tag" dist/agent-"$profile"-*.qcow2 --clobber
           done
