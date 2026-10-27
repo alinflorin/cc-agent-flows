@@ -5,9 +5,6 @@
 //! The stream must stay open until the run is over: QEMU drops what the guest has not read yet when
 //! the host disconnects, and the VM boots long after the app connects.
 
-// Called by the run engine once it exists.
-#![allow(dead_code)]
-
 use crate::protocol::{Bootstrap, Inbound, MAX_MESSAGE, Outbound, Task};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;

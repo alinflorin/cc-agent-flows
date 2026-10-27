@@ -34,6 +34,10 @@ interface Profile {
   description: string;
   system_prompt: string;
   env: EnvVar[];
+  model: string | null;
+  effort: string | null;
+  cpus: number | null;
+  memory_mb: number;
   image: string;
 }
 
@@ -47,7 +51,7 @@ interface Entry extends Profile {
   id: string;
 }
 
-const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], image: "base" };
+const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: null, cpus: null, memory_mb: 2048, image: "base" };
 
 const useStyles = makeStyles({
   head: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: tokens.spacingVerticalL },
@@ -184,6 +188,43 @@ export function Profiles() {
                       </div>
                     </div>
                   </Field>
+                  <Field label={t("profiles.model")} hint={t("profiles.modelHint")}>
+                    <Input
+                      className={styles.mono}
+                      placeholder="sonnet"
+                      value={editing.profile.model ?? ""}
+                      onChange={(_, d) => set({ model: d.value.trim() || null })}
+                    />
+                  </Field>
+                  <Field label={t("profiles.effort")} hint={t("profiles.effortHint")}>
+                    <Select value={editing.profile.effort ?? ""} onChange={(_, d) => set({ effort: d.value || null })}>
+                      <option value="">{t("profiles.effortDefault")}</option>
+                      {["low", "medium", "high", "xhigh", "max"].map((e) => (
+                        <option key={e} value={e}>
+                          {e}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label={t("profiles.cpus")} hint={t("profiles.cpusHint")}>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={256}
+                      placeholder={t("profiles.cpusAll")}
+                      value={editing.profile.cpus === null ? "" : String(editing.profile.cpus)}
+                      onChange={(_, d) => set({ cpus: d.value === "" ? null : Math.min(256, Math.max(1, Math.floor(Number(d.value)) || 1)) })}
+                    />
+                  </Field>
+                  <Field label={t("profiles.memory")} hint={t("profiles.memoryHint")}>
+                    <Input
+                      type="number"
+                      min={1024}
+                      step={512}
+                      value={String(editing.profile.memory_mb)}
+                      onChange={(_, d) => set({ memory_mb: Math.floor(Number(d.value)) || 0 })}
+                    />
+                  </Field>
                   <Field label={t("profiles.image")} hint={t("profiles.imageHint")}>
                     <Select value={editing.profile.image} onChange={(_, d) => set({ image: d.value })}>
                       {images.map((i) => (
@@ -200,7 +241,7 @@ export function Profiles() {
               <Button appearance="secondary" onClick={() => setEditing(null)}>
                 {t("common.cancel")}
               </Button>
-              <Button appearance="primary" disabled={!editing?.profile.name.trim()} onClick={save}>
+              <Button appearance="primary" disabled={!editing?.profile.name.trim() || (editing?.profile.memory_mb ?? 0) < 1024} onClick={save}>
                 {t("common.save")}
               </Button>
             </DialogActions>

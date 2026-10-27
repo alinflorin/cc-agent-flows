@@ -152,7 +152,10 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
 /// Where the builder VM's console is exposed: a unix socket in the work directory, or on Windows
 /// a named pipe (reachable only by the current user). QEMU creates it and waits for us.
 pub struct Serial {
+    /// For `-serial`.
     pub qemu_arg: String,
+    /// For `-chardev` (add `,id=...`): the same socket or pipe as a chardev.
+    pub chardev: String,
     #[cfg(unix)]
     path: PathBuf,
     #[cfg(windows)]
@@ -160,17 +163,27 @@ pub struct Serial {
 }
 
 impl Serial {
-    #[cfg(unix)]
     pub fn new(dir: &Path) -> Self {
-        let path = dir.join("console.sock");
-        Serial { qemu_arg: format!("unix:{},server=on,wait=off", path.display()), path }
+        Self::named(dir, "console")
     }
 
+    /// A socket `<name>.sock` in `dir`.
+    #[cfg(unix)]
+    pub fn named(dir: &Path, name: &str) -> Self {
+        let path = dir.join(format!("{name}.sock"));
+        Serial {
+            qemu_arg: format!("unix:{},server=on,wait=off", path.display()),
+            chardev: format!("socket,path={},server=on,wait=off", path.display()),
+            path,
+        }
+    }
+
+    /// A named pipe `ccaf-<name>-<pid>-<nanos>`; `dir` is unused here.
     #[cfg(windows)]
-    pub fn new(_dir: &Path) -> Self {
+    pub fn named(_dir: &Path, name: &str) -> Self {
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
-        let name = format!(r"\\.\pipe\ccaf-console-{}-{nanos:08x}", std::process::id());
-        Serial { qemu_arg: format!("pipe:{name}"), name }
+        let name = format!(r"\\.\pipe\ccaf-{name}-{}-{nanos:08x}", std::process::id());
+        Serial { qemu_arg: format!("pipe:{name}"), chardev: format!("pipe,path={name}"), name }
     }
 
     /// Connects once QEMU has created the socket or pipe.
@@ -292,13 +305,27 @@ mod tests {
         if !can_run() {
             return;
         }
-        let (_vm, mut con, work) = boot("setup").await;
+        let (mut vm, mut con, work) = boot("setup").await;
         con.run("mkdir -p /tmp/setup", |_| {}).await.unwrap();
         for f in ["setup.sh", "agentd.sh", "agentd.initd"] {
             con.put(&format!("/tmp/setup/{f}"), &std::fs::read(res().join("agentd").join(f)).unwrap()).await.unwrap();
         }
         let code = within(1500, "setup", con.run(&script_cmd("/tmp/setup/setup.sh"), |l| eprintln!("{l}"))).await.unwrap();
         assert_eq!(code, 0);
+        // CCAF_KEEP_BASE=<path> keeps the result there, to boot it in other tests.
+        if let Ok(out) = std::env::var("CCAF_KEEP_BASE") {
+            con.run("sync", |_| {}).await.unwrap();
+            con.send("poweroff\n").await.unwrap();
+            within(120, "poweroff", async { vm.wait().await.map(|_| ()).map_err(|e| e.to_string()) }).await.unwrap();
+            let ok = std::process::Command::new(res().join("qemu/bin/qemu-img"))
+                .args(["convert", "-c", "-O", "qcow2"])
+                .arg(work.join("disk.qcow2"))
+                .arg(&out)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok);
+        }
         let _ = std::fs::remove_dir_all(work);
     }
 }

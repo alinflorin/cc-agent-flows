@@ -13,7 +13,9 @@ use serde_json::Value;
 /// Longest line either side accepts. A longer line is dropped (events) or ends the run (the app).
 pub const MAX_MESSAGE: usize = 1 << 20;
 
-/// The first message, from the app: what this VM is and the Claude setup token. It never touches a
+/// The first message, from the app: what this VM is and the Claude setup token. `id` is the run's
+/// identity (a SPIFFE-style name, see `runs::identity`), a label and not a credential: the channel
+/// is what authenticates the VM. It never touches a
 /// disk or a command line: it goes through the channel into `agentd`, and from there only into
 /// `claude`'s environment.
 #[derive(Clone, Serialize, Deserialize)]
@@ -21,6 +23,14 @@ pub struct Bootstrap {
     pub id: String,
     /// The Claude setup token. It goes only into the `claude` process environment.
     pub claude_token: String,
+}
+
+/// A variable for the `claude` process (from the agent profile). `agentd` skips reserved names.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct TaskEnv {
+    pub name: String,
+    #[serde(default)]
+    pub value: String,
 }
 
 /// Messages from the app to the agent.
@@ -46,6 +56,12 @@ pub struct Task {
     /// the script needs no copy of it.
     #[serde(default = "default_schema")]
     pub schema: String,
+    /// Appended to Claude's system prompt (`--append-system-prompt`), from the agent profile.
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    /// Exported for `claude` only (not for `agentd`), from the agent profile.
+    #[serde(default)]
+    pub env: Vec<TaskEnv>,
     /// Hard limit for the `claude` run.
     #[serde(default = "default_timeout")]
     pub timeout_secs: u64,
@@ -99,6 +115,10 @@ pub struct Final {
     pub session_id: Option<String>,
     #[serde(default)]
     pub cost_usd: Option<f64>,
+    /// The structured answer (matching the task's schema), for conditions and the coordinator.
+    /// Untrusted: the app validates it.
+    #[serde(default)]
+    pub output: Option<Value>,
     #[serde(default)]
     pub exit_code: Option<i32>,
 }

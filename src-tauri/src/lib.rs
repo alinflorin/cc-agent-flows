@@ -1,11 +1,14 @@
 mod agent;
 mod builder;
+mod engine;
 mod images;
 #[cfg(test)]
 mod agentd_e2e;
 mod profiles;
+mod projects;
 mod protocol;
 mod qemu;
+mod runs;
 mod secrets;
 
 /// Whether the updater can replace this installation. On Linux only an AppImage can;
@@ -76,6 +79,23 @@ pub fn run() {
             profiles::profiles_list,
             profiles::profiles_save,
             profiles::profiles_delete,
+            projects::projects_list,
+            projects::projects_save,
+            projects::projects_delete,
+            projects::workflow_get,
+            projects::workflow_save,
+            projects::workflow_standard,
+            projects::sessions_list,
+            projects::sessions_create,
+            projects::sessions_delete,
+            engine::session_start,
+            engine::session_continue,
+            engine::session_cancel,
+            engine::session_reply,
+            engine::session_get,
+            engine::session_log,
+            runs::agent_run,
+            runs::agent_run_cancel,
             secrets::claude_token_set,
             secrets::claude_token_status,
             secrets::claude_token_clear
@@ -83,6 +103,9 @@ pub fn run() {
         .setup(|app| {
             use tauri::Manager;
             app.manage(images::Images::default());
+            app.manage(runs::Runs::default());
+            app.manage(engine::Sessions::default());
+            engine::recover(app.handle());
             images::ensure_base(app.handle());
             Ok(())
         })

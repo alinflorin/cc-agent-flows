@@ -29,9 +29,28 @@ pub struct Profile {
     pub system_prompt: String,
     #[serde(default)]
     pub env: Vec<EnvVar>,
+    /// Claude model (an alias like `sonnet` or a full id); `None` is Claude Code's default.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Thinking level, `low | medium | high | xhigh | max`; `None` is Claude Code's default.
+    #[serde(default)]
+    pub effort: Option<String>,
+    /// Virtual CPUs of the VM; `None` gives it all the host's cores (QEMU limits the number of
+    /// vCPUs, not their share of time).
+    #[serde(default)]
+    pub cpus: Option<u32>,
+    /// RAM of the VM in MB.
+    #[serde(default = "default_memory")]
+    pub memory_mb: u32,
     /// The image the agent runs on.
     #[serde(default = "base_image")]
     pub image: String,
+}
+
+pub const DEFAULT_MEMORY_MB: u32 = 2048;
+
+fn default_memory() -> u32 {
+    DEFAULT_MEMORY_MB
 }
 
 fn base_image() -> String {
@@ -76,6 +95,22 @@ impl Profile {
         validate_env(self.env.iter().map(|v| (v.name.as_str(), Some(v.value.as_str()))))?;
         if self.system_prompt.len() > 64 * 1024 {
             return Err("the system prompt is too large".into());
+        }
+        if let Some(m) = &self.model
+            && (m.is_empty() || m.len() > 100 || !m.chars().all(|c| c.is_ascii_alphanumeric() || "-._:[]".contains(c)))
+        {
+            return Err("the model is not a valid name".into());
+        }
+        if let Some(e) = &self.effort
+            && !["low", "medium", "high", "xhigh", "max"].contains(&e.as_str())
+        {
+            return Err("the effort must be low, medium, high, xhigh or max".into());
+        }
+        if self.cpus.is_some_and(|c| !(1..=256).contains(&c)) {
+            return Err("CPUs must be between 1 and 256".into());
+        }
+        if !(1024..=262_144).contains(&self.memory_mb) {
+            return Err("memory must be between 1024 and 262144 MB".into());
         }
         if self.image.is_empty() {
             return Err("pick an image".into());
@@ -164,10 +199,28 @@ pub fn used_images(app: &tauri::AppHandle) -> Vec<String> {
     dir(app).map(|d| list(&d).into_iter().map(|e| e.profile.image).collect()).unwrap_or_default()
 }
 
-/// The starter profiles (`developer`, `qa`), on the images of the same ids; existing ones are left alone.
+/// The starter profiles: `developer` and `qa` on the images of the same ids, the rest on the base image; existing ones are left alone.
 pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
     let dir = dir(app)?;
     let starters = [
+        (
+            "orchestrator",
+            "Orchestrator",
+            "Plans the work and closes it, coordinating the other agents of a workflow.",
+            "You are the orchestrator of a delivery team made of a project manager, a business analyst, a developer and a tester. You do not write code. When planning, state the goal, the constraints and what done means, and split the work between the team. When wrapping up, compare what was delivered with the goal and say plainly what is finished, what was tested and what is left. If the task is ambiguous, stop and ask in your result instead of guessing.",
+        ),
+        (
+            "project-manager",
+            "Project manager",
+            "Turns a plan into scope, milestones and risks.",
+            "You are a project manager. From the plan you are given, define the scope: deliverables, milestones in order, dependencies, risks and open questions. Be short and concrete, and cut what the goal does not need. You do not write code.",
+        ),
+        (
+            "business-analyst",
+            "Business analyst",
+            "Writes testable requirements.",
+            "You are a business analyst. From the scope you are given, write the requirements as user stories, each with acceptance criteria a tester can check, and list the edge cases and what is explicitly out of scope. If you find a gap you cannot resolve yourself, stop and ask in your result. You do not write code.",
+        ),
         (
             "developer",
             "Developer",
@@ -190,7 +243,11 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
             description: description.into(),
             system_prompt: prompt.into(),
             env: vec![],
-            image: id.into(),
+            model: None,
+            effort: None,
+            cpus: None,
+            memory_mb: DEFAULT_MEMORY_MB,
+            image: if matches!(id, "developer" | "qa") { id.into() } else { "base".into() },
         };
         save(&dir, Some(id), &profile)?;
     }
@@ -201,7 +258,8 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn provision_starters(app: tauri::AppHandle) -> Result<(), String> {
     crate::images::provision_defaults(&app)?;
-    provision_defaults(&app)
+    provision_defaults(&app)?;
+    crate::projects::provision_defaults(&app)
 }
 
 #[tauri::command]
@@ -225,7 +283,7 @@ mod tests {
     use super::*;
 
     fn p(name: &str) -> Profile {
-        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], image: "base".into() }
+        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: DEFAULT_MEMORY_MB, image: "base".into() }
     }
 
     fn tmp(tag: &str) -> PathBuf {
@@ -246,6 +304,38 @@ mod tests {
         assert!(x.validate().is_err());
         x.env = vec![EnvVar { name: "GH_TOKEN".into(), value: String::new() }, EnvVar { name: "LANG".into(), value: "C".into() }];
         assert!(x.validate().is_ok());
+    }
+
+    #[test]
+    fn validates_model_and_effort() {
+        let mut x = p("a");
+        x.model = Some("claude-sonnet-5-5".into());
+        x.effort = Some("xhigh".into());
+        assert!(x.validate().is_ok());
+        x.model = Some("bad model; rm".into());
+        assert!(x.validate().is_err());
+        x.model = Some(String::new());
+        assert!(x.validate().is_err());
+        x.model = None;
+        x.effort = Some("extreme".into());
+        assert!(x.validate().is_err());
+        // old files have neither
+        let old: Profile = serde_json::from_str(r#"{"name":"o"}"#).unwrap();
+        assert!(old.model.is_none() && old.effort.is_none());
+        assert_eq!((old.cpus, old.memory_mb), (None, 2048));
+    }
+
+    #[test]
+    fn validates_resources() {
+        let mut x = p("a");
+        x.cpus = Some(4);
+        x.memory_mb = 4096;
+        assert!(x.validate().is_ok());
+        x.cpus = Some(0);
+        assert!(x.validate().is_err());
+        x.cpus = None;
+        x.memory_mb = 256;
+        assert!(x.validate().is_err());
     }
 
     #[test]

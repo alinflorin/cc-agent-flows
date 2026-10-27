@@ -16,7 +16,9 @@
     "home": "Home",
     "about": "About",
     "settings": "Settings",
-    "profiles": "Agent profiles"
+    "profiles": "Agent profiles",
+    "projects": "Projects",
+    "runs": "Runs"
   },
   "theme": {
     "label": "Theme",
@@ -112,13 +114,159 @@
     "envHint": "Sent to the agent with every task.",
     "addVar": "Add variable",
     "image": "Image",
-    "imageHint": "The system this agent runs on. Images are managed in Settings."
+    "imageHint": "The system this agent runs on. Images are managed in Settings.",
+    "model": "Model",
+    "modelHint": "A Claude model alias (sonnet, opus, haiku) or a full model id. Empty uses Claude Code's default.",
+    "effort": "Thinking effort",
+    "effortHint": "How much the agent thinks before answering. Higher is slower and costs more.",
+    "effortDefault": "Default",
+    "cpus": "CPUs",
+    "cpusAll": "All of the host's",
+    "cpusHint": "Virtual CPUs of the VM. Empty gives it all the host's cores. This limits how many cores it can use, not their share of time.",
+    "memory": "Memory (MB)",
+    "memoryHint": "RAM of the VM, at least 1024. Default 2048."
   },
   "welcome": {
     "title": "Welcome",
-    "text": "Set up a starting point? This creates two images, Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with playwright-cli), built on the base image in the background, and an agent profile for each. You can edit or delete all of it later. A simple delivery workflow using them will come later.",
+    "text": "Set up a starting point? This creates two images, Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with playwright-cli), built on the base image in the background, five agent profiles (orchestrator, project manager, business analyst, developer, tester), and a Demo project with the standard delivery workflow: the orchestrator plans, the project manager and business analyst shape the work, you approve the requirements, the developer builds and the tester verifies. You can edit or delete all of it later.",
     "yes": "Yes, set it up",
     "no": "No, thanks",
     "done": "Starter images and profiles created. The images are building."
+  },
+  "projects": {
+    "title": "Projects",
+    "new": "New project",
+    "empty": "No projects yet. Create one to design its workflow and start sessions.",
+    "desktopOnly": "Available in the desktop app only.",
+    "noDescription": "No description",
+    "delete": "Delete project",
+    "deleteConfirm": "Delete \"{{name}}\" with its workflow and sessions? This cannot be undone.",
+    "name": "Name",
+    "description": "Description",
+    "missing": "Project not found.",
+    "tabs": {
+      "sessions": "Sessions",
+      "workflow": "Workflow"
+    },
+    "edit": "Edit project",
+    "systemPrompt": "System prompt",
+    "systemPromptHint": "Added to the system prompt of every agent in this project, before the agent profile's own."
+  },
+  "sessions": {
+    "new": "New session",
+    "empty": "No sessions yet. A session is one run of the project's workflow for a task you describe.",
+    "notRunnable": "Running sessions is not available yet.",
+    "delete": "Delete session",
+    "name": "Name",
+    "task": "Task",
+    "taskHint": "What the workflow should deliver. It is the first input of the first step.",
+    "status": {
+      "new": "New",
+      "running": "Running",
+      "waiting": "Waiting for you",
+      "done": "Done",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "interrupted": "Interrupted"
+    },
+    "hint": "Open a session to run its workflow."
+  },
+  "wf": {
+    "saved": "Workflow saved.",
+    "add": "Add step:",
+    "loadStandard": "Load standard workflow",
+    "pick": "Select a step to edit it. Drag from a step's right handle to another step to connect them.",
+    "label": "Label",
+    "profile": "Agent profile",
+    "prompt": "Instructions",
+    "agentPromptHint": "Added to the task of this step, after the output of the previous steps.",
+    "schema": "Result schema (JSON, optional)",
+    "schemaHint": "Makes the result structured so conditions can read it.",
+    "maxRuns": "Max runs",
+    "maxRunsHint": "How many times a session may reach this step before it fails (loops).",
+    "field": "Field",
+    "fieldHint": "`status` or `result.<key>` of the previous agent's result.",
+    "operator": "Operator",
+    "value": "Value",
+    "remove": "Remove step",
+    "type": {
+      "start": "Start",
+      "agent": "Agent",
+      "condition": "Condition",
+      "human": "Human",
+      "end": "End"
+    },
+    "op": {
+      "eq": "equals",
+      "ne": "differs from",
+      "contains": "contains"
+    },
+    "mode": {
+      "label": "Kind",
+      "hint": "Changing it removes the step's outgoing connections.",
+      "approve": "Approve or reject",
+      "input": "Free-text answer"
+    },
+    "humanPromptHint": "Shown to the user when the session waits here.",
+    "outcome": {
+      "label": "Outcome",
+      "success": "Success",
+      "failure": "Failure"
+    },
+    "branch": {
+      "true": "yes",
+      "false": "no",
+      "approved": "approved",
+      "rejected": "rejected"
+    },
+    "problem": {
+      "unreachable": "\"{{node}}\" cannot be reached from the start.",
+      "unknown_profile": "\"{{node}}\" uses an agent profile that does not exist.",
+      "no_next": "\"{{node}}\" has no next step.",
+      "multi_out": "\"{{node}}\" has more than one exit.",
+      "missing_branch": "\"{{node}}\" is missing one of its exits.",
+      "duplicate_branch": "\"{{node}}\" has two connections on the same exit.",
+      "no_end": "The workflow has no end step."
+    },
+    "instances": "Parallel agents",
+    "instancesHint": "How many agents of this profile work on the step at once. The engine picks a number in this range and splits the work between them.",
+    "min": "min",
+    "max": "max",
+    "coordinator": "Coordinator",
+    "coordinatorHint": "The coordinator receives the result of every step and decides which of the connected steps comes next, within the connections drawn here. Without one, results flow along the connections.",
+    "timeout": "Timeout (minutes)",
+    "timeoutHint": "How long an agent run of this step may take before it is killed. Default 30."
+  },
+  "runs": {
+    "title": "Run an agent",
+    "hint": "Starts one agent of a profile in its own VM, on the profile's image, with your Claude token (Settings > LLM). The log is kept in the app data folder.",
+    "prompt": "Task",
+    "start": "Start",
+    "cancel": "Cancel",
+    "booting": "Booting the VM…",
+    "status": {
+      "done": "Done",
+      "needs_input": "Needs input",
+      "failed": "Failed"
+    }
+  },
+  "session": {
+    "back": "Sessions",
+    "start": "Start",
+    "continue": "Continue",
+    "approve": "Approve",
+    "reject": "Reject",
+    "send": "Send",
+    "comment": "Comment (optional)",
+    "answer": "Your answer",
+    "ask": {
+      "approve": "Your approval is needed",
+      "input": "The workflow needs your input",
+      "questions": "An agent has questions"
+    },
+    "rejected": "The coordinator's answer was refused: {{reason}}",
+    "condition": "Condition on {{field}}: {{result}}",
+    "waiting": "Waiting for you at \"{{label}}\"",
+    "ended": "Ended: {{outcome}}"
   }
 }
