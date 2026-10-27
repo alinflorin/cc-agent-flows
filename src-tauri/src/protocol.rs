@@ -27,6 +27,10 @@ pub struct Bootstrap {
     /// without it `agentd` sets up no proxy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tunnel: Option<TunnelKeys>,
+    /// The certificate (PEM) of the CA that signs the certificates the egress proxy shows for the
+    /// hosts of the run's credential injections. Public; `agentd` makes the VM trust it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ca: Option<String>,
 }
 
 /// What `agentd` needs to open the SSH tunnel to the app's egress proxy.

@@ -4,15 +4,13 @@
 //! Besides the Claude token there are named secrets (Settings > Secrets). The credential store
 //! cannot list its entries, so the names are kept in `<app data>/secrets.json` (no values). A
 //! profile's environment variable may refer to one as `${secret:NAME}`; the reference is resolved
-//! when the run starts (`resolve_env`), so the value is only in the app and the run's `Task`.
+//! when the run starts (`injections::prepare`), so the value is only in the app and the run's `Task`.
 
 use std::path::{Path, PathBuf};
 
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 
-use crate::profiles::EnvVar;
-use crate::protocol::TaskEnv;
 
 const SERVICE: &str = "cc-agent-flows";
 const CLAUDE_TOKEN: &str = "claude-setup-token";
@@ -77,7 +75,7 @@ fn save_index(path: &Path, index: &Index) -> Result<(), String> {
     std::fs::write(path, serde_json::to_vec_pretty(index).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
-fn valid_name(name: &str) -> bool {
+pub fn valid_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
         && name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
@@ -88,41 +86,32 @@ fn secret_entry(name: &str) -> Result<Entry, String> {
     Entry::new(SERVICE, &format!("secret:{name}")).map_err(|e| e.to_string())
 }
 
-fn secret_value(name: &str) -> Option<String> {
+pub fn secret_value(name: &str) -> Option<String> {
     secret_entry(name).ok()?.get_password().ok()
 }
 
-/// Replaces every `${secret:NAME}` in `value` with what `lookup` returns; fails on an unknown name.
-/// Other text, including `${` that is not a reference, is left as it is.
-pub fn resolve(value: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Result<String, String> {
-    const OPEN: &str = "${secret:";
+/// Replaces every `${<kind>:NAME}` in `value` with what `lookup` returns; fails on an unknown
+/// name. Other text, including `${` that is not a reference, is left as it is.
+pub fn resolve(value: &str, kind: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Result<String, String> {
+    let open = format!("${{{kind}:");
     let mut out = String::new();
     let mut rest = value;
-    while let Some(at) = rest.find(OPEN) {
-        let after = &rest[at + OPEN.len()..];
+    while let Some(at) = rest.find(&open) {
+        let after = &rest[at + open.len()..];
         let Some(end) = after.find('}') else { break };
         let name = &after[..end];
         if !valid_name(name) {
-            out.push_str(&rest[..at + OPEN.len()]);
+            out.push_str(&rest[..at + open.len()]);
             rest = after;
             continue;
         }
         out.push_str(&rest[..at]);
-        out.push_str(&lookup(name).ok_or_else(|| format!("the secret {name} is not set (Settings > Secrets)"))?);
+        let tab = if kind == "secret" { "Secrets" } else { "Injections" };
+        out.push_str(&lookup(name).ok_or_else(|| format!("the {kind} {name} does not exist (Settings > {tab})"))?);
         rest = &after[end + 1..];
     }
     out.push_str(rest);
     Ok(out)
-}
-
-/// A profile's variables for a `Task`, with the secret references filled in.
-pub fn resolve_env(vars: &[EnvVar]) -> Result<Vec<TaskEnv>, String> {
-    vars.iter()
-        .map(|v| {
-            let value = resolve(&v.value, &secret_value).map_err(|e| format!("{}: {e}", v.name))?;
-            Ok(TaskEnv { name: v.name.clone(), value })
-        })
-        .collect()
 }
 
 /// The names of the saved secrets.
@@ -175,12 +164,12 @@ mod tests {
 
     #[test]
     fn resolves_references() {
-        assert_eq!(resolve("plain", &look).unwrap(), "plain");
-        assert_eq!(resolve("${secret:A}", &look).unwrap(), "1");
-        assert_eq!(resolve("Bearer ${secret:A}-${secret:B_2}!", &look).unwrap(), "Bearer 1-x y!");
+        assert_eq!(resolve("plain", "secret", &look).unwrap(), "plain");
+        assert_eq!(resolve("${secret:A}", "secret", &look).unwrap(), "1");
+        assert_eq!(resolve("Bearer ${secret:A}-${secret:B_2}!", "secret", &look).unwrap(), "Bearer 1-x y!");
         // Not references: left alone.
-        assert_eq!(resolve("${HOME} ${secret:} ${secret:a b} ${secret:A", &look).unwrap(), "${HOME} ${secret:} ${secret:a b} ${secret:A");
-        assert!(resolve("${secret:NOPE}", &look).unwrap_err().contains("NOPE"));
+        assert_eq!(resolve("${HOME} ${secret:} ${secret:a b} ${secret:A", "secret", &look).unwrap(), "${HOME} ${secret:} ${secret:a b} ${secret:A");
+        assert!(resolve("${secret:NOPE}", "secret", &look).unwrap_err().contains("NOPE"));
     }
 
     #[test]

@@ -790,8 +790,8 @@ impl Host for RealHost {
         };
         let run_id = crate::runs::new_run_id();
         let identity = crate::runs::identity(&[("session", &self.sid), ("step", &req.node)], &run_id);
-        let env = match crate::secrets::resolve_env(&profile.env) {
-            Ok(env) => env,
+        let (env, injections) = match crate::injections::prepare(&self.app, &profile.env) {
+            Ok(v) => v,
             Err(e) => return failed(format!("the profile {}: {e}", req.profile)),
         };
         let task = Task {
@@ -805,7 +805,7 @@ impl Host for RealHost {
             env,
             timeout_secs: u64::from(req.timeout_mins) * 60,
         };
-        let spec = Spec { run_id, image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, allow_hosts: profile.allow_hosts.clone(), task };
+        let spec = Spec { run_id, image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, allow_hosts: profile.allow_hosts.clone(), injections, task };
         // Cancelling the session cancels this VM.
         let (tx, rx) = oneshot::channel();
         let mut c = self.cancel.clone();

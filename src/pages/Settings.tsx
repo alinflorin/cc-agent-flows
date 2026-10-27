@@ -12,6 +12,7 @@ import { ImagesSettings } from "./SettingsImages";
 import { LlmSettings } from "./SettingsLlm";
 import { NetworkSettings } from "./SettingsNetwork";
 import { SecretsSettings } from "./SettingsSecrets";
+import { InjectionsSettings } from "./SettingsInjections";
 
 const NAME_MAX = 40;
 
@@ -134,8 +135,9 @@ export function Settings() {
         <Tab value="images">{t("settings.tabs.images")}</Tab>
         <Tab value="network">{t("settings.tabs.network")}</Tab>
         <Tab value="secrets">{t("settings.tabs.secrets")}</Tab>
+        <Tab value="injections">{t("settings.tabs.injections")}</Tab>
       </TabList>
-      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : tab === "network" ? <NetworkSettings /> : tab === "secrets" ? <SecretsSettings /> : <ImagesSettings />}
+      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : tab === "network" ? <NetworkSettings /> : tab === "secrets" ? <SecretsSettings /> : tab === "injections" ? <InjectionsSettings /> : <ImagesSettings />}
     </>
   );
 }

@@ -4,8 +4,8 @@
 //! address the name resolves to must be public. The proxy resolves the name itself and connects
 //! to that address, so the guest's own DNS plays no part.
 //!
-//! Not built yet: TLS inspection and credential injection (they would sit between the `200` and
-//! the byte copy, see Egress control in CLAUDE.md).
+//! Hosts a credential injection covers are not tunnelled but handed to `inspect.rs` (TLS
+//! inspection and header injection) after the `200`.
 
 #![allow(dead_code)]
 
@@ -13,6 +13,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::inspect::{Inspector, Prefixed};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Semaphore;
@@ -51,10 +52,16 @@ impl Rules {
 
     /// `host` must already be lowercase without a trailing dot.
     pub fn allows(&self, host: &str) -> bool {
-        self.0.iter().any(|rule| match rule.strip_prefix("*.") {
-            Some(suffix) => host.len() > suffix.len() + 1 && host.ends_with(suffix) && host.as_bytes()[host.len() - suffix.len() - 1] == b'.',
-            None => rule == host,
-        })
+        self.0.iter().any(|rule| host_matches(rule, host))
+    }
+}
+
+/// Whether `host` (lowercase, no trailing dot) is the host `rule` names, or a subdomain of it for
+/// a `*.` rule.
+pub fn host_matches(rule: &str, host: &str) -> bool {
+    match rule.strip_prefix("*.") {
+        Some(suffix) => host.len() > suffix.len() + 1 && host.ends_with(suffix) && host.as_bytes()[host.len() - suffix.len() - 1] == b'.',
+        None => rule == host,
     }
 }
 
@@ -100,22 +107,24 @@ pub struct Proxy {
     pub ports: Vec<u16>,
     /// Refuse private, loopback and link-local addresses (only the tests turn this off).
     pub guard: bool,
+    /// Set when the run has injections: the hosts they cover are inspected, not tunnelled.
+    inspector: Option<Inspector>,
     slots: Semaphore,
 }
 
 impl Proxy {
-    pub fn new(rules: Rules) -> Arc<Proxy> {
-        Arc::new(Proxy { rules, ports: vec![443], guard: true, slots: Semaphore::new(MAX_CONNECTIONS) })
+    pub fn new(rules: Rules, inspector: Option<Inspector>) -> Arc<Proxy> {
+        Arc::new(Proxy { rules, ports: vec![443], guard: true, inspector, slots: Semaphore::new(MAX_CONNECTIONS) })
     }
 
     #[cfg(test)]
-    fn for_test(rules: Rules, port: u16) -> Arc<Proxy> {
-        Arc::new(Proxy { rules, ports: vec![port], guard: false, slots: Semaphore::new(MAX_CONNECTIONS) })
+    pub(crate) fn for_test(rules: Rules, port: u16, inspector: Option<Inspector>) -> Arc<Proxy> {
+        Arc::new(Proxy { rules, ports: vec![port], guard: false, inspector, slots: Semaphore::new(MAX_CONNECTIONS) })
     }
 
     /// Serves one client connection: reads its `CONNECT`, checks it and tunnels. `log` gets one
     /// line per connection (allowed or not, and why). Ends when either side closes.
-    pub async fn serve<S>(&self, mut client: S, log: impl Fn(String))
+    pub async fn serve<S>(&self, mut client: S, log: impl Fn(String) + Sync)
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
@@ -147,6 +156,9 @@ impl Proxy {
         log(format!("egress: {shown} allowed"));
         if client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await.is_err() {
             return;
+        }
+        if let Some(inspector) = self.inspector.as_ref().filter(|i| i.wants(host)) {
+            return inspector.serve(Prefixed::new(extra, client), upstream, host, &log).await;
         }
         // Whatever followed the request head in the same read belongs to the tunnel.
         if !extra.is_empty() && upstream.write_all(&extra).await.is_err() {
@@ -267,7 +279,7 @@ mod tests {
 
     #[tokio::test]
     async fn denies_what_is_not_allowed() {
-        let proxy = Proxy::new(rules(&["api.anthropic.com", "localhost"]));
+        let proxy = Proxy::new(rules(&["api.anthropic.com", "localhost"]), None);
         for (req, why) in [
             ("CONNECT evil.com:443 HTTP/1.1\r\n\r\n", "not on the allowlist"),
             ("CONNECT api.anthropic.com:80 HTTP/1.1\r\n\r\n", "port not allowed"),
@@ -303,7 +315,7 @@ mod tests {
                 });
             }
         });
-        let proxy = Proxy::for_test(rules(&["localhost"]), port);
+        let proxy = Proxy::for_test(rules(&["localhost"]), port, None);
         let (mut client, server) = tokio::io::duplex(4096);
         let p = proxy.clone();
         tokio::spawn(async move { p.serve(server, |_| {}).await });

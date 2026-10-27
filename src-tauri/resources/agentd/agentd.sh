@@ -5,7 +5,7 @@
 # (src/protocol.rs). Needs busybox ash, jq, setpriv (util-linux) and setsid.
 #
 #   agentd.sh [--channel <path>] [--out <path>] [--workspace <dir>] [--claude <path>]
-#             [--ssh <path>] [--run-as <user>] [--poweroff]
+#             [--ssh <path>] [--ca-bundle <path>] [--ca-file <path>] [--run-as <user>] [--poweroff]
 #
 # --out is only for tests: with it the channel is split into two files (fifos). Everything
 # `claude` prints is untrusted data: wrapped by jq, truncated, never run.
@@ -16,6 +16,8 @@ OUT=
 WS=/home/agent/work
 CLAUDE=claude
 SSH=ssh
+CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+CA_FILE=/etc/ccaf-ca.pem
 RUN_AS=
 POWEROFF=0
 while [ $# -gt 0 ]; do
@@ -25,6 +27,8 @@ while [ $# -gt 0 ]; do
 	--workspace) WS=$2; shift ;;
 	--claude) CLAUDE=$2; shift ;;
 	--ssh) SSH=$2; shift ;;
+	--ca-bundle) CA_BUNDLE=$2; shift ;;
+	--ca-file) CA_FILE=$2; shift ;;
 	--run-as) RUN_AS=$2; shift ;;
 	--poweroff) POWEROFF=1 ;;
 	*) echo "agentd: unknown argument $1" >&2; exit 2 ;;
@@ -81,6 +85,8 @@ AGENT_ID=$(printf '%s' "$line" | jq -r '.id // empty')
 # With a sealed network the app sends the keys of the tunnel to its egress proxy.
 TUNNEL_KEY=$(printf '%s' "$line" | jq -r '.tunnel.key // empty')
 TUNNEL_HOST=$(printf '%s' "$line" | jq -r '.tunnel.host_key // empty')
+# The CA that signs the certificates of the hosts the app injects credentials for (public).
+CA=$(printf '%s' "$line" | jq -r '.ca // empty')
 
 send '{"kind":"ready"}'
 readline 300 || fail "no task from the app"
@@ -124,6 +130,16 @@ if [ -n "$TUNNEL_KEY" ]; then
 	[ "$_rc" = 0 ] || fail "tunnel: cannot reach the network proxy (ssh exit $_rc): $(tail -c 500 "$T/ssh.err" 2>/dev/null)"
 fi
 
+# Make the VM trust that CA: appended to the system bundle (curl, git, Go and most others read it)
+# and kept in a file for Node (NODE_EXTRA_CA_CERTS) and Python requests. It is a public certificate.
+if [ -n "$CA" ]; then
+	{
+		printf '%s\n' "$CA" >"$CA_FILE" && chmod 644 "$CA_FILE" &&
+			{ [ ! -s "$CA_BUNDLE" ] || [ "$(tail -c1 "$CA_BUNDLE" | wc -l)" -gt 0 ] || echo >>"$CA_BUNDLE"; } &&
+			cat "$CA_FILE" >>"$CA_BUNDLE"
+	} || fail "ca: cannot install the certificate"
+fi
+
 # The task brings no code and none is collected afterwards: the workspace is a scratch folder.
 mkdir -p "$WS" || fail "workspace: cannot create $WS"
 HOME_DIR=${HOME:-/root}
@@ -151,6 +167,9 @@ run_claude() {
 	# the profile's variables first, so they cannot override what follows
 	eval "$ENVSET"
 	export CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" HOME="$HOME_DIR" CCAF_AGENT_ID="$AGENT_ID"
+	if [ -n "$CA" ]; then
+		export NODE_EXTRA_CA_CERTS=$CA_FILE REQUESTS_CA_BUNDLE=$CA_BUNDLE
+	fi
 	if [ -n "$TUNNEL_KEY" ]; then
 		export HTTPS_PROXY=http://127.0.0.1:3128 HTTP_PROXY=http://127.0.0.1:3128 NO_PROXY=localhost,127.0.0.1,::1
 		export https_proxy=$HTTPS_PROXY http_proxy=$HTTP_PROXY no_proxy=$NO_PROXY

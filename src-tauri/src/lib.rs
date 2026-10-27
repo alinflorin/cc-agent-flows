@@ -3,6 +3,8 @@ mod builder;
 mod egress;
 mod engine;
 mod images;
+mod injections;
+mod inspect;
 mod network;
 #[cfg(test)]
 mod agentd_e2e;
@@ -105,7 +107,9 @@ pub fn run() {
             secrets::claude_token_clear,
             secrets::secrets_list,
             secrets::secrets_set,
-            secrets::secrets_delete
+            secrets::secrets_delete,
+            injections::injections_get,
+            injections::injections_save
         ])
         .setup(|app| {
             use tauri::Manager;
