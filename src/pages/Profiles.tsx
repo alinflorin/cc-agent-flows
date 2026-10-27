@@ -22,6 +22,7 @@ import {
 } from "@fluentui/react-components";
 import { Add16Regular, Delete16Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
+import { MODELS } from "../llm";
 import { useNotify } from "../notifications";
 
 interface EnvVar {
@@ -189,12 +190,17 @@ export function Profiles() {
                     </div>
                   </Field>
                   <Field label={t("profiles.model")} hint={t("profiles.modelHint")}>
-                    <Input
-                      className={styles.mono}
-                      placeholder="sonnet"
-                      value={editing.profile.model ?? ""}
-                      onChange={(_, d) => set({ model: d.value.trim() || null })}
-                    />
+                    <Select value={editing.profile.model ?? ""} onChange={(_, d) => set({ model: d.value || null })}>
+                      <option value="">{t("profiles.modelDefault")}</option>
+                      {editing.profile.model && !MODELS.some((m) => m.id === editing.profile.model) && (
+                        <option value={editing.profile.model}>{editing.profile.model}</option>
+                      )}
+                      {MODELS.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </Select>
                   </Field>
                   <Field label={t("profiles.effort")} hint={t("profiles.effortHint")}>
                     <Select value={editing.profile.effort ?? ""} onChange={(_, d) => set({ effort: d.value || null })}>
