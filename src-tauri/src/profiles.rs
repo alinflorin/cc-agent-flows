@@ -248,6 +248,32 @@ pub fn used_images(app: &tauri::AppHandle) -> Vec<String> {
     dir(app).map(|d| list(&d).into_iter().map(|e| e.profile.image).collect()).unwrap_or_default()
 }
 
+/// The demo profiles' credentials, as injections (see `injections::demo`): only the developer
+/// writes to GitHub, only the project manager and delivery lead write to Jira and Confluence;
+/// everyone else who reads them gets the read-only variants.
+fn demo_env(id: &str) -> Vec<EnvVar> {
+    let var = |name: &str, injection: &str| EnvVar { name: name.into(), value: format!("${{injection:{injection}}}") };
+    let github = match id {
+        "developer" => Some("GITHUB"),
+        "architect" | "reviewer" | "qa" => Some("GITHUB_READONLY"),
+        _ => None,
+    };
+    let atlassian = match id {
+        "project-manager" | "delivery-lead" => Some(""),
+        "business-analyst" | "architect" | "developer" | "reviewer" | "qa" => Some("_READONLY"),
+        _ => None,
+    };
+    let mut env = vec![];
+    if let Some(g) = github {
+        env.push(var("GH_TOKEN", g));
+    }
+    if let Some(s) = atlassian {
+        env.push(var("JIRA_API_TOKEN", &format!("JIRA{s}")));
+        env.push(var("CONFLUENCE_API_TOKEN", &format!("CONFLUENCE{s}")));
+    }
+    env
+}
+
 /// The starter profiles: the ones that work on code (developer, architect, reviewer) on the `developer` image, `qa` on its own, the rest on the base image; existing ones are left alone.
 pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
     let dir = dir(app)?;
@@ -309,7 +335,8 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
             name: name.into(),
             description: description.into(),
             system_prompt: prompt.into(),
-            env: vec![],
+            // the credentials come from the demo injections (Settings > Injections): the agent only sees a placeholder
+            env: demo_env(id),
             model: None,
             effort: None,
             cpus: None,
@@ -332,11 +359,13 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// First-start setup the user accepted: the starter images (building them) and profiles.
+/// First-start setup the user accepted: the starter images (building them), profiles, secrets and workflow.
 #[tauri::command]
 pub fn provision_starters(app: tauri::AppHandle) -> Result<(), String> {
     crate::images::provision_defaults(&app)?;
     provision_defaults(&app)?;
+    crate::secrets::provision_demo(&app)?;
+    crate::injections::provision_demo(&app)?;
     crate::workflow::provision_defaults(&app)
 }
 
@@ -384,6 +413,19 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn demo_credentials_follow_least_privilege() {
+        let value = |id: &str, name: &str| demo_env(id).into_iter().find(|v| v.name == name).map(|v| v.value);
+        assert_eq!(value("developer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB}"));
+        assert_eq!(value("reviewer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB_READONLY}"));
+        assert_eq!(value("architect", "JIRA_API_TOKEN").as_deref(), Some("${injection:JIRA_READONLY}"));
+        assert_eq!(value("delivery-lead", "JIRA_API_TOKEN").as_deref(), Some("${injection:JIRA}"));
+        assert!(demo_env("orchestrator").is_empty());
+        for id in ["orchestrator", "project-manager", "delivery-lead", "business-analyst", "architect", "developer", "reviewer", "qa"] {
+            assert!(validate_env(demo_env(id).iter().map(|v| (v.name.as_str(), Some(v.value.as_str())))).is_ok(), "{id}");
+        }
     }
 
     #[test]

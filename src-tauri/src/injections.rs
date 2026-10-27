@@ -165,6 +165,49 @@ pub fn injections_save(app: tauri::AppHandle, injections: Vec<Injection>) -> Res
     Ok(list)
 }
 
+/// The injections of the demo content, one per demo secret (`secrets::DEMO_SECRETS`), in a
+/// read-write and a read-only variant. The variants differ only in the secret: the token's own
+/// scopes make it read-only (the proxy cannot tell reads from writes by method alone: git fetches
+/// with POST, `gh` and Jira search read with POST). GitHub takes `Basic` because git over HTTPS
+/// needs it and the API accepts a token as the password too; the Atlassian ones name a placeholder
+/// site and e-mail the user must replace (a wildcard over `atlassian.net` would hand the token to
+/// anyone's site).
+fn demo() -> Vec<Injection> {
+    let rule = |host: &str, path: &str| Rule { host: host.into(), path: path.into(), methods: vec![] };
+    let basic = |name: &str, rules: Vec<Rule>, username: &str, secret: &str| Injection {
+        name: name.into(),
+        rules,
+        header: authorization(),
+        kind: Kind::Basic,
+        username: username.into(),
+        secret: secret.into(),
+        placeholder: String::new(),
+    };
+    let mut out = vec![];
+    for (suffix, secret_infix) in [("", ""), ("_READONLY", "_READONLY")] {
+        out.push(basic(&format!("GITHUB{suffix}"), vec![rule("github.com", ""), rule("api.github.com", "")], "x-access-token", &format!("GITHUB{secret_infix}_TOKEN")));
+        out.push(basic(&format!("JIRA{suffix}"), vec![rule("your-site.atlassian.net", "/rest/*")], "you@example.com", &format!("JIRA{secret_infix}_TOKEN")));
+        out.push(basic(&format!("CONFLUENCE{suffix}"), vec![rule("your-site.atlassian.net", "/wiki/*")], "you@example.com", &format!("CONFLUENCE{secret_infix}_TOKEN")));
+    }
+    out
+}
+
+/// Part of the demo content: adds the demo injections that do not exist yet.
+pub fn provision_demo(app: &tauri::AppHandle) -> Result<(), String> {
+    let path = file(app)?;
+    let mut list = load(&path);
+    for i in demo() {
+        if !list.iter().any(|o| o.name == i.name) {
+            list.push(i);
+        }
+    }
+    let list = cleaned(&list)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
 /// An injection switched on for a run, with its header value built from the secret. It lives in
 /// the app's memory (the proxy) and nowhere else.
 #[derive(Clone)]
@@ -295,6 +338,17 @@ mod tests {
 
     fn var(n: &str, v: &str) -> EnvVar {
         EnvVar { name: n.into(), value: v.into() }
+    }
+
+    #[test]
+    fn demo_injections_are_valid_and_use_demo_secrets() {
+        let list = demo();
+        assert_eq!(cleaned(&list).unwrap().len(), 6);
+        for i in &list {
+            assert!(crate::secrets::DEMO_SECRETS.contains(&i.secret.as_str()), "{}", i.name);
+        }
+        let names: Vec<_> = list.iter().map(|i| i.name.as_str()).collect();
+        assert!(names.contains(&"GITHUB_READONLY") && names.contains(&"CONFLUENCE_READONLY"));
     }
 
     #[test]

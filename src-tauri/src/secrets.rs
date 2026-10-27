@@ -114,6 +114,38 @@ pub fn resolve(value: &str, kind: &str, lookup: &dyn Fn(&str) -> Option<String>)
     Ok(out)
 }
 
+/// The secrets the demo content comes with, to be replaced with real values.
+pub const DEMO_SECRETS: &[&str] = &[
+    "GITHUB_TOKEN",
+    "JIRA_TOKEN",
+    "CONFLUENCE_TOKEN",
+    "GITHUB_READONLY_TOKEN",
+    "JIRA_READONLY_TOKEN",
+    "CONFLUENCE_READONLY_TOKEN",
+];
+const DUMMY: &str = "dummy";
+
+/// Part of the demo content: adds the demo secrets with a dummy value. One that is already listed
+/// or already in the credential store is left as it is.
+pub fn provision_demo(app: &tauri::AppHandle) -> Result<(), String> {
+    let path = index_file(app)?;
+    let mut index = load_index(&path);
+    for name in DEMO_SECRETS {
+        if index.names.iter().any(|n| n == name) {
+            continue;
+        }
+        let entry = secret_entry(name)?;
+        match entry.get_password() {
+            Err(keyring::Error::NoEntry) => entry.set_password(DUMMY).map_err(|e| e.to_string())?,
+            Ok(_) => {}
+            Err(e) => return Err(e.to_string()),
+        }
+        index.names.push(name.to_string());
+    }
+    index.names.sort();
+    save_index(&path, &index)
+}
+
 /// The names of the saved secrets.
 #[tauri::command]
 pub fn secrets_list(app: tauri::AppHandle) -> Result<Vec<String>, String> {
@@ -157,6 +189,11 @@ pub fn secrets_delete(app: tauri::AppHandle, name: String) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn demo_secret_names_are_valid() {
+        assert!(DEMO_SECRETS.iter().all(|n| valid_name(n)));
+    }
 
     fn look(n: &str) -> Option<String> {
         (n == "A").then(|| "1".to_string()).or_else(|| (n == "B_2").then(|| "x y".to_string()))

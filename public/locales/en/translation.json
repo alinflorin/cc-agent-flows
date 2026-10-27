@@ -182,7 +182,7 @@
   },
   "welcome": {
     "title": "Welcome",
-    "text": "Set up demo content? This creates two images, Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with playwright-cli), built on the base image in the background, eight agent profiles (orchestrator, project manager, delivery lead, business analyst, architect, developer, reviewer, tester), and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one; for each, the delivery lead has the analyst, architect, developer, reviewer and tester do their part. You can edit or delete all of it later.",
+    "text": "Set up demo content? This creates two images, Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with playwright-cli), built on the base image in the background, eight agent profiles (orchestrator, project manager, delivery lead, business analyst, architect, developer, reviewer, tester), six secrets with a dummy value (GITHUB, JIRA and CONFLUENCE tokens, each with a read-only twin) to replace with real ones, an injection for each (GitHub, Jira, Confluence; the Atlassian ones name a placeholder site and e-mail to edit) wired into the profiles that need them, and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one; for each, the delivery lead has the analyst, architect, developer, reviewer and tester do their part. You can edit or delete all of it later.",
     "yes": "Yes, set it up",
     "no": "Skip",
     "done": "Demo content created. The images are building.",
