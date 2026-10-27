@@ -1,6 +1,7 @@
 mod agent;
 #[cfg(test)]
 mod agentd_e2e;
+mod profiles;
 mod protocol;
 mod qemu;
 mod secrets;
@@ -65,6 +66,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             can_self_update,
             qemu::qemu_version,
+            profiles::profiles_list,
+            profiles::profiles_save,
+            profiles::profiles_delete,
             secrets::claude_token_set,
             secrets::claude_token_status,
             secrets::claude_token_clear

@@ -1,5 +1,7 @@
 {
+  "name": "Developer",
   "description": "Software development: git and the GitHub CLI, a C toolchain, Node.js, Python, uv, jq and yq",
-  "packages": ["git", "github-cli", "build-base", "nodejs", "npm", "python3", "uv", "jq", "yq-go"],
-  "disk_size": "8G"
+  "system_prompt": "You are a software engineer working in a scratch workspace. Prefer small, tested changes.",
+  "env": [],
+  "script": "apk add --no-cache git github-cli build-base nodejs npm python3 uv jq yq-go\ninstall -d -o agent -g agent /home/agent/work\n"
 }
