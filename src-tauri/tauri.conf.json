@@ -4,9 +4,9 @@
   "version": "0.3.0",
   "identifier": "com.alinflorin.ccagentflows",
   "build": {
-    "beforeDevCommand": "pnpm qemu:fetch && pnpm nats:fetch && pnpm images:fetch && pnpm dev",
+    "beforeDevCommand": "pnpm qemu:fetch && pnpm images:fetch && pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm qemu:fetch --required && pnpm nats:fetch --required && pnpm images:fetch --required && pnpm build",
+    "beforeBuildCommand": "pnpm qemu:fetch --required && pnpm images:fetch --required && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -36,7 +36,6 @@
     "createUpdaterArtifacts": true,
     "resources": {
       "resources/qemu/": "qemu/",
-      "resources/nats/": "nats/",
       "resources/images/": "images/",
       "resources/profiles/": "profiles/"
     },

@@ -1,20 +1,20 @@
-//! `agentd` runs inside an agent VM, once per boot: it reads the bootstrap message, gets a NATS
-//! token from the app's identity provider, takes its task from its own queue, runs `claude` on it,
-//! streams what `claude` prints and ends with one `final`. See CLAUDE.md for the design.
+//! `agentd` runs inside an agent VM, once per boot: it reads the bootstrap message from the app on
+//! its virtio-serial port, asks for its task, runs `claude` on it, streams what `claude` prints and
+//! ends with one `final`. See CLAUDE.md for the design.
 //!
-//! Usage: `agentd [--bootstrap <path>] [--workspace <dir>] [--claude <program>] [--run-as <user>] [--poweroff]`
+//! Usage: `agentd [--channel <device|unix:path>] [--workspace <dir>] [--claude <program>] [--run-as <user>] [--poweroff]`
 
 mod claude;
-mod identity;
 mod link;
 
 use std::path::PathBuf;
 use std::time::Duration;
 
-use protocol::{Bootstrap, Final, Status};
+use protocol::{Final, Status};
 
 pub struct Args {
-    pub bootstrap: PathBuf,
+    /// The virtio-serial device, or `unix:<socket>`.
+    pub channel: String,
     pub workspace: PathBuf,
     pub claude: String,
     pub run_as: Option<String>,
@@ -23,7 +23,7 @@ pub struct Args {
 
 fn args() -> Result<Args, String> {
     let mut a = Args {
-        bootstrap: "/dev/virtio-ports/bootstrap".into(),
+        channel: "/dev/virtio-ports/agent".into(),
         workspace: "/home/agent/work".into(),
         claude: "claude".into(),
         run_as: None,
@@ -33,7 +33,7 @@ fn args() -> Result<Args, String> {
     while let Some(flag) = it.next() {
         let mut value = || it.next().ok_or(format!("{flag} needs a value"));
         match flag.as_str() {
-            "--bootstrap" => a.bootstrap = value()?.into(),
+            "--channel" => a.channel = value()?,
             "--workspace" => a.workspace = value()?.into(),
             "--claude" => a.claude = value()?,
             "--run-as" => a.run_as = Some(value()?),
@@ -46,26 +46,6 @@ fn args() -> Result<Args, String> {
         }
     }
     Ok(a)
-}
-
-/// Reads the bootstrap message: one JSON line, then the channel is closed. The VM usually boots
-/// before the app connects its end of the channel, and until then a read returns end of file, so
-/// keep trying for a while.
-async fn read_bootstrap(path: &PathBuf) -> Result<Bootstrap, String> {
-    use tokio::io::{AsyncBufReadExt, BufReader};
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
-    loop {
-        if let Ok(file) = tokio::fs::File::open(path).await {
-            let mut line = String::new();
-            if BufReader::new(file).read_line(&mut line).await.is_ok() && !line.trim().is_empty() {
-                return serde_json::from_str(&line).map_err(|e| format!("bad bootstrap: {e}"));
-            }
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(format!("no bootstrap message on {}", path.display()));
-        }
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
 }
 
 #[tokio::main]
@@ -83,12 +63,12 @@ async fn main() {
 
 async fn run() -> Result<(), String> {
     let args = args()?;
-    let boot = read_bootstrap(&args.bootstrap).await?;
-    let link = link::Link::connect(&boot).await?;
+    // The VM boots before the app connects its end, so wait generously for the first message.
+    let link = link::Link::open(&args.channel).await?;
+    let boot = link.bootstrap(Duration::from_secs(300)).await?;
     link.start_heartbeat();
-
     let task = link.next_task(Duration::from_secs(300)).await?;
-    let fin = match claude::run(&args, &link, task).await {
+    let fin = match claude::run(&args, &link, &boot, task).await {
         Ok(f) => f,
         Err(reason) => Final {
             status: Status::Failed,

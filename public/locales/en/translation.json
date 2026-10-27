@@ -28,7 +28,6 @@
     "intro": "This is the starting point of the app."
   },
   "about": {
-    "nats": {"title": "Message broker (NATS)", "starting": "Starting", "running": "Running", "failed": "Not running", "port": "port {{port}}", "restart": "Restart"},
     "version": "Version {{version}}",
     "tagline": "Desktop app built with Tauri and Fluent UI."
   },

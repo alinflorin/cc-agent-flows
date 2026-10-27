@@ -1,118 +1,144 @@
-//! The agent's connection to the app: NATS with tokens from the identity provider, the task queue
-//! and everything `agentd` publishes.
+//! The agent's channel to the app: one virtio-serial port, one JSON message per line. The app
+//! speaks first (the bootstrap), `agentd` answers `ready`, the app sends the task.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use async_nats::jetstream::{self, consumer};
-use async_nats::{Auth, AuthError, ConnectOptions};
-use futures::StreamExt;
 use protocol::{Bootstrap, Event, Final, Heartbeat, Inbound, MAX_MESSAGE, Outbound, Task};
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::sync::{Mutex, mpsc, oneshot};
 
-use crate::identity;
+type Reader = BufReader<Box<dyn AsyncRead + Send + Unpin>>;
 
-const STREAM: &str = "AGENTS";
+enum Out {
+    Line(Vec<u8>),
+    /// Answered once everything before it has been written.
+    Flush(oneshot::Sender<()>),
+}
 
 pub struct Link {
-    client: async_nats::Client,
-    boot: Arc<Bootstrap>,
-    seq: AtomicU64,
+    tx: mpsc::UnboundedSender<Out>,
+    reader: Mutex<Reader>,
 }
 
 impl Link {
-    pub async fn connect(boot: &Bootstrap) -> Result<Arc<Link>, String> {
-        let boot = Arc::new(boot.clone());
-        let for_auth = boot.clone();
-        // Called on every (re)connect, so a session that ended after 15 minutes gets a fresh token.
-        let opts = ConnectOptions::with_auth_callback(move |_nonce| {
-            let boot = for_auth.clone();
-            async move {
-                let mut auth = Auth::new();
-                auth.token = Some(identity::token(&boot, "nats").await.map_err(AuthError::new)?);
-                Ok(auth)
+    /// Opens the channel: a virtio-serial device, or `unix:<path>` for a socket (used by tests).
+    /// The device may not exist for a moment after boot, so keep trying.
+    pub async fn open(path: &str) -> Result<Arc<Link>, String> {
+        let (reader, mut writer): (Box<dyn AsyncRead + Send + Unpin>, Box<dyn AsyncWrite + Send + Unpin>) =
+            if let Some(sock) = path.strip_prefix("unix:") {
+                let (r, w) = tokio::io::split(tokio::net::UnixStream::connect(sock).await.map_err(|e| format!("{sock}: {e}"))?);
+                (Box::new(r), Box::new(w))
+            } else {
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+                let file = loop {
+                    match std::fs::OpenOptions::new().read(true).write(true).open(Path::new(path)) {
+                        Ok(f) => break f,
+                        Err(e) if tokio::time::Instant::now() >= deadline => return Err(format!("{path}: {e}")),
+                        Err(_) => tokio::time::sleep(Duration::from_millis(500)).await,
+                    }
+                };
+                // A virtio port can be opened only once, so both halves share the descriptor.
+                let w = file.try_clone().map_err(|e| e.to_string())?;
+                (Box::new(tokio::fs::File::from_std(file)), Box::new(tokio::fs::File::from_std(w)))
+            };
+        let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
+        tokio::spawn(async move {
+            while let Some(item) = rx.recv().await {
+                match item {
+                    Out::Line(bytes) => {
+                        if writer.write_all(&bytes).await.is_err() || writer.flush().await.is_err() {
+                            break;
+                        }
+                    }
+                    Out::Flush(done) => {
+                        let _ = done.send(());
+                    }
+                }
             }
-        })
-        .retry_on_initial_connect();
-        // Early on the VM may be up before its network is: retry for a while.
-        let mut last = String::new();
-        for _ in 0..30 {
-            match opts.clone().connect(boot.nats_addr.as_str()).await {
-                Ok(client) => return Ok(Arc::new(Link { client, boot, seq: AtomicU64::new(0) })),
-                Err(e) => last = e.to_string(),
+        });
+        Ok(Arc::new(Link { tx, reader: Mutex::new(BufReader::new(reader)) }))
+    }
+
+    /// Reads one message. Until the app connects its end, a read returns end of file, so an empty
+    /// read is retried until `wait` has passed.
+    async fn read<T: DeserializeOwned>(&self, wait: Duration) -> Result<T, String> {
+        let deadline = tokio::time::Instant::now() + wait;
+        let mut reader = self.reader.lock().await;
+        let mut line = String::new();
+        loop {
+            let n = (&mut *reader).take(MAX_MESSAGE as u64 + 1).read_line(&mut line).await.map_err(|e| e.to_string())?;
+            if line.len() > MAX_MESSAGE {
+                return Err("message too large".into());
             }
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            if line.ends_with('\n') {
+                return serde_json::from_str(&line).map_err(|e| format!("bad message: {e}"));
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err("no message from the app".into());
+            }
+            if n == 0 {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
         }
-        Err(format!("could not reach NATS: {last}"))
     }
 
-    fn subject(&self) -> String {
-        format!("agent.{}.out", self.boot.id)
+    pub async fn bootstrap(&self, wait: Duration) -> Result<Bootstrap, String> {
+        self.read(wait).await
     }
 
-    pub async fn send(&self, msg: &Outbound) -> Result<(), String> {
-        let payload = serde_json::to_vec(msg).map_err(|e| e.to_string())?;
-        if payload.len() > MAX_MESSAGE {
+    /// Tells the app the bootstrap arrived and waits for the task.
+    pub async fn next_task(&self, wait: Duration) -> Result<Task, String> {
+        self.send(&Outbound::Ready)?;
+        match self.read::<Inbound>(wait).await? {
+            Inbound::Task(t) => Ok(t),
+        }
+    }
+
+    pub fn send(&self, msg: &Outbound) -> Result<(), String> {
+        let mut bytes = serde_json::to_vec(msg).map_err(|e| e.to_string())?;
+        if bytes.len() >= MAX_MESSAGE {
             return Err("message too large".into());
         }
-        self.client.publish(self.subject(), payload.into()).await.map_err(|e| e.to_string())
+        bytes.push(b'\n');
+        self.tx.send(Out::Line(bytes)).map_err(|_| "channel closed".to_string())
     }
 
     /// Publishes one line of `claude` output. Too large for a message, it is cut to a stub.
-    pub async fn event(&self, seq: u64, event: Value) -> Result<(), String> {
+    pub fn event(&self, seq: u64, event: Value) -> Result<(), String> {
         let msg = Outbound::Event(Event { seq, event });
         let size = serde_json::to_vec(&msg).map(|v| v.len()).unwrap_or(usize::MAX);
         if size < MAX_MESSAGE / 2 {
-            return self.send(&msg).await;
+            return self.send(&msg);
         }
-        let head: String = serde_json::to_string(&match &msg {
-            Outbound::Event(e) => &e.event,
-            _ => unreachable!(),
-        })
-        .unwrap_or_default()
-        .chars()
-        .take(4096)
-        .collect();
-        self.send(&Outbound::Event(Event { seq, event: json!({ "truncated": true, "bytes": size, "head": head }) })).await
+        let Outbound::Event(e) = msg else { unreachable!() };
+        let head: String = e.event.to_string().chars().take(4096).collect();
+        self.send(&Outbound::Event(Event { seq, event: json!({ "truncated": true, "bytes": size, "head": head }) }))
     }
 
-    /// The first heartbeat goes out at once then one every 10 seconds.
+    /// One heartbeat every 10 seconds, so the app can tell a hung VM from a quiet one.
     pub fn start_heartbeat(self: &Arc<Self>) {
         let me = self.clone();
+        let seq = AtomicU64::new(0);
         tokio::spawn(async move {
             loop {
-                let seq = me.seq.fetch_add(1, Ordering::Relaxed);
-                let _ = me.send(&Outbound::Heartbeat(Heartbeat { seq })).await;
+                if me.send(&Outbound::Heartbeat(Heartbeat { seq: seq.fetch_add(1, Ordering::Relaxed) })).is_err() {
+                    break;
+                }
                 tokio::time::sleep(Duration::from_secs(10)).await;
             }
         });
     }
 
-    /// Waits for the task on the agent's own queue and acknowledges it. The agent cannot look up the
-    /// stream, so the consumer is fetched directly.
-    pub async fn next_task(&self, wait: Duration) -> Result<Task, String> {
-        let js = jetstream::new(self.client.clone());
-        let cons: consumer::PullConsumer =
-            js.get_consumer_from_stream(&self.boot.consumer, STREAM).await.map_err(|e| format!("no task queue: {e}"))?;
-        let deadline = tokio::time::Instant::now() + wait;
-        while tokio::time::Instant::now() < deadline {
-            let mut batch =
-                cons.fetch().max_messages(1).expires(Duration::from_secs(5)).messages().await.map_err(|e| e.to_string())?;
-            let Some(msg) = batch.next().await else { continue };
-            let msg = msg.map_err(|e| e.to_string())?;
-            msg.ack().await.map_err(|e| e.to_string())?;
-            match serde_json::from_slice::<Inbound>(&msg.payload).map_err(|e| format!("bad task: {e}"))? {
-                Inbound::Task(t) => return Ok(t),
-                Inbound::Error { reason } => eprintln!("agentd: the app refused a message: {reason}"),
-            }
-        }
-        Err("no task arrived".into())
-    }
-
-    /// Sends the final message and waits until it has left the connection.
+    /// Sends the final message and waits until it has been written to the channel.
     pub async fn finish(&self, fin: Final) -> Result<(), String> {
-        self.send(&Outbound::Final(fin)).await?;
-        self.client.flush().await.map_err(|e| e.to_string())
+        self.send(&Outbound::Final(fin))?;
+        let (done, wait) = oneshot::channel();
+        self.tx.send(Out::Flush(done)).map_err(|_| "channel closed".to_string())?;
+        wait.await.map_err(|_| "channel closed".to_string())
     }
 }

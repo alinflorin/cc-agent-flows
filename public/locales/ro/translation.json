@@ -28,7 +28,6 @@
     "intro": "Acesta este punctul de pornire al aplicației."
   },
   "about": {
-    "nats": {"title": "Broker de mesaje (NATS)", "starting": "Pornește", "running": "Pornit", "failed": "Oprit", "port": "portul {{port}}", "restart": "Repornește"},
     "version": "Versiunea {{version}}",
     "tagline": "Aplicație desktop construită cu Tauri și Fluent UI."
   },
