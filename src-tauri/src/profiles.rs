@@ -1,7 +1,7 @@
 //! Agent profiles: what an agent VM is set up with on top of the base image. A profile has a
 //! name, a system prompt, environment variables and a customization script (run as root in a
-//! builder VM at image build). Presets ship with the app (read-only, buildable); user profiles
-//! live in the app data dir as `<id>.json`.
+//! builder VM at image build). The user creates them in the UI; each is `<id>.json` in the app
+//! data dir. The app ships none.
 //!
 //! An environment variable with a value is baked into the image; one without is injected by the
 //! app when the task starts (the run engine supplies the value, e.g. from the keyring).
@@ -40,7 +40,6 @@ pub struct Profile {
 #[derive(Debug, Clone, Serialize)]
 pub struct Entry {
     pub id: String,
-    pub preset: bool,
     #[serde(flatten)]
     pub profile: Profile,
 }
@@ -101,7 +100,7 @@ pub fn slug(name: &str) -> String {
     s.split('-').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("-")
 }
 
-fn read_dir(dir: &Path, preset: bool) -> Vec<Entry> {
+fn read_dir(dir: &Path) -> Vec<Entry> {
     let Ok(rd) = std::fs::read_dir(dir) else { return vec![] };
     let mut out = vec![];
     for e in rd.flatten() {
@@ -111,22 +110,17 @@ fn read_dir(dir: &Path, preset: bool) -> Vec<Entry> {
             && let Ok(profile) = serde_json::from_str::<Profile>(&text)
             && profile.validate().is_ok()
         {
-            out.push(Entry { id: id.to_string(), preset, profile });
+            out.push(Entry { id: id.to_string(), profile });
         }
     }
     out
 }
 
-/// Presets first, then user profiles, each sorted by name. A user profile never shadows a preset.
-pub fn list(presets: &Path, user: &Path) -> Vec<Entry> {
-    let mut a = read_dir(presets, true);
-    let ids: Vec<_> = a.iter().map(|e| e.id.clone()).collect();
-    let mut b: Vec<_> = read_dir(user, false).into_iter().filter(|e| !ids.contains(&e.id)).collect();
-    for v in [&mut a, &mut b] {
-        v.sort_by_key(|x| x.profile.name.to_lowercase());
-    }
-    a.extend(b);
-    a
+/// All profiles, sorted by name.
+pub fn list(user: &Path) -> Vec<Entry> {
+    let mut v = read_dir(user);
+    v.sort_by_key(|x| x.profile.name.to_lowercase());
+    v
 }
 
 fn user_path(user: &Path, id: &str) -> Result<PathBuf, String> {
@@ -136,9 +130,8 @@ fn user_path(user: &Path, id: &str) -> Result<PathBuf, String> {
     Ok(user.join(format!("{id}.json")))
 }
 
-/// Saves a user profile. `id` is `None` for a new one (derived from the name). Presets cannot be
-/// overwritten. Returns the id.
-pub fn save(presets: &Path, user: &Path, id: Option<&str>, profile: &Profile) -> Result<String, String> {
+/// Saves a profile. `id` is `None` for a new one (derived from the name). Returns the id.
+pub fn save(user: &Path, id: Option<&str>, profile: &Profile) -> Result<String, String> {
     profile.validate()?;
     let id = match id {
         Some(id) => id.to_string(),
@@ -149,16 +142,13 @@ pub fn save(presets: &Path, user: &Path, id: Option<&str>, profile: &Profile) ->
             }
             let mut id = base.clone();
             let mut n = 2;
-            while presets.join(format!("{id}.json")).exists() || user.join(format!("{id}.json")).exists() {
+            while user.join(format!("{id}.json")).exists() {
                 id = format!("{base}-{n}");
                 n += 1;
             }
             id
         }
     };
-    if presets.join(format!("{id}.json")).exists() {
-        return Err("presets cannot be edited".into());
-    }
     let path = user_path(user, &id)?;
     std::fs::create_dir_all(user).map_err(|e| e.to_string())?;
     let text = serde_json::to_string_pretty(profile).map_err(|e| e.to_string())?;
@@ -166,37 +156,29 @@ pub fn save(presets: &Path, user: &Path, id: Option<&str>, profile: &Profile) ->
     Ok(id)
 }
 
-pub fn delete(presets: &Path, user: &Path, id: &str) -> Result<(), String> {
-    if presets.join(format!("{id}.json")).exists() {
-        return Err("presets cannot be deleted".into());
-    }
+pub fn delete(user: &Path, id: &str) -> Result<(), String> {
     std::fs::remove_file(user_path(user, id)?).map_err(|e| e.to_string())
 }
 
-fn dirs(app: &tauri::AppHandle) -> Result<(PathBuf, PathBuf), String> {
+fn dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     use tauri::Manager;
-    let presets = app.path().resource_dir().map_err(|e| e.to_string())?.join("profiles");
-    let user = app.path().app_data_dir().map_err(|e| e.to_string())?.join("profiles");
-    Ok((presets, user))
+    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("profiles"))
 }
 
 #[tauri::command]
 pub fn profiles_list(app: tauri::AppHandle) -> Result<Vec<Entry>, String> {
-    let (presets, user) = dirs(&app)?;
-    Ok(list(&presets, &user))
+    Ok(list(&dir(&app)?))
 }
 
-/// Creates (`id` null) or updates a user profile; returns its id.
+/// Creates (`id` null) or updates a profile; returns its id.
 #[tauri::command]
 pub fn profiles_save(app: tauri::AppHandle, id: Option<String>, profile: Profile) -> Result<String, String> {
-    let (presets, user) = dirs(&app)?;
-    save(&presets, &user, id.as_deref(), &profile)
+    save(&dir(&app)?, id.as_deref(), &profile)
 }
 
 #[tauri::command]
 pub fn profiles_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let (presets, user) = dirs(&app)?;
-    delete(&presets, &user, &id)
+    delete(&dir(&app)?, &id)
 }
 
 #[cfg(test)]
@@ -207,7 +189,7 @@ mod tests {
         Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], script: "echo hi".into() }
     }
 
-    fn dir(tag: &str) -> PathBuf {
+    fn tmp(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("ccaf-prof-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
@@ -245,20 +227,17 @@ mod tests {
     }
 
     #[test]
-    fn user_profiles_roundtrip_and_presets_are_protected() {
-        let (pre, usr) = (dir("pre"), dir("usr"));
-        std::fs::write(pre.join("dev.json"), serde_json::to_string(&p("Dev")).unwrap()).unwrap();
-        let id = save(&pre, &usr, None, &p("My Agent!")).unwrap();
+    fn profiles_roundtrip() {
+        let usr = tmp("usr");
+        let id = save(&usr, None, &p("My Agent!")).unwrap();
         assert_eq!(id, "my-agent");
-        assert_eq!(save(&pre, &usr, None, &p("My Agent")).unwrap(), "my-agent-2");
-        assert_eq!(save(&pre, &usr, None, &p("dev")).unwrap(), "dev-2", "a new profile never takes a preset's id");
-        assert!(save(&pre, &usr, Some("dev"), &p("x")).is_err());
-        assert!(delete(&pre, &usr, "dev").is_err());
-        assert!(delete(&pre, &usr, "../x").is_err());
-        let all = list(&pre, &usr);
-        assert!(all[0].preset && all[0].id == "dev");
-        assert_eq!(all.len(), 4);
-        delete(&pre, &usr, "my-agent").unwrap();
-        assert_eq!(list(&pre, &usr).len(), 3);
+        assert_eq!(save(&usr, None, &p("My Agent")).unwrap(), "my-agent-2");
+        assert_eq!(save(&usr, Some("my-agent"), &p("Renamed")).unwrap(), "my-agent");
+        assert!(delete(&usr, "../x").is_err());
+        let all = list(&usr);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].profile.name, "My Agent");
+        delete(&usr, "my-agent").unwrap();
+        assert_eq!(list(&usr).len(), 1);
     }
 }
