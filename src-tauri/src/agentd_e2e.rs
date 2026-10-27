@@ -148,4 +148,110 @@ mod e2e {
         drop(broker);
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    /// Boots the real base image (fetched by `pnpm images:fetch`) with the bundled QEMU and runs a
+    /// task through it. Claude gets an invalid token, so the run is expected to fail, but the
+    /// whole path is exercised: boot, bootstrap over virtio-serial, identity provider and NATS
+    /// through the guest's `10.0.2.2`, `claude` start, `final`, power off. Skipped without KVM, the
+    /// image or QEMU.
+    #[tokio::test]
+    async fn base_image_boots_and_runs_a_task() {
+        let res = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+        let qemu = res.join("qemu/bin/qemu-system-x86_64");
+        let nats = res.join("nats/nats-server");
+        let image = res.join("images/agent-base-x86_64.qcow2");
+        if !(qemu.is_file() && nats.is_file() && image.is_file() && Path::new("/dev/kvm").exists()) {
+            eprintln!("needs qemu, nats-server, the base image and /dev/kvm, skipping");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("ccaf-vm-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let overlay = dir.join("overlay.qcow2");
+        let made = Command::new(res.join("qemu/bin/qemu-img"))
+            .args(["create", "-q", "-f", "qcow2", "-F", "qcow2", "-b"])
+            .arg(&image)
+            .arg(&overlay)
+            .status()
+            .unwrap();
+        assert!(made.success());
+
+        let broker = Broker::start(Command::new(nats), &dir.join("nats")).await.unwrap();
+        let issued = broker.allocate("proj", "sess", "base", Duration::from_secs(600)).await.unwrap();
+        let idp_port = broker.idp.issuer().rsplit(':').next().unwrap().to_string();
+        let boot = Bootstrap {
+            id: issued.identity.id.clone(),
+            name: issued.identity.name.clone(),
+            seed: issued.seed.clone(),
+            consumer: issued.consumer.clone(),
+            issuer: broker.idp.issuer().to_string(),
+            idp_addr: format!("10.0.2.2:{idp_port}"),
+            nats_addr: format!("10.0.2.2:{}", broker.port),
+        };
+        let task = Inbound::Task(Task {
+            prompt: "say hi".into(),
+            model: None,
+            effort: None,
+            claude_token: "invalid".into(),
+            session_id: "00000000-0000-4000-8000-000000000001".into(),
+            resume: false,
+            bundle: None,
+            schema: None,
+            timeout_secs: 120,
+        });
+        let task = serde_json::to_value(task).unwrap();
+        let mut rx = broker.inbox.subscribe();
+        broker
+            .send(&issued.identity.id, &Message { from: "app".into(), kind: "task".into(), body: task["body"].clone() })
+            .await
+            .unwrap();
+
+        let sock = dir.join("bootstrap.sock");
+        let mut vm = Command::new(&qemu)
+            .arg("-L")
+            .arg(res.join("qemu/share/qemu"))
+            .args(["-machine", "q35", "-accel", "kvm", "-cpu", "host", "-m", "1024", "-smp", "2", "-display", "none"])
+            .arg("-drive")
+            .arg(format!("file={},if=virtio", overlay.display()))
+            .args(["-nic", "user", "-device", "virtio-serial-pci", "-chardev"])
+            .arg(format!("socket,id=bs,path={},server=on,wait=off", sock.display()))
+            .args(["-device", "virtserialport,chardev=bs,name=bootstrap", "-serial"])
+            .arg(format!("file:{}", dir.join("console.log").display()))
+            .spawn()
+            .unwrap();
+
+        // The app's end of the one-shot channel: write the bootstrap message once QEMU listens.
+        let line = format!("{}\n", serde_json::to_string(&boot).unwrap());
+        let mut conn = None;
+        for _ in 0..50 {
+            if let Ok(c) = std::os::unix::net::UnixStream::connect(&sock) {
+                conn = Some(c);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        std::io::Write::write_all(&mut conn.expect("bootstrap socket"), line.as_bytes()).unwrap();
+
+        let outcome = async {
+            let mut kinds = vec![];
+            loop {
+                let m = tokio::time::timeout(Duration::from_secs(180), rx.recv()).await.ok()?.ok()?;
+                assert_eq!(m.from, issued.identity.id);
+                if m.kind == "final" {
+                    return Some((kinds, m));
+                }
+                kinds.push(m.kind);
+            }
+        }
+        .await;
+        let _ = vm.kill();
+        let _ = vm.wait();
+        let console = std::fs::read_to_string(dir.join("console.log")).unwrap_or_default();
+        let (kinds, fin) = outcome.unwrap_or_else(|| panic!("no final from the VM; console:\n{console}"));
+        assert_eq!(kinds[0], "heartbeat");
+        assert!(["done", "failed", "needs_input"].contains(&fin.body["status"].as_str().unwrap()), "{}", fin.body);
+
+        drop(broker);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
