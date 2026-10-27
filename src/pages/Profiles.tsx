@@ -4,6 +4,8 @@ import {
   Body1,
   Button,
   Card,
+  Combobox,
+  Option,
   CardHeader,
   Caption1,
   Dialog,
@@ -77,6 +79,7 @@ export function Profiles() {
 
   const [entries, setEntries] = useState<Entry[]>([]);
   const [images, setImages] = useState<ImageInfo[]>([]);
+  const [secrets, setSecrets] = useState<string[]>([]);
   const [editing, setEditing] = useState<{ id: string | null; profile: Profile } | null>(null);
   // closing only hides the dialog: its content stays until the next open, so the title cannot flip to "New profile" while it fades out
   const [open, setOpen] = useState(false);
@@ -89,6 +92,7 @@ export function Profiles() {
     try {
       setEntries(await call<Entry[]>("profiles_list"));
       setImages(await call<ImageInfo[]>("images_list"));
+      setSecrets(await call<string[]>("secrets_list"));
     } catch (e) {
       notify(String(e), "error");
     }
@@ -180,7 +184,20 @@ export function Profiles() {
                             value={v.name}
                             onChange={(_, d) => setEnv(i, { name: d.value })}
                           />
-                          <Input className={`${styles.grow} ${styles.mono}`} value={v.value} onChange={(_, d) => setEnv(i, { value: d.value })} />
+                          <Combobox
+                            className={styles.grow}
+                            input={{ className: styles.mono }}
+                            freeform
+                            placeholder={t("profiles.envValue")}
+                            value={v.value}
+                            selectedOptions={[]}
+                            onChange={(e) => setEnv(i, { value: e.target.value })}
+                            onOptionSelect={(_, d) => d.optionValue && setEnv(i, { value: d.optionValue })}
+                          >
+                            {secrets.map((n) => (
+                              <Option key={n} value={`\${secret:${n}}`}>{`\${secret:${n}}`}</Option>
+                            ))}
+                          </Combobox>
                           <Button
                             appearance="subtle"
                             icon={<Delete16Regular />}

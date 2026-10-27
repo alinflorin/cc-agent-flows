@@ -43,7 +43,8 @@
       "llm": "LLM",
       "general": "General",
       "images": "Images",
-      "network": "Network"
+      "network": "Network",
+      "secrets": "Secrets"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -94,6 +95,18 @@
       "allowHosts": "Allowed hosts",
       "allowHostsHint": "One per line: a name (github.com) or all the subdomains of one (*.github.com). Everything not listed here or in the agent's profile is blocked. The defaults are what Claude Code needs to work; an empty list cuts the agents off from the Claude API.",
       "defaults": "Restore defaults"
+    },
+    "secrets": {
+      "intro": "Named values kept in the OS credential store, never in plain files. Use them in an agent profile's environment variables as ${secret:NAME}. The value is read when a run starts and reaches the agent's environment, so use tokens with the least privilege and only for the profiles that need them.",
+      "desktopOnly": "Secrets are only available in the desktop app.",
+      "new": "New secret",
+      "newHint": "A name (letters, digits, underscore) and its value. Values cannot be read back, only replaced.",
+      "badName": "Letters, digits and underscores, not starting with a digit.",
+      "value": "Value",
+      "saved": "Secret saved.",
+      "empty": "No secrets yet.",
+      "replace": "Replace value",
+      "delete": "Delete secret"
     }
   },
   "updates": {
@@ -118,7 +131,7 @@
     "systemPrompt": "System prompt",
     "systemPromptHint": "Added to Claude's system prompt for every task of this agent.",
     "env": "Environment variables",
-    "envHint": "Sent to the agent with every task.",
+    "envHint": "Sent to the agent with every task. A value can be a ${secret:NAME} from Settings > Secrets.",
     "addVar": "Add variable",
     "image": "Image",
     "imageHint": "The system this agent runs on. Images are managed in Settings.",
@@ -134,7 +147,8 @@
     "memory": "Memory (MB)",
     "memoryHint": "RAM of the VM, at least 1024. Default 2048.",
     "allowHosts": "Allowed hosts",
-    "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). The hosts in Settings > Network are always allowed; everything else is blocked."
+    "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). The hosts in Settings > Network are always allowed; everything else is blocked.",
+    "envValue": "Value or ${secret:NAME}"
   },
   "welcome": {
     "title": "Welcome",

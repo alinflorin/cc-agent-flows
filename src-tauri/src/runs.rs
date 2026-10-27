@@ -20,7 +20,7 @@ use tokio::process::Command;
 use tokio::sync::oneshot;
 
 use crate::builder::Serial;
-use crate::protocol::{Bootstrap, Event, Final, Outbound, Status, Task, TaskEnv, TunnelKeys};
+use crate::protocol::{Bootstrap, Event, Final, Outbound, Status, Task, TunnelKeys};
 
 /// Time on top of the task's timeout for the VM to boot and shut down.
 const GRACE_SECS: u64 = 300;
@@ -244,7 +244,7 @@ pub fn agent_run(app: AppHandle, profile: String, prompt: String) -> Result<Stri
         resume: false,
         schema: crate::protocol::RESULT_SCHEMA.into(),
         system_prompt: Some(entry.profile.system_prompt.clone()).filter(|s| !s.trim().is_empty()),
-        env: entry.profile.env.iter().map(|v| TaskEnv { name: v.name.clone(), value: v.value.clone() }).collect(),
+        env: crate::secrets::resolve_env(&entry.profile.env)?,
         timeout_secs: 30 * 60,
     };
 
@@ -286,6 +286,7 @@ pub fn agent_run_cancel(app: AppHandle, run: String) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::TaskEnv;
 
     #[test]
     fn identity_is_safe_and_structured() {

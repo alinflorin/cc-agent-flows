@@ -43,7 +43,8 @@
       "llm": "LLM",
       "general": "General",
       "images": "Imagini",
-      "network": "Rețea"
+      "network": "Rețea",
+      "secrets": "Secrete"
     },
     "llm": {
       "token": "Setup token Claude Code",
@@ -94,6 +95,18 @@
       "allowHosts": "Gazde permise",
       "allowHostsHint": "Câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Tot ce nu e listat aici sau în profilul agentului este blocat. Valorile implicite sunt ce îi trebuie lui Claude Code ca să funcționeze; o listă goală taie agenții de la API-ul Claude.",
       "defaults": "Restaurează valorile implicite"
+    },
+    "secrets": {
+      "intro": "Valori cu nume, păstrate în depozitul de credențiale al sistemului, niciodată în fișiere în clar. Le folosești în variabilele de mediu ale unui profil ca ${secret:NUME}. Valoarea se citește când pornește o rulare și ajunge în mediul agentului, deci folosește tokenuri cu drepturi cât mai mici și doar la profilurile care au nevoie.",
+      "desktopOnly": "Secretele sunt disponibile doar în aplicația desktop.",
+      "new": "Secret nou",
+      "newHint": "Un nume (litere, cifre, underscore) și valoarea. Valorile nu pot fi citite înapoi, doar înlocuite.",
+      "badName": "Litere, cifre și underscore, fără cifră la început.",
+      "value": "Valoare",
+      "saved": "Secret salvat.",
+      "empty": "Niciun secret încă.",
+      "replace": "Înlocuiește valoarea",
+      "delete": "Șterge secretul"
     }
   },
   "updates": {
@@ -118,7 +131,7 @@
     "systemPrompt": "Prompt de sistem",
     "systemPromptHint": "Adăugat la promptul de sistem al lui Claude pentru fiecare sarcină a acestui agent.",
     "env": "Variabile de mediu",
-    "envHint": "Trimise agentului la fiecare sarcină.",
+    "envHint": "Trimise agentului la fiecare sarcină. O valoare poate fi un ${secret:NUME} din Setări > Secrete.",
     "addVar": "Adaugă variabilă",
     "image": "Imagine",
     "imageHint": "Sistemul pe care rulează acest agent. Imaginile se gestionează în Setări.",
@@ -134,7 +147,8 @@
     "memory": "Memorie (MB)",
     "memoryHint": "RAM-ul VM-ului, minimum 1024. Implicit 2048.",
     "allowHosts": "Gazde permise",
-    "allowHostsHint": "Gazdele de internet la care agentul poate ajunge prin HTTPS, câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Gazdele din Setări > Rețea sunt mereu permise; restul sunt blocate."
+    "allowHostsHint": "Gazdele de internet la care agentul poate ajunge prin HTTPS, câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Gazdele din Setări > Rețea sunt mereu permise; restul sunt blocate.",
+    "envValue": "Valoare sau ${secret:NUME}"
   },
   "welcome": {
     "title": "Bun venit",

@@ -102,7 +102,10 @@ pub fn run() {
             runs::agent_run_cancel,
             secrets::claude_token_set,
             secrets::claude_token_status,
-            secrets::claude_token_clear
+            secrets::claude_token_clear,
+            secrets::secrets_list,
+            secrets::secrets_set,
+            secrets::secrets_delete
         ])
         .setup(|app| {
             use tauri::Manager;
