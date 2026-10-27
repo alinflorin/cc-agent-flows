@@ -12,13 +12,13 @@
   },
   "nav": {
     "menu": "Meniu",
-    "more": "Mai multe opțiuni",
     "home": "Acasă",
     "about": "Despre",
     "settings": "Setări",
     "profiles": "Profiluri de agent",
-    "projects": "Proiecte",
-    "runs": "Rulări"
+    "runs": "Rulări",
+    "workflow": "Workflow",
+    "sessions": "Sesiuni"
   },
   "theme": {
     "label": "Temă",
@@ -129,33 +129,20 @@
   },
   "welcome": {
     "title": "Bun venit",
-    "text": "Configurăm un punct de plecare? Se creează două imagini, Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu playwright-cli), construite în fundal peste imaginea de bază, opt profiluri de agent (orchestrator, project manager, delivery lead, business analyst, arhitect, developer, reviewer, tester) și un proiect Demo cu workflow-ul standard de delivery: orchestratorul trimite cererea ta project managerului, care parcurge elementele de lucru pe rând; pentru fiecare, delivery lead-ul pune analistul, arhitectul, developerul, reviewerul și testerul să-și facă partea. Poți modifica sau șterge totul mai târziu.",
+    "text": "Creăm conținut demo? Se creează două imagini, Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu playwright-cli), construite în fundal peste imaginea de bază, opt profiluri de agent (orchestrator, project manager, delivery lead, business analyst, arhitect, developer, reviewer, tester) și workflow-ul standard de delivery: orchestratorul trimite cererea ta project managerului, care parcurge elementele de lucru pe rând; pentru fiecare, delivery lead-ul pune analistul, arhitectul, developerul, reviewerul și testerul să-și facă partea. Poți modifica sau șterge totul mai târziu.",
     "yes": "Da, configurează",
-    "no": "Nu, mulțumesc",
-    "done": "Imaginile și profilurile de start au fost create. Imaginile se construiesc."
-  },
-  "projects": {
-    "title": "Proiecte",
-    "new": "Proiect nou",
-    "empty": "Încă nu există proiecte. Creează unul pentru a-i proiecta workflow-ul și a porni sesiuni.",
-    "desktopOnly": "Disponibil doar în aplicația desktop.",
-    "noDescription": "Fără descriere",
-    "delete": "Șterge proiectul",
-    "deleteConfirm": "Ștergi „{{name}}” cu workflow-ul și sesiunile lui? Nu se poate anula.",
-    "name": "Nume",
-    "description": "Descriere",
-    "missing": "Proiectul nu a fost găsit.",
-    "tabs": {
-      "sessions": "Sesiuni",
-      "workflow": "Workflow"
-    },
-    "edit": "Editează proiectul",
-    "systemPrompt": "Prompt de sistem",
-    "systemPromptHint": "Adăugat la promptul de sistem al fiecărui agent din acest proiect, înaintea celui din profilul agentului."
+    "no": "Sari peste",
+    "done": "Conținutul demo a fost creat. Imaginile se construiesc.",
+    "step": "Pasul {{n}} din 2",
+    "step1Title": "Limbă și temă",
+    "step1Text": "Alege cum arată și în ce limbă vorbește aplicația. Le poți schimba oricând din Setări.",
+    "step2Title": "Conținut demo",
+    "next": "Înainte",
+    "back": "Înapoi"
   },
   "sessions": {
     "new": "Sesiune nouă",
-    "empty": "Încă nu există sesiuni. O sesiune este o rulare a workflow-ului proiectului pentru o sarcină descrisă de tine.",
+    "empty": "Nicio sesiune încă. O sesiune rulează workflow-ul pentru o cerere pe care o scrii în chat.",
     "notRunnable": "Rularea sesiunilor nu este disponibilă încă.",
     "delete": "Șterge sesiunea",
     "status": {
@@ -167,7 +154,6 @@
       "cancelled": "Anulată",
       "interrupted": "Întreruptă"
     },
-    "hint": "Deschide o sesiune ca să-i rulezi workflow-ul.",
     "untitled": "Fără titlu"
   },
   "wf": {
@@ -218,7 +204,10 @@
     "edgeKindHint": {
       "delegate": "Primul poate da de lucru celui de-al doilea (sau poate întreba utilizatorul, dacă al doilea e utilizatorul).",
       "before": "Între doi agenți chemați de același coordonator: al doilea poate fi chemat doar după ce primul a terminat. Coordonatorul e ținut de regulă; îi poate chema din nou mai târziu (bucle)."
-    }
+    },
+    "intro": "Agenții și cine poate da de lucru cui. O sesiune rulează acest workflow pentru o cerere pe care o scrii în chat.",
+    "instructions": "Instrucțiuni pentru toți agenții",
+    "instructionsHint": "Se adaugă la promptul de sistem al fiecărui agent, înaintea celui din profilul lui."
   },
   "runs": {
     "title": "Rulează un agent",
@@ -284,5 +273,8 @@
     "noCalls": "Acest agent nu a fost chemat încă.",
     "noEvents": "Nu s-a întâmplat nimic încă.",
     "noWorkflow": "Proiectul nu are încă un workflow."
+  },
+  "app": {
+    "desktopOnly": "Disponibil doar în aplicația desktop."
   }
 }

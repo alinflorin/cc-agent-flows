@@ -96,7 +96,7 @@ export function Runs() {
 
   const cancel = () => run && void call("agent_run_cancel", { run });
 
-  if (!desktop) return <Body1 block>{t("projects.desktopOnly")}</Body1>;
+  if (!desktop) return <Body1 block>{t("app.desktopOnly")}</Body1>;
   return (
     <>
       <Title2 as="h1" block>

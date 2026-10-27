@@ -54,6 +54,7 @@ interface Problem {
 interface View {
   workflow: Workflow;
   problems: Problem[];
+  system_prompt: string;
 }
 interface ProfileInfo {
   id: string;
@@ -123,7 +124,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   return invoke<T>(cmd, args);
 }
 
-function Editor({ project }: { project: string }) {
+function Editor() {
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
@@ -132,6 +133,7 @@ function Editor({ project }: { project: string }) {
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [problems, setProblems] = useState<Problem[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [instructions, setInstructions] = useState("");
 
   const mkEdge = useCallback(
     (id: string, source: string, target: string, kind: "delegate" | "before"): AEdge => ({
@@ -156,6 +158,7 @@ function Editor({ project }: { project: string }) {
       );
       setEdges(v.workflow.edges.map((e) => mkEdge(e.id, e.from, e.to, e.kind)));
       setProblems(v.problems);
+      setInstructions(v.system_prompt);
       setDirty(markDirty);
     },
     [setNodes, setEdges, mkEdge],
@@ -165,12 +168,12 @@ function Editor({ project }: { project: string }) {
     void (async () => {
       try {
         setProfiles(await call<ProfileInfo[]>("profiles_list"));
-        load(await call<View>("workflow_get", { project }), false);
+        load(await call<View>("workflow_get"), false);
       } catch (e) {
         notify(String(e), "error");
       }
     })();
-  }, [project, load, notify]);
+  }, [load, notify]);
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -214,7 +217,7 @@ function Editor({ project }: { project: string }) {
       edges: edges.map((e) => ({ id: e.id, from: e.source, to: e.target, kind: e.data?.kind ?? "delegate" })),
     };
     try {
-      const v = await call<View>("workflow_save", { project, workflow });
+      const v = await call<View>("workflow_save", { workflow, systemPrompt: instructions });
       setProblems(v.problems);
       setDirty(false);
       notify(t("wf.saved"), "success");
@@ -225,7 +228,8 @@ function Editor({ project }: { project: string }) {
 
   const useStandard = async () => {
     try {
-      load(await call<View>("workflow_standard"), true);
+      const v = await call<View>("workflow_standard");
+      load(v, true);
     } catch (e) {
       notify(String(e), "error");
     }
@@ -273,6 +277,17 @@ function Editor({ project }: { project: string }) {
           {t("wf.loadStandard")}
         </Button>
       </div>
+
+      <Field label={t("wf.instructions")} hint={t("wf.instructionsHint")}>
+        <Textarea
+          rows={3}
+          value={instructions}
+          onChange={(_, d) => {
+            setInstructions(d.value);
+            setDirty(true);
+          }}
+        />
+      </Field>
 
       {problems.length > 0 && !dirty && (
         <MessageBar intent="warning">
@@ -385,10 +400,10 @@ function Editor({ project }: { project: string }) {
   );
 }
 
-export function WorkflowEditor({ project }: { project: string }) {
+export function WorkflowEditor() {
   return (
     <ReactFlowProvider>
-      <Editor project={project} />
+      <Editor />
     </ReactFlowProvider>
   );
 }

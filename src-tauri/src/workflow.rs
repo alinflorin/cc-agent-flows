@@ -1,6 +1,6 @@
-//! Projects: a project has one workflow (an org chart of agents, edited visually) and any number
-//! of sessions (one execution of the workflow for a task the user gives). Stored under
-//! `<app data>/projects/<id>/`: `project.json`, `workflow.json` and `sessions/<sid>.json`.
+//! The workflow (an org chart of agents, edited visually) and the sessions (one execution of it for
+//! a task the user gives). Stored under the app data dir: `workflow/workflow.json`,
+//! `workflow/instructions.json` and `sessions/<sid>.json`.
 //!
 //! The workflow does not describe a sequence of steps. Its nodes are agents (roles) and an edge
 //! `A -> B` means A may hand work to B. The one node nobody hands work to is the root: it gets the
@@ -15,27 +15,17 @@ use serde::{Deserialize, Serialize};
 const MAX_NODES: usize = 100;
 const MAX_EDGES: usize = 300;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct Project {
-    pub name: String,
-    #[serde(default)]
-    pub description: String,
-    /// Appended to the system prompt of every agent of the project, before the profile's own.
+/// Instructions every agent of the workflow gets before its profile's own system prompt.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Instructions {
     #[serde(default)]
     pub system_prompt: String,
 }
 
-/// The system prompt an agent of a project gets: the project's, then the profile's.
-pub fn combine_system_prompts(project: &str, profile: &str) -> Option<String> {
-    let parts: Vec<&str> = [project.trim(), profile.trim()].into_iter().filter(|p| !p.is_empty()).collect();
+/// The system prompt an agent gets: the workflow's instructions, then the profile's.
+pub fn combine_system_prompts(workflow: &str, profile: &str) -> Option<String> {
+    let parts: Vec<&str> = [workflow.trim(), profile.trim()].into_iter().filter(|p| !p.is_empty()).collect();
     (!parts.is_empty()).then(|| parts.join("\n\n"))
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ProjectEntry {
-    pub id: String,
-    #[serde(flatten)]
-    pub project: Project,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -421,105 +411,53 @@ fn read_json<T: for<'a> Deserialize<'a>>(path: &Path) -> Option<T> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-fn project_dir(root: &Path, id: &str) -> Result<PathBuf, String> {
-    Ok(root.join(safe_id(id)?))
+fn workflow_dir(root: &Path) -> PathBuf {
+    root.join("workflow")
 }
 
-fn validate_project(p: &Project) -> Result<(), String> {
-    if p.name.trim().is_empty() || p.name.len() > 80 {
-        return Err("the name must be 1 to 80 characters".into());
-    }
-    if p.system_prompt.len() > 64 * 1024 {
-        return Err("the system prompt is too large".into());
-    }
-    Ok(())
+pub fn workflow(root: &Path) -> Workflow {
+    read_json::<serde_json::Value>(&workflow_dir(root).join("workflow.json")).and_then(Workflow::from_json).unwrap_or_default()
 }
 
-pub fn list(root: &Path) -> Vec<ProjectEntry> {
-    let Ok(rd) = std::fs::read_dir(root) else { return vec![] };
-    let mut out: Vec<ProjectEntry> = rd
-        .flatten()
-        .filter_map(|e| {
-            let id = e.file_name().to_str()?.to_string();
-            let project: Project = read_json(&e.path().join("project.json"))?;
-            validate_project(&project).ok()?;
-            Some(ProjectEntry { id, project })
-        })
-        .collect();
-    out.sort_by_key(|x| x.project.name.to_lowercase());
-    out
+pub fn instructions(root: &Path) -> Instructions {
+    read_json(&workflow_dir(root).join("instructions.json")).unwrap_or_default()
 }
 
-/// Saves a project; a new one starts with an empty workflow. Returns the id.
-pub fn save(root: &Path, id: Option<&str>, project: &Project) -> Result<String, String> {
-    validate_project(project)?;
-    let id = match id {
-        Some(id) => id.to_string(),
-        None => {
-            let base = crate::profiles::slug(&project.name);
-            if base.is_empty() {
-                return Err("the name needs letters or digits".into());
-            }
-            let (mut id, mut n) = (base.clone(), 2);
-            while root.join(&id).exists() {
-                id = format!("{base}-{n}");
-                n += 1;
-            }
-            id
-        }
-    };
-    let dir = project_dir(root, &id)?;
-    write_json(&dir.join("project.json"), project)?;
-    if !dir.join("workflow.json").exists() {
-        write_json(&dir.join("workflow.json"), &Workflow::default())?;
-    }
-    Ok(id)
-}
-
-pub fn delete(root: &Path, id: &str) -> Result<(), String> {
-    std::fs::remove_dir_all(project_dir(root, id)?).map_err(|e| e.to_string())
-}
-
-pub fn workflow(root: &Path, id: &str) -> Result<Workflow, String> {
-    let dir = project_dir(root, id)?;
-    if !dir.join("project.json").exists() {
-        return Err("no such project".into());
-    }
-    Ok(read_json::<serde_json::Value>(&dir.join("workflow.json")).and_then(Workflow::from_json).unwrap_or_default())
-}
-
-pub fn save_workflow(root: &Path, id: &str, wf: &Workflow) -> Result<(), String> {
+pub fn save_workflow(root: &Path, wf: &Workflow, instructions: &Instructions) -> Result<(), String> {
     wf.validate()?;
-    let dir = project_dir(root, id)?;
-    if !dir.join("project.json").exists() {
-        return Err("no such project".into());
+    if instructions.system_prompt.len() > 64 * 1024 {
+        return Err("the instructions are too large".into());
     }
-    write_json(&dir.join("workflow.json"), wf)
+    write_json(&workflow_dir(root).join("instructions.json"), instructions)?;
+    write_json(&workflow_dir(root).join("workflow.json"), wf)
 }
 
-fn session_path(root: &Path, project: &str, sid: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(root, project)?.join("sessions").join(format!("{}.json", safe_id(sid)?)))
+fn sessions_dir(root: &Path) -> PathBuf {
+    root.join("sessions")
 }
 
-/// A file next to a session's own: `<sid>.<ext>` in the project's `sessions/` folder (`state.json`
-/// and `log.jsonl` belong to the engine).
-pub fn session_file(root: &Path, project: &str, sid: &str, ext: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(root, project)?.join("sessions").join(format!("{}.{ext}", safe_id(sid)?)))
+fn session_path(root: &Path, sid: &str) -> Result<PathBuf, String> {
+    Ok(sessions_dir(root).join(format!("{}.json", safe_id(sid)?)))
 }
 
-pub fn read_session(root: &Path, project: &str, sid: &str) -> Result<Session, String> {
-    read_json(&session_path(root, project, sid)?).ok_or_else(|| "no such session".to_string())
+/// A file next to a session's own: `<sid>.<ext>` in the `sessions/` folder (`state.json` and
+/// `log.jsonl` belong to the engine).
+pub fn session_file(root: &Path, sid: &str, ext: &str) -> Result<PathBuf, String> {
+    Ok(sessions_dir(root).join(format!("{}.{ext}", safe_id(sid)?)))
 }
 
-pub fn set_session_status(root: &Path, project: &str, sid: &str, status: &str) -> Result<(), String> {
-    let mut session = read_session(root, project, sid)?;
+pub fn read_session(root: &Path, sid: &str) -> Result<Session, String> {
+    read_json(&session_path(root, sid)?).ok_or_else(|| "no such session".to_string())
+}
+
+pub fn set_session_status(root: &Path, sid: &str, status: &str) -> Result<(), String> {
+    let mut session = read_session(root, sid)?;
     session.status = status.into();
-    write_json(&session_path(root, project, sid)?, &session)
+    write_json(&session_path(root, sid)?, &session)
 }
 
-pub fn sessions(root: &Path, project: &str) -> Vec<SessionEntry> {
-    let Ok(dir) = project_dir(root, project) else { return vec![] };
-    let Ok(rd) = std::fs::read_dir(dir.join("sessions")) else { return vec![] };
+pub fn sessions(root: &Path) -> Vec<SessionEntry> {
+    let Ok(rd) = std::fs::read_dir(sessions_dir(root)) else { return vec![] };
     let mut out: Vec<SessionEntry> = rd
         .flatten()
         .filter_map(|e| {
@@ -536,28 +474,25 @@ pub fn sessions(root: &Path, project: &str) -> Vec<SessionEntry> {
     out
 }
 
-pub fn create_session(root: &Path, project: &str, name: &str, task: &str) -> Result<String, String> {
+pub fn create_session(root: &Path, name: &str, task: &str) -> Result<String, String> {
     if name.len() > 120 || task.len() > 64 * 1024 {
         return Err("the name is up to 120 characters and the task up to 64 KB".into());
-    }
-    if !project_dir(root, project)?.join("project.json").exists() {
-        return Err("no such project".into());
     }
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?;
     let base = format!("s-{:x}", now.as_millis());
     let (mut id, mut n) = (base.clone(), 2);
-    while session_path(root, project, &id)?.exists() {
+    while session_path(root, &id)?.exists() {
         id = format!("{base}-{n}");
         n += 1;
     }
     let session = Session { name: name.trim().into(), task: task.into(), created: now.as_secs(), status: new_status(), autonomy: ask() };
-    write_json(&session_path(root, project, &id)?, &session)?;
+    write_json(&session_path(root, &id)?, &session)?;
     Ok(id)
 }
 
 /// Sets a session's name (empty = untitled) and/or its task (only before it starts).
-pub fn edit_session(root: &Path, project: &str, sid: &str, name: Option<&str>, task: Option<&str>) -> Result<(), String> {
-    let mut session = read_session(root, project, sid)?;
+pub fn edit_session(root: &Path, sid: &str, name: Option<&str>, task: Option<&str>) -> Result<(), String> {
+    let mut session = read_session(root, sid)?;
     if let Some(name) = name {
         if name.len() > 120 {
             return Err("the name is up to 120 characters".into());
@@ -573,116 +508,97 @@ pub fn edit_session(root: &Path, project: &str, sid: &str, name: Option<&str>, t
         }
         session.task = task.into();
     }
-    write_json(&session_path(root, project, sid)?, &session)
+    write_json(&session_path(root, sid)?, &session)
 }
 
-pub fn set_session_autonomy(root: &Path, project: &str, sid: &str, autonomy: &str) -> Result<(), String> {
+pub fn set_session_autonomy(root: &Path, sid: &str, autonomy: &str) -> Result<(), String> {
     if !matches!(autonomy, "ask" | "never") {
         return Err("autonomy is `ask` or `never`".into());
     }
-    let mut session = read_session(root, project, sid)?;
+    let mut session = read_session(root, sid)?;
     session.autonomy = autonomy.into();
-    write_json(&session_path(root, project, sid)?, &session)
+    write_json(&session_path(root, sid)?, &session)
 }
 
-pub fn delete_session(root: &Path, project: &str, sid: &str) -> Result<(), String> {
+pub fn delete_session(root: &Path, sid: &str) -> Result<(), String> {
     for ext in ["state.json", "log.jsonl"] {
-        let _ = std::fs::remove_file(session_file(root, project, sid, ext)?);
+        let _ = std::fs::remove_file(session_file(root, sid, ext)?);
     }
-    std::fs::remove_file(session_path(root, project, sid)?).map_err(|e| e.to_string())
+    std::fs::remove_file(session_path(root, sid)?).map_err(|e| e.to_string())
 }
 
+/// The app data dir, where the workflow and the sessions live.
 pub fn root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     use tauri::Manager;
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("projects"))
+    app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
-/// The demo project with the standard workflow; an existing one is left alone.
+/// The standard workflow, if there is none yet (one the user made is left alone).
 pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
     let root = root(app)?;
-    if root.join("demo").exists() {
-        return Ok(());
+    if workflow(&root).nodes.is_empty() {
+        save_workflow(&root, &standard_workflow(), &Instructions::default())?;
     }
-    let project = Project {
-        name: "Demo".into(),
-        description: "A sample project with the standard delivery workflow: an orchestrator coordinating a project manager, a business analyst, developers and a tester.".into(),
-        system_prompt: String::new(),
-    };
-    let id = save(&root, Some("demo"), &project)?;
-    save_workflow(&root, &id, &standard_workflow())
+    Ok(())
 }
 
 #[derive(Serialize)]
 pub struct WorkflowView {
     pub workflow: Workflow,
     pub problems: Vec<Problem>,
+    pub system_prompt: String,
 }
 
-fn view(app: &tauri::AppHandle, wf: Workflow) -> Result<WorkflowView, String> {
+fn view(app: &tauri::AppHandle, wf: Workflow, system_prompt: String) -> Result<WorkflowView, String> {
     use tauri::Manager;
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("profiles");
     let ids: Vec<String> = crate::profiles::list(&dir).into_iter().map(|e| e.id).collect();
-    Ok(WorkflowView { problems: wf.problems(&ids), workflow: wf })
+    Ok(WorkflowView { problems: wf.problems(&ids), workflow: wf, system_prompt })
 }
 
 #[tauri::command]
-pub fn projects_list(app: tauri::AppHandle) -> Result<Vec<ProjectEntry>, String> {
-    Ok(list(&root(&app)?))
+pub fn workflow_get(app: tauri::AppHandle) -> Result<WorkflowView, String> {
+    let root = root(&app)?;
+    view(&app, workflow(&root), instructions(&root).system_prompt)
 }
 
+/// Saves the workflow and its instructions; returns them with the workflow's (soft) problems.
 #[tauri::command]
-pub fn projects_save(app: tauri::AppHandle, id: Option<String>, project: Project) -> Result<String, String> {
-    save(&root(&app)?, id.as_deref(), &project)
-}
-
-#[tauri::command]
-pub fn projects_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    delete(&root(&app)?, &id)
-}
-
-#[tauri::command]
-pub fn workflow_get(app: tauri::AppHandle, project: String) -> Result<WorkflowView, String> {
-    let wf = workflow(&root(&app)?, &project)?;
-    view(&app, wf)
-}
-
-/// Saves the workflow; returns it with its (soft) problems.
-#[tauri::command]
-pub fn workflow_save(app: tauri::AppHandle, project: String, workflow: Workflow) -> Result<WorkflowView, String> {
-    save_workflow(&root(&app)?, &project, &workflow)?;
-    view(&app, workflow)
+pub fn workflow_save(app: tauri::AppHandle, workflow: Workflow, system_prompt: String) -> Result<WorkflowView, String> {
+    save_workflow(&root(&app)?, &workflow, &Instructions { system_prompt: system_prompt.clone() })?;
+    view(&app, workflow, system_prompt)
 }
 
 #[tauri::command]
 pub fn workflow_standard(app: tauri::AppHandle) -> Result<WorkflowView, String> {
-    view(&app, standard_workflow())
+    view(&app, standard_workflow(), instructions(&root(&app)?).system_prompt)
 }
 
 #[tauri::command]
-pub fn sessions_list(app: tauri::AppHandle, project: String) -> Result<Vec<SessionEntry>, String> {
-    Ok(sessions(&root(&app)?, &project))
+pub fn sessions_list(app: tauri::AppHandle) -> Result<Vec<SessionEntry>, String> {
+    Ok(sessions(&root(&app)?))
 }
 
 #[tauri::command]
-pub fn sessions_create(app: tauri::AppHandle, project: String) -> Result<String, String> {
-    create_session(&root(&app)?, &project, "", "")
+pub fn sessions_create(app: tauri::AppHandle) -> Result<String, String> {
+    create_session(&root(&app)?, "", "")
 }
 
 /// Renames a session; an empty name makes it untitled again.
 #[tauri::command]
-pub fn sessions_rename(app: tauri::AppHandle, project: String, id: String, name: String) -> Result<(), String> {
-    edit_session(&root(&app)?, &project, &id, Some(&name), None)
+pub fn sessions_rename(app: tauri::AppHandle, id: String, name: String) -> Result<(), String> {
+    edit_session(&root(&app)?, &id, Some(&name), None)
 }
 
 /// Whether the agents may ask the user (`ask`) or must decide themselves (`never`).
 #[tauri::command]
-pub fn sessions_autonomy(app: tauri::AppHandle, project: String, id: String, autonomy: String) -> Result<(), String> {
-    set_session_autonomy(&root(&app)?, &project, &id, &autonomy)
+pub fn sessions_autonomy(app: tauri::AppHandle, id: String, autonomy: String) -> Result<(), String> {
+    set_session_autonomy(&root(&app)?, &id, &autonomy)
 }
 
 #[tauri::command]
-pub fn sessions_delete(app: tauri::AppHandle, project: String, id: String) -> Result<(), String> {
-    delete_session(&root(&app)?, &project, &id)
+pub fn sessions_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    delete_session(&root(&app)?, &id)
 }
 
 #[cfg(test)]
@@ -847,30 +763,30 @@ mod tests {
     }
 
     #[test]
-    fn projects_and_sessions_roundtrip() {
+    fn workflow_and_sessions_roundtrip() {
         let root = tmp("rt");
-        let p = Project { name: "My App".into(), description: String::new(), system_prompt: String::new() };
-        let id = save(&root, None, &p).unwrap();
-        assert_eq!(id, "my-app");
-        assert_eq!(save(&root, None, &p).unwrap(), "my-app-2");
-        assert!(workflow(&root, &id).unwrap().nodes.is_empty());
-        save_workflow(&root, &id, &standard_workflow()).unwrap();
-        assert_eq!(workflow(&root, &id).unwrap(), standard_workflow());
-        // saving the project again keeps its workflow
-        save(&root, Some(&id), &Project { name: "Renamed".into(), description: String::new(), system_prompt: "x".into() }).unwrap();
-        assert_eq!(workflow(&root, &id).unwrap().nodes.len(), 8);
+        assert!(workflow(&root).nodes.is_empty());
+        let ins = Instructions { system_prompt: "be brief".into() };
+        save_workflow(&root, &standard_workflow(), &ins).unwrap();
+        assert_eq!(workflow(&root), standard_workflow());
+        assert_eq!(instructions(&root), ins);
+        assert!(save_workflow(&root, &Workflow { nodes: vec![n("a"), n("a")], edges: vec![] }, &ins).is_err());
+        assert_eq!(workflow(&root), standard_workflow(), "a refused save changes nothing");
 
-        let s1 = create_session(&root, &id, "first", "do it").unwrap();
-        let s2 = create_session(&root, &id, "second", "").unwrap();
+        let s1 = create_session(&root, "first", "do it").unwrap();
+        let s2 = create_session(&root, "", "").unwrap();
         assert_ne!(s1, s2);
-        assert_eq!(sessions(&root, &id).len(), 2);
-        assert!(create_session(&root, &id, &"x".repeat(121), "").is_err());
-        delete_session(&root, &id, &s1).unwrap();
-        assert_eq!(sessions(&root, &id).len(), 1);
-
-        assert!(delete(&root, "../x").is_err());
-        delete(&root, &id).unwrap();
-        assert!(workflow(&root, &id).is_err());
-        assert_eq!(list(&root).len(), 1);
+        assert_eq!(sessions(&root).len(), 2);
+        assert!(create_session(&root, &"x".repeat(121), "").is_err());
+        set_session_autonomy(&root, &s2, "never").unwrap();
+        assert_eq!(read_session(&root, &s2).unwrap().autonomy, "never");
+        assert!(set_session_autonomy(&root, &s2, "sometimes").is_err());
+        edit_session(&root, &s2, Some("  renamed "), Some("a task")).unwrap();
+        set_session_status(&root, &s2, "running").unwrap();
+        assert!(edit_session(&root, &s2, None, Some("another")).is_err(), "the task is fixed once started");
+        assert_eq!(read_session(&root, &s2).unwrap().name, "renamed");
+        delete_session(&root, &s1).unwrap();
+        assert_eq!(sessions(&root).len(), 1);
+        assert!(read_session(&root, "../x").is_err());
     }
 }

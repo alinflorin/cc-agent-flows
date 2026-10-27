@@ -1,4 +1,4 @@
-//! The workflow engine: runs a session over the project's org chart (`projects.rs`).
+//! The workflow engine: runs a session over the workflow's org chart (`workflow.rs`).
 //!
 //! The root agent gets the user's request. An agent with outgoing edges is a *coordinator*: each
 //! time it runs it answers with a structured decision, to `delegate` work to agents it has an
@@ -33,7 +33,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 
 use crate::profiles::Profile;
-use crate::projects::{Node, Workflow};
+use crate::workflow::{Node, Workflow};
 use crate::protocol::{Final, Outbound, Status, Task, TaskEnv};
 use crate::runs::{Spec, failed};
 
@@ -757,16 +757,15 @@ struct Live {
 #[derive(Default)]
 pub struct Sessions(Mutex<HashMap<String, Live>>);
 
-fn key(project: &str, sid: &str) -> String {
-    format!("{project}/{sid}")
+fn key(sid: &str) -> String {
+    sid.to_string()
 }
 
 struct RealHost {
     app: AppHandle,
     root: PathBuf,
-    project: String,
     sid: String,
-    project_prompt: String,
+    instructions: String,
     profiles: HashMap<String, Profile>,
     cancel: watch::Receiver<bool>,
     log_file: Mutex<Option<std::fs::File>>,
@@ -790,7 +789,7 @@ impl Host for RealHost {
             return failed(format!("the profile {} does not exist", req.profile));
         };
         let run_id = crate::runs::new_run_id();
-        let identity = crate::runs::identity(&[("project", &self.project), ("session", &self.sid), ("step", &req.node)], &run_id);
+        let identity = crate::runs::identity(&[("session", &self.sid), ("step", &req.node)], &run_id);
         let task = Task {
             prompt: req.prompt,
             model: profile.model.clone(),
@@ -798,7 +797,7 @@ impl Host for RealHost {
             session_id: crate::runs::uuid_v4(),
             resume: false,
             schema: req.schema,
-            system_prompt: crate::projects::combine_system_prompts(&self.project_prompt, &profile.system_prompt),
+            system_prompt: crate::workflow::combine_system_prompts(&self.instructions, &profile.system_prompt),
             env: profile.env.iter().map(|v| TaskEnv { name: v.name.clone(), value: v.value.clone() }).collect(),
             timeout_secs: u64::from(req.timeout_mins) * 60,
         };
@@ -822,11 +821,11 @@ impl Host for RealHost {
         if let Some(f) = self.log_file.lock().unwrap().as_mut() {
             let _ = writeln!(f, "{entry}");
         }
-        let _ = self.app.emit("session-log", json!({"project": self.project, "session": self.sid, "entry": entry}));
+        let _ = self.app.emit("session-log", json!({"session": self.sid, "entry": entry}));
     }
 
     fn checkpoint(&self, state: &State, status: &str) {
-        if let Ok(path) = crate::projects::session_file(&self.root, &self.project, &self.sid, "state.json")
+        if let Ok(path) = crate::workflow::session_file(&self.root, &self.sid, "state.json")
             && let Ok(text) = serde_json::to_string(state)
         {
             let tmp = path.with_extension("json.tmp");
@@ -834,23 +833,23 @@ impl Host for RealHost {
                 let _ = std::fs::rename(&tmp, &path);
             }
         }
-        let _ = crate::projects::set_session_status(&self.root, &self.project, &self.sid, status);
+        let _ = crate::workflow::set_session_status(&self.root, &self.sid, status);
         self.log("status", json!({"status": status, "cost_usd": state.cost_usd}));
     }
 
     fn autonomy(&self) -> String {
-        crate::projects::read_session(&self.root, &self.project, &self.sid).map_or_else(|_| "ask".into(), |s| s.autonomy)
+        crate::workflow::read_session(&self.root, &self.sid).map_or_else(|_| "ask".into(), |s| s.autonomy)
     }
 }
 
-fn read_state(root: &std::path::Path, project: &str, sid: &str) -> Option<State> {
-    serde_json::from_str(&std::fs::read_to_string(crate::projects::session_file(root, project, sid, "state.json").ok()?).ok()?).ok()
+fn read_state(root: &std::path::Path, sid: &str) -> Option<State> {
+    serde_json::from_str(&std::fs::read_to_string(crate::workflow::session_file(root, sid, "state.json").ok()?).ok()?).ok()
 }
 
 /// Everything a run needs, checked before anything starts.
-fn prepare(app: &AppHandle, project: &str) -> Result<(Workflow, crate::projects::Project, HashMap<String, Profile>), String> {
-    let root = crate::projects::root(app)?;
-    let wf = crate::projects::workflow(&root, project)?;
+fn prepare(app: &AppHandle) -> Result<(Workflow, String, HashMap<String, Profile>), String> {
+    let root = crate::workflow::root(app)?;
+    let wf = crate::workflow::workflow(&root);
     wf.validate()?;
     let profiles_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("profiles");
     let profiles: HashMap<String, Profile> = crate::profiles::list(&profiles_dir).into_iter().map(|e| (e.id, e.profile)).collect();
@@ -860,7 +859,7 @@ fn prepare(app: &AppHandle, project: &str) -> Result<(Workflow, crate::projects:
         let codes: Vec<String> = problems.iter().map(|p| format!("{} ({})", p.code, p.node.as_deref().unwrap_or("-"))).collect();
         return Err(format!("the workflow has problems: {}", codes.join(", ")));
     }
-    for n in wf.nodes.iter().filter(|n| n.kind == crate::projects::NodeKind::Agent) {
+    for n in wf.nodes.iter().filter(|n| n.kind == crate::workflow::NodeKind::Agent) {
         let image = &profiles.get(&n.profile).ok_or_else(|| format!("the profile {} does not exist", n.profile))?.image;
         if crate::images::path(app, image).is_none() {
             return Err(format!("the image {image} (profile {}) is not built yet", n.profile));
@@ -869,14 +868,13 @@ fn prepare(app: &AppHandle, project: &str) -> Result<(Workflow, crate::projects:
     if crate::secrets::claude_token().is_none() {
         return Err("no Claude token is set (Settings > LLM)".into());
     }
-    let project_info = crate::projects::list(&root).into_iter().find(|p| p.id == project).ok_or("no such project")?.project;
-    Ok((wf, project_info, profiles))
+    Ok((wf, crate::workflow::instructions(&root).system_prompt, profiles))
 }
 
-fn launch(app: AppHandle, project: String, sid: String, fresh: bool) -> Result<(), String> {
-    let root = crate::projects::root(&app)?;
-    let session = crate::projects::read_session(&root, &project, &sid)?;
-    let k = key(&project, &sid);
+fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
+    let root = crate::workflow::root(&app)?;
+    let session = crate::workflow::read_session(&root, &sid)?;
+    let k = key(&sid);
     if app.state::<Sessions>().0.lock().unwrap().contains_key(&k) {
         return Err("the session is already running".into());
     }
@@ -884,23 +882,22 @@ fn launch(app: AppHandle, project: String, sid: String, fresh: bool) -> Result<(
         ("new", true) | ("interrupted" | "failed" | "cancelled", false) => {}
         _ => return Err(format!("a session that is {} cannot be {}", session.status, if fresh { "started" } else { "continued" })),
     }
-    let (wf, project_info, profiles) = prepare(&app, &project)?;
-    let mut state = if fresh { State::default() } else { read_state(&root, &project, &sid).unwrap_or_default() };
+    let (wf, instructions, profiles) = prepare(&app)?;
+    let mut state = if fresh { State::default() } else { read_state(&root, &sid).unwrap_or_default() };
     state.rewind_failures();
 
     let (cancel_tx, cancel_rx) = watch::channel(false);
     let (reply_tx, reply_rx) = mpsc::channel(4);
     app.state::<Sessions>().0.lock().unwrap().insert(k.clone(), Live { cancel: cancel_tx, reply: reply_tx });
 
-    let log_file = crate::projects::session_file(&root, &project, &sid, "log.jsonl")
+    let log_file = crate::workflow::session_file(&root, &sid, "log.jsonl")
         .ok()
         .and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
     let host = Arc::new(RealHost {
         app: app.clone(),
         root,
-        project,
         sid,
-        project_prompt: project_info.system_prompt,
+        instructions,
         profiles,
         cancel: cancel_rx.clone(),
         log_file: Mutex::new(log_file),
@@ -927,51 +924,49 @@ fn launch(app: AppHandle, project: String, sid: String, fresh: bool) -> Result<(
 
 /// Marks sessions that were running or waiting when the app closed as interrupted (run at startup).
 pub fn recover(app: &AppHandle) {
-    let Ok(root) = crate::projects::root(app) else { return };
-    for p in crate::projects::list(&root) {
-        for s in crate::projects::sessions(&root, &p.id) {
-            if matches!(s.session.status.as_str(), "running" | "waiting") {
-                let _ = crate::projects::set_session_status(&root, &p.id, &s.id, "interrupted");
-            }
+    let Ok(root) = crate::workflow::root(app) else { return };
+    for s in crate::workflow::sessions(&root) {
+        if matches!(s.session.status.as_str(), "running" | "waiting") {
+            let _ = crate::workflow::set_session_status(&root, &s.id, "interrupted");
         }
     }
 }
 
 /// Starts a new session; `task` (the user's first message) is saved first.
 #[tauri::command]
-pub fn session_start(app: AppHandle, project: String, id: String, task: Option<String>) -> Result<(), String> {
+pub fn session_start(app: AppHandle, id: String, task: Option<String>) -> Result<(), String> {
     if let Some(task) = task {
-        crate::projects::edit_session(&crate::projects::root(&app)?, &project, &id, None, Some(&task))?;
+        crate::workflow::edit_session(&crate::workflow::root(&app)?, &id, None, Some(&task))?;
     }
-    launch(app, project, id, true)
+    launch(app, id, true)
 }
 
 /// Continues an interrupted, failed or cancelled session: what finished is replayed from the
 /// journal, the rest runs again.
 #[tauri::command]
-pub fn session_continue(app: AppHandle, project: String, id: String) -> Result<(), String> {
-    launch(app, project, id, false)
+pub fn session_continue(app: AppHandle, id: String) -> Result<(), String> {
+    launch(app, id, false)
 }
 
 #[tauri::command]
-pub fn session_cancel(app: AppHandle, project: String, id: String) -> bool {
-    app.state::<Sessions>().0.lock().unwrap().get(&key(&project, &id)).is_some_and(|l| l.cancel.send(true).is_ok())
+pub fn session_cancel(app: AppHandle, id: String) -> bool {
+    app.state::<Sessions>().0.lock().unwrap().get(&key(&id)).is_some_and(|l| l.cancel.send(true).is_ok())
 }
 
 #[tauri::command]
-pub fn session_reply(app: AppHandle, project: String, id: String, reply: Reply) -> Result<(), String> {
+pub fn session_reply(app: AppHandle, id: String, reply: Reply) -> Result<(), String> {
     if reply.text.len() > 64 * 1024 {
         return Err("the answer is too large".into());
     }
     let sessions = app.state::<Sessions>();
     let live = sessions.0.lock().unwrap();
-    let l = live.get(&key(&project, &id)).ok_or("the session is not running")?;
+    let l = live.get(&key(&id)).ok_or("the session is not running")?;
     l.reply.try_send(reply).map_err(|_| "the session is not waiting for an answer".to_string())
 }
 
 #[derive(Serialize)]
 pub struct SessionView {
-    pub session: crate::projects::Session,
+    pub session: crate::workflow::Session,
     pub pending: Option<Pending>,
     pub live: bool,
     pub cost_usd: f64,
@@ -979,19 +974,19 @@ pub struct SessionView {
 }
 
 #[tauri::command]
-pub fn session_get(app: AppHandle, project: String, id: String) -> Result<SessionView, String> {
-    let root = crate::projects::root(&app)?;
-    let session = crate::projects::read_session(&root, &project, &id)?;
-    let state = read_state(&root, &project, &id).unwrap_or_default();
-    let live = app.state::<Sessions>().0.lock().unwrap().contains_key(&key(&project, &id));
+pub fn session_get(app: AppHandle, id: String) -> Result<SessionView, String> {
+    let root = crate::workflow::root(&app)?;
+    let session = crate::workflow::read_session(&root, &id)?;
+    let state = read_state(&root, &id).unwrap_or_default();
+    let live = app.state::<Sessions>().0.lock().unwrap().contains_key(&key(&id));
     Ok(SessionView { session, pending: state.pending.filter(|_| live), live, cost_usd: state.cost_usd, result: state.result })
 }
 
 /// The session's log (the last entries when it is long).
 #[tauri::command]
-pub fn session_log(app: AppHandle, project: String, id: String) -> Result<Vec<Value>, String> {
-    let root = crate::projects::root(&app)?;
-    let text = std::fs::read_to_string(crate::projects::session_file(&root, &project, &id, "log.jsonl")?).unwrap_or_default();
+pub fn session_log(app: AppHandle, id: String) -> Result<Vec<Value>, String> {
+    let root = crate::workflow::root(&app)?;
+    let text = std::fs::read_to_string(crate::workflow::session_file(&root, &id, "log.jsonl")?).unwrap_or_default();
     let entries: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
     let skip = entries.len().saturating_sub(5000);
     Ok(entries.into_iter().skip(skip).collect())
@@ -1000,7 +995,7 @@ pub fn session_log(app: AppHandle, project: String, id: String) -> Result<Vec<Va
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projects::{Edge, EdgeKind, NodeKind, standard_workflow};
+    use crate::workflow::{Edge, EdgeKind, NodeKind, standard_workflow};
 
     /// A host whose agents are a function of the request.
     type Script = Box<dyn FnMut(&AgentReq) -> Final + Send>;

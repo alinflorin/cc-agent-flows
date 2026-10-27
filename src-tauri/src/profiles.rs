@@ -281,7 +281,7 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
 pub fn provision_starters(app: tauri::AppHandle) -> Result<(), String> {
     crate::images::provision_defaults(&app)?;
     provision_defaults(&app)?;
-    crate::projects::provision_defaults(&app)
+    crate::workflow::provision_defaults(&app)
 }
 
 #[tauri::command]
