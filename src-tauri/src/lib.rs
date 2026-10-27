@@ -72,6 +72,7 @@ pub fn run() {
             images::images_save,
             images::images_delete,
             images::images_build,
+            profiles::provision_starters,
             profiles::profiles_list,
             profiles::profiles_save,
             profiles::profiles_delete,

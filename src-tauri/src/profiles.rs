@@ -1,7 +1,7 @@
 //! Agent profiles: how an agent behaves and which image it runs on. A profile has a name, a
 //! system prompt, environment variables and the id of an image (see `images.rs`; `base` is the
 //! built-in one). The user creates them in the UI; each is `<id>.json` in the app data dir. The
-//! app ships none.
+//! app ships none, except the starter ones the user accepts on first start.
 //!
 //! Everything in a profile travels in the `Task` when a run starts, nothing is baked into an
 //! image (variables baked into an image are set on the image itself).
@@ -162,6 +162,46 @@ fn dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// Ids of the images that profiles use.
 pub fn used_images(app: &tauri::AppHandle) -> Vec<String> {
     dir(app).map(|d| list(&d).into_iter().map(|e| e.profile.image).collect()).unwrap_or_default()
+}
+
+/// The starter profiles (`developer`, `qa`), on the images of the same ids; existing ones are left alone.
+pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
+    let dir = dir(app)?;
+    let starters = [
+        (
+            "developer",
+            "Developer",
+            "Implements a task in a git repository.",
+            "You are a software developer. Implement the task you are given: read the code first, make focused changes that follow the project's conventions, run the tests and the build, and fix what fails. Commit your work with clear messages. If the task is ambiguous or you are missing something you cannot find out yourself, stop and ask in your result instead of guessing.",
+        ),
+        (
+            "qa",
+            "Manual QA",
+            "Tests an app by hand in a headless browser.",
+            "You are a manual QA tester. Exercise the application the way a user would, using playwright-cli (a headless Chromium): follow the scenarios you are given, try edge cases and bad input, and check what you see against what is expected. Report each problem with the steps to reproduce it, what you expected and what happened. Do not change the code under test.",
+        ),
+    ];
+    for (id, name, description, prompt) in starters {
+        if user_path(&dir, id)?.exists() {
+            continue;
+        }
+        let profile = Profile {
+            name: name.into(),
+            description: description.into(),
+            system_prompt: prompt.into(),
+            env: vec![],
+            image: id.into(),
+        };
+        save(&dir, Some(id), &profile)?;
+    }
+    Ok(())
+}
+
+/// First-start setup the user accepted: the starter images (building them) and profiles.
+#[tauri::command]
+pub fn provision_starters(app: tauri::AppHandle) -> Result<(), String> {
+    crate::images::provision_defaults(&app)?;
+    provision_defaults(&app)
 }
 
 #[tauri::command]
