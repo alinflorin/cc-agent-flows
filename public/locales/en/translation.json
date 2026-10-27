@@ -71,7 +71,8 @@
         "missing": "Not built",
         "building": "Building…",
         "ready": "Ready",
-        "stale": "Out of date"
+        "stale": "Out of date",
+        "queued": "Queued"
       },
       "builtAt": "Built {{date}}",
       "build": "Build",
@@ -108,9 +109,7 @@
     "systemPrompt": "System prompt",
     "systemPromptHint": "Added to Claude's system prompt for every task of this agent.",
     "env": "Environment variables",
-    "envHint": "A variable with a value is sent as is. A runtime one gets its value from the app when a task starts.",
-    "atRuntime": "set when the task starts",
-    "runtime": "Runtime",
+    "envHint": "Sent to the agent with every task.",
     "addVar": "Add variable",
     "image": "Image",
     "imageHint": "The system this agent runs on. Images are managed in Settings."
