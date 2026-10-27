@@ -48,14 +48,24 @@ fn args() -> Result<Args, String> {
     Ok(a)
 }
 
-/// Reads the bootstrap message: one JSON line, then the channel is closed.
+/// Reads the bootstrap message: one JSON line, then the channel is closed. The VM usually boots
+/// before the app connects its end of the channel, and until then a read returns end of file, so
+/// keep trying for a while.
 async fn read_bootstrap(path: &PathBuf) -> Result<Bootstrap, String> {
     use tokio::io::{AsyncBufReadExt, BufReader};
-    let file = tokio::fs::File::open(path).await.map_err(|e| format!("bootstrap {}: {e}", path.display()))?;
-    let mut line = String::new();
-    BufReader::new(file).read_line(&mut line).await.map_err(|e| e.to_string())?;
-    let b: Bootstrap = serde_json::from_str(&line).map_err(|e| format!("bad bootstrap: {e}"))?;
-    Ok(b)
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(300);
+    loop {
+        if let Ok(file) = tokio::fs::File::open(path).await {
+            let mut line = String::new();
+            if BufReader::new(file).read_line(&mut line).await.is_ok() && !line.trim().is_empty() {
+                return serde_json::from_str(&line).map_err(|e| format!("bad bootstrap: {e}"));
+            }
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!("no bootstrap message on {}", path.display()));
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
 }
 
 #[tokio::main]
