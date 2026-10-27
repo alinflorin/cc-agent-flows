@@ -347,7 +347,6 @@ pub fn images_build(app: AppHandle, id: String) -> Result<(), String> {
 }
 
 /// The built disk of an image, if there is one.
-#[allow(dead_code)] // used by the run engine
 pub fn path(app: &AppHandle, id: &str) -> Option<PathBuf> {
     disk(app, id).ok().filter(|p| p.is_file())
 }
@@ -560,7 +559,15 @@ async fn build_in(app: &AppHandle, id: &str, spec: Option<&Spec>, source: &Path,
     Ok(())
 }
 
-fn launch(app: &AppHandle, disk: &Path, serial: &Serial) -> Result<tokio::process::Child, String> {
+/// The host's logical cores: "no CPU limit" for a VM.
+fn host_cpus() -> u32 {
+    std::thread::available_parallelism().map_or(2, |n| n.get() as u32)
+}
+
+/// A QEMU command for a headless guest of this machine's architecture: hardware acceleration with
+/// a software fallback, `-cpu max` (Claude Code needs SSE4.2), user-mode networking, no reboot.
+/// `cpus` is the number of vCPUs (`None`: all of the host's). The caller adds the disk and the channels.
+pub fn machine(app: &AppHandle, mem_mb: u32, cpus: Option<u32>) -> Result<std::process::Command, String> {
     let arch = arch()?;
     let mut cmd = crate::qemu::command(app, &format!("qemu-system-{arch}"));
     let accel = if cfg!(target_os = "linux") {
@@ -570,13 +577,18 @@ fn launch(app: &AppHandle, disk: &Path, serial: &Serial) -> Result<tokio::proces
     } else {
         "whpx"
     };
-    cmd.args(["-accel", accel, "-accel", "tcg", "-cpu", "max", "-m", "1024", "-smp", "2"]);
+    cmd.args(["-accel", accel, "-accel", "tcg", "-cpu", "max", "-m", &mem_mb.to_string(), "-smp", &cpus.unwrap_or_else(host_cpus).to_string()]);
     if arch == "aarch64" {
         let fw = resources(app)?.join("qemu/share/qemu/edk2-aarch64-code.fd");
         cmd.args(["-M", "virt", "-bios"]).arg(fw);
     }
-    cmd.args(["-display", "none", "-monitor", "none", "-no-reboot", "-nic", "user"])
-        .arg("-drive")
+    cmd.args(["-display", "none", "-monitor", "none", "-no-reboot", "-nic", "user"]);
+    Ok(cmd)
+}
+
+fn launch(app: &AppHandle, disk: &Path, serial: &Serial) -> Result<tokio::process::Child, String> {
+    let mut cmd = machine(app, 1024, Some(2))?;
+    cmd.arg("-drive")
         .arg(format!("file={},if=virtio,discard=unmap", disk.display()))
         .arg("-serial")
         .arg(&serial.qemu_arg);
@@ -585,7 +597,7 @@ fn launch(app: &AppHandle, disk: &Path, serial: &Serial) -> Result<tokio::proces
     cmd.spawn().map_err(|e| format!("cannot start QEMU: {e}"))
 }
 
-async fn qemu_img(app: &AppHandle, args: &[&str]) -> Result<(), String> {
+pub async fn qemu_img(app: &AppHandle, args: &[&str]) -> Result<(), String> {
     let mut cmd = Command::from(crate::qemu::command(app, "qemu-img"));
     let out = tokio::time::timeout(Duration::from_secs(600), cmd.args(args).output())
         .await

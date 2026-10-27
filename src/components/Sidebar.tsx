@@ -1,9 +1,11 @@
 import { useLocation, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 import { NavDrawer, NavDrawerBody, NavItem, makeStyles, tokens } from "@fluentui/react-components";
-import { Bot24Filled, Bot24Regular, Home24Filled, Home24Regular, Info24Filled, Info24Regular, bundleIcon } from "@fluentui/react-icons";
+import { Bot24Filled, Folder24Filled, Folder24Regular, Play24Filled, Play24Regular, Bot24Regular, Home24Filled, Home24Regular, Info24Filled, Info24Regular, bundleIcon } from "@fluentui/react-icons";
 
 const HomeIcon = bundleIcon(Home24Filled, Home24Regular);
+const ProjectsIcon = bundleIcon(Folder24Filled, Folder24Regular);
+const RunsIcon = bundleIcon(Play24Filled, Play24Regular);
 const ProfilesIcon = bundleIcon(Bot24Filled, Bot24Regular);
 const AboutIcon = bundleIcon(Info24Filled, Info24Regular);
 
@@ -29,7 +31,7 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
       type={overlay ? "overlay" : "inline"}
       open={open}
       onOpenChange={(_, d) => !d.open && onClose()}
-      selectedValue={pathname}
+      selectedValue={pathname.startsWith("/projects") ? "/projects" : pathname}
       onNavItemSelect={(_, d) => {
         navigate(d.value);
         onClose();
@@ -39,6 +41,12 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
       <NavDrawerBody>
         <NavItem value="/" icon={<HomeIcon />}>
           {t("nav.home")}
+        </NavItem>
+        <NavItem value="/projects" icon={<ProjectsIcon />}>
+          {t("nav.projects")}
+        </NavItem>
+        <NavItem value="/runs" icon={<RunsIcon />}>
+          {t("nav.runs")}
         </NavItem>
         <NavItem value="/profiles" icon={<ProfilesIcon />}>
           {t("nav.profiles")}

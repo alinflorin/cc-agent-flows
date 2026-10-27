@@ -16,7 +16,9 @@
     "home": "Acasă",
     "about": "Despre",
     "settings": "Setări",
-    "profiles": "Profiluri de agent"
+    "profiles": "Profiluri de agent",
+    "projects": "Proiecte",
+    "runs": "Rulări"
   },
   "theme": {
     "label": "Temă",
@@ -112,13 +114,159 @@
     "envHint": "Trimise agentului la fiecare sarcină.",
     "addVar": "Adaugă variabilă",
     "image": "Imagine",
-    "imageHint": "Sistemul pe care rulează acest agent. Imaginile se gestionează în Setări."
+    "imageHint": "Sistemul pe care rulează acest agent. Imaginile se gestionează în Setări.",
+    "model": "Model",
+    "modelHint": "Un alias de model Claude (sonnet, opus, haiku) sau un id complet. Gol folosește valoarea implicită din Claude Code.",
+    "effort": "Efort de gândire",
+    "effortHint": "Cât gândește agentul înainte să răspundă. Mai mare înseamnă mai lent și mai scump.",
+    "effortDefault": "Implicit",
+    "cpus": "CPU-uri",
+    "cpusAll": "Toate ale gazdei",
+    "cpusHint": "CPU-uri virtuale ale VM-ului. Gol înseamnă toate nucleele gazdei. Limitează câte nuclee poate folosi, nu cât timp din ele.",
+    "memory": "Memorie (MB)",
+    "memoryHint": "RAM-ul VM-ului, minimum 1024. Implicit 2048."
   },
   "welcome": {
     "title": "Bun venit",
-    "text": "Configurăm un punct de plecare? Se creează două imagini, Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu playwright-cli), construite în fundal peste imaginea de bază, și câte un profil de agent pentru fiecare. Poți modifica sau șterge totul mai târziu. Un workflow simplu de delivery care le folosește va veni mai târziu.",
+    "text": "Configurăm un punct de plecare? Se creează două imagini, Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu playwright-cli), construite în fundal peste imaginea de bază, cinci profiluri de agent (orchestrator, project manager, business analyst, developer, tester) și un proiect Demo cu workflow-ul standard de delivery: orchestratorul planifică, project managerul și business analystul modelează munca, tu aprobi cerințele, developerul construiește și testerul verifică. Poți modifica sau șterge totul mai târziu.",
     "yes": "Da, configurează",
     "no": "Nu, mulțumesc",
     "done": "Imaginile și profilurile de start au fost create. Imaginile se construiesc."
+  },
+  "projects": {
+    "title": "Proiecte",
+    "new": "Proiect nou",
+    "empty": "Încă nu există proiecte. Creează unul pentru a-i proiecta workflow-ul și a porni sesiuni.",
+    "desktopOnly": "Disponibil doar în aplicația desktop.",
+    "noDescription": "Fără descriere",
+    "delete": "Șterge proiectul",
+    "deleteConfirm": "Ștergi „{{name}}” cu workflow-ul și sesiunile lui? Nu se poate anula.",
+    "name": "Nume",
+    "description": "Descriere",
+    "missing": "Proiectul nu a fost găsit.",
+    "tabs": {
+      "sessions": "Sesiuni",
+      "workflow": "Workflow"
+    },
+    "edit": "Editează proiectul",
+    "systemPrompt": "Prompt de sistem",
+    "systemPromptHint": "Adăugat la promptul de sistem al fiecărui agent din acest proiect, înaintea celui din profilul agentului."
+  },
+  "sessions": {
+    "new": "Sesiune nouă",
+    "empty": "Încă nu există sesiuni. O sesiune este o rulare a workflow-ului proiectului pentru o sarcină descrisă de tine.",
+    "notRunnable": "Rularea sesiunilor nu este disponibilă încă.",
+    "delete": "Șterge sesiunea",
+    "name": "Nume",
+    "task": "Sarcină",
+    "taskHint": "Ce trebuie să livreze workflow-ul. Este intrarea primului pas.",
+    "status": {
+      "new": "Nouă",
+      "running": "Rulează",
+      "waiting": "Te așteaptă",
+      "done": "Gata",
+      "failed": "Eșuată",
+      "cancelled": "Anulată",
+      "interrupted": "Întreruptă"
+    },
+    "hint": "Deschide o sesiune ca să-i rulezi workflow-ul."
+  },
+  "wf": {
+    "saved": "Workflow salvat.",
+    "add": "Adaugă pas:",
+    "loadStandard": "Încarcă workflow-ul standard",
+    "pick": "Alege un pas ca să-l editezi. Trage din mânerul din dreapta al unui pas spre alt pas ca să-i legi.",
+    "label": "Etichetă",
+    "profile": "Profil de agent",
+    "prompt": "Instrucțiuni",
+    "agentPromptHint": "Adăugate sarcinii acestui pas, după rezultatul pașilor anteriori.",
+    "schema": "Schema rezultatului (JSON, opțional)",
+    "schemaHint": "Face rezultatul structurat ca să-l poată citi condițiile.",
+    "maxRuns": "Rulări maxime",
+    "maxRunsHint": "De câte ori poate ajunge o sesiune la acest pas înainte să eșueze (bucle).",
+    "field": "Câmp",
+    "fieldHint": "`status` sau `result.<cheie>` din rezultatul agentului anterior.",
+    "operator": "Operator",
+    "value": "Valoare",
+    "remove": "Elimină pasul",
+    "type": {
+      "start": "Start",
+      "agent": "Agent",
+      "condition": "Condiție",
+      "human": "Om",
+      "end": "Final"
+    },
+    "op": {
+      "eq": "este egal cu",
+      "ne": "diferă de",
+      "contains": "conține"
+    },
+    "mode": {
+      "label": "Tip",
+      "hint": "Schimbarea lui șterge conexiunile de ieșire ale pasului.",
+      "approve": "Aprobă sau respinge",
+      "input": "Răspuns liber"
+    },
+    "humanPromptHint": "Afișat utilizatorului când sesiunea așteaptă aici.",
+    "outcome": {
+      "label": "Rezultat",
+      "success": "Succes",
+      "failure": "Eșec"
+    },
+    "branch": {
+      "true": "da",
+      "false": "nu",
+      "approved": "aprobat",
+      "rejected": "respins"
+    },
+    "problem": {
+      "unreachable": "„{{node}}” nu poate fi atins din start.",
+      "unknown_profile": "„{{node}}” folosește un profil de agent care nu există.",
+      "no_next": "„{{node}}” nu are pas următor.",
+      "multi_out": "„{{node}}” are mai multe ieșiri.",
+      "missing_branch": "„{{node}}” nu are una dintre ieșiri.",
+      "duplicate_branch": "„{{node}}” are două conexiuni pe aceeași ieșire.",
+      "no_end": "Workflow-ul nu are pas final."
+    },
+    "instances": "Agenți în paralel",
+    "instancesHint": "Câți agenți cu acest profil lucrează simultan la pas. Engine-ul alege un număr din acest interval și împarte munca între ei.",
+    "min": "min",
+    "max": "max",
+    "coordinator": "Coordonator",
+    "coordinatorHint": "Coordonatorul primește rezultatul fiecărui pas și decide care dintre pașii conectați urmează, în limita conexiunilor desenate aici. Fără coordonator, rezultatele merg pe conexiuni.",
+    "timeout": "Timeout (minute)",
+    "timeoutHint": "Cât poate dura o rulare de agent la acest pas înainte să fie oprită forțat. Implicit 30."
+  },
+  "runs": {
+    "title": "Rulează un agent",
+    "hint": "Pornește un agent cu profilul ales în propriul VM, pe imaginea profilului, cu tokenul tău Claude (Setări > LLM). Jurnalul este păstrat în folderul de date al aplicației.",
+    "prompt": "Sarcină",
+    "start": "Pornește",
+    "cancel": "Anulează",
+    "booting": "Pornește VM-ul…",
+    "status": {
+      "done": "Gata",
+      "needs_input": "Cere informații",
+      "failed": "Eșuat"
+    }
+  },
+  "session": {
+    "back": "Sesiuni",
+    "start": "Pornește",
+    "continue": "Continuă",
+    "approve": "Aprobă",
+    "reject": "Respinge",
+    "send": "Trimite",
+    "comment": "Comentariu (opțional)",
+    "answer": "Răspunsul tău",
+    "ask": {
+      "approve": "Este nevoie de aprobarea ta",
+      "input": "Workflow-ul are nevoie de răspunsul tău",
+      "questions": "Un agent are întrebări"
+    },
+    "rejected": "Răspunsul coordonatorului a fost refuzat: {{reason}}",
+    "condition": "Condiție pe {{field}}: {{result}}",
+    "waiting": "Te așteaptă la „{{label}}”",
+    "ended": "Încheiat: {{outcome}}"
   }
 }

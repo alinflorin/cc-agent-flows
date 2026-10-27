@@ -11,10 +11,10 @@ mod e2e {
     use tokio::net::unix::pipe;
 
     use crate::agent::drive;
-    use crate::protocol::{Bootstrap, Final, Outbound, Status, Task};
+    use crate::protocol::{Bootstrap, Final, Outbound, Status, Task, TaskEnv};
 
     fn boot() -> Bootstrap {
-        Bootstrap { id: "agent-1".into(), claude_token: "sk-test-token".into() }
+        Bootstrap { id: "spiffe://ccaf.local/test/agent-1".into(), claude_token: "sk-test-token".into() }
     }
 
     fn task(timeout_secs: u64) -> Task {
@@ -25,6 +25,12 @@ mod e2e {
             session_id: "00000000-0000-4000-8000-000000000000".into(),
             resume: false,
             schema: crate::protocol::RESULT_SCHEMA.into(),
+            system_prompt: Some("be brief".into()),
+            env: vec![
+                TaskEnv { name: "TEAM".into(), value: "it's \"red\" $HOME".into() },
+                TaskEnv { name: "PATH".into(), value: "/nowhere".into() },
+                TaskEnv { name: "BAD NAME".into(), value: "x".into() },
+            ],
             timeout_secs,
         }
     }
@@ -33,6 +39,11 @@ mod e2e {
     const FAKE_CLAUDE: &str = r#"#!/bin/sh
 case "$*" in *--dangerously-skip-permissions*--session-id*|*--session-id*--dangerously-skip-permissions*) ;; *) echo "bad args: $*" >&2; exit 2;; esac
 [ "$CLAUDE_CODE_OAUTH_TOKEN" = "sk-test-token" ] || { echo "no token" >&2; exit 3; }
+case "$*" in *"--append-system-prompt be brief"*) ;; *) echo "no system prompt: $*" >&2; exit 4;; esac
+[ "$TEAM" = 'it'"'"'s "red" $HOME' ] || { echo "bad env: $TEAM" >&2; exit 5; }
+[ "$PATH" != /nowhere ] || { echo "PATH was overridden" >&2; exit 6; }
+[ "$CCAF_AGENT_ID" = "spiffe://ccaf.local/test/agent-1" ] || { echo "no identity" >&2; exit 7; }
+[ -z "$(env | grep -E '^(BAD|TOKEN=)')" ] || { echo "stray env" >&2; exit 8; }
 echo '{"type":"system","subtype":"init"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"working \"quoted\" ünï"}]}}'
 echo 'not json at all'
@@ -126,6 +137,7 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
         assert_eq!(fin.session_id.as_deref(), Some("sess-1"));
         assert_eq!(fin.cost_usd, Some(0.25));
         assert_eq!(fin.exit_code, Some(0));
+        assert_eq!(fin.output.as_ref().unwrap()["summary"], "half done", "the structured answer is passed on");
         assert!(run.dir.join("work/made-by-claude.txt").is_file(), "claude ran in the workspace");
 
         let _ = std::fs::remove_dir_all(run.dir);

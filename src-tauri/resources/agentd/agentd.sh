@@ -74,6 +74,7 @@ trap '[ "$FINISHED" = 1 ] || fail "agentd stopped unexpectedly"' EXIT
 
 readline 300 || fail "no bootstrap from the app"
 TOKEN=$(printf '%s' "$line" | jq -r '.claude_token // empty') || fail "bad bootstrap"
+AGENT_ID=$(printf '%s' "$line" | jq -r '.id // empty')
 [ -n "$TOKEN" ] || fail "bootstrap without a token"
 
 send '{"kind":"ready"}'
@@ -88,6 +89,14 @@ RESUME=$(field resume)
 SCHEMA=$(field schema)
 TIMEOUT=$(field timeout_secs)
 [ -n "$PROMPT" ] && [ -n "$SID" ] && [ -n "$SCHEMA" ] || fail "bad task"
+SYSTEM=$(field system_prompt)
+# The profile's variables as `export NAME='value'` lines, for `claude` only. Names that are not
+# plain identifiers or that agentd and the image own are dropped; values are shell-quoted by jq.
+ENVSET=$(printf '%s' "$TASK" | jq -r '
+	.body.env[]? | select((.name | type == "string") and (.name | test("^[A-Za-z_][A-Za-z0-9_]*$"))
+		and ((.name | IN("CLAUDE_CODE_OAUTH_TOKEN", "PATH", "HOME", "USER", "LOGNAME", "SHELL", "USE_BUILTIN_RIPGREP", "CCAF_AGENT_ID")) | not)
+		and (.name | startswith("LD_") | not)) |
+	"export \(.name)=\(.value // "" | tostring | @sh)"') || fail "bad task environment"
 case $TIMEOUT in '' | *[!0-9]*) TIMEOUT=1800 ;; esac
 
 # The task brings no code and none is collected afterwards: the workspace is a scratch folder.
@@ -104,6 +113,7 @@ set -- -p "$PROMPT" --output-format stream-json --verbose --include-partial-mess
 if [ "$RESUME" = true ]; then set -- "$@" --resume "$SID"; else set -- "$@" --session-id "$SID"; fi
 [ -z "$MODEL" ] || set -- "$@" --model "$MODEL"
 [ -z "$EFFORT" ] || set -- "$@" --effort "$EFFORT"
+[ -z "$SYSTEM" ] || set -- "$@" --append-system-prompt "$SYSTEM"
 
 # The token is exported only in the subshell that becomes `claude`, so it is in no other
 # environment and on no command line. setsid gives `claude` and its children their own process
@@ -113,7 +123,9 @@ run_claude() {
 	read -r pid _ </proc/self/stat
 	echo "$pid" >"$T/pid"
 	cd "$WS" || exit 126
-	export CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" HOME="$HOME_DIR"
+	# the profile's variables first, so they cannot override what follows
+	eval "$ENVSET"
+	export CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" HOME="$HOME_DIR" CCAF_AGENT_ID="$AGENT_ID"
 	if [ -n "$RUN_AS" ]; then
 		export USER="$RUN_AS" LOGNAME="$RUN_AS"
 		exec setsid setpriv --reuid "$RUN_AS" --regid "$RUN_AS" --init-groups --no-new-privs "$CLAUDE" "$@"
@@ -154,7 +166,7 @@ done
 CODE=$(cat "$T/code" 2>/dev/null)
 case $CODE in '' | *[!0-9]*) CODE=null ;; esac
 
-RESULT=$(grep '^{"type":"result"' "$T/log" 2>/dev/null | tail -n 1)
+RESULT=$(jq -cR 'fromjson? | select(type == "object" and .type == "result")' "$T/log" 2>/dev/null | tail -n 1)
 if [ "$TIMED_OUT" = 1 ]; then
 	REASON="timed out after ${TIMEOUT}s"
 elif [ -z "$RESULT" ]; then
@@ -176,6 +188,7 @@ else
 			questions: [($s.questions // [])[]? | strings],
 			session_id: ((.session_id | strings) // $sid),
 			cost_usd: ((.total_cost_usd | numbers) // null),
+			output: (if (.structured_output | type) == "object" then .structured_output else null end),
 			exit_code: $code}}')
 fi
 [ -n "$FINAL" ] || fail "could not build the final message"

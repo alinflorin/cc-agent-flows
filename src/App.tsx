@@ -6,6 +6,10 @@ import { NotificationsProvider } from "./notifications";
 import { About } from "./pages/About";
 import { Home } from "./pages/Home";
 import { Profiles } from "./pages/Profiles";
+import { Project } from "./pages/Project";
+import { Projects } from "./pages/Projects";
+import { Runs } from "./pages/Runs";
+import { SessionView } from "./pages/SessionView";
 import { Settings } from "./pages/Settings";
 import { useFluentTheme } from "./theme";
 import { UpdatesProvider } from "./updates";
@@ -16,6 +20,10 @@ const router = createHashRouter([
     element: <Layout />,
     children: [
       { path: "/", element: <Home /> },
+      { path: "/projects", element: <Projects /> },
+      { path: "/projects/:id", element: <Project /> },
+      { path: "/projects/:id/sessions/:sid", element: <SessionView /> },
+      { path: "/runs", element: <Runs /> },
       { path: "/profiles", element: <Profiles /> },
       { path: "/about", element: <About /> },
       { path: "/settings", element: <Settings /> },

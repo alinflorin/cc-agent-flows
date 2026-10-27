@@ -3,7 +3,7 @@
 # succeed or the build fails.
 set -eu
 
-apk add --no-cache --no-progress jq util-linux-misc ripgrep curl bash libgcc libstdc++ ca-certificates
+apk add --no-cache --no-progress jq setpriv ripgrep curl bash libgcc libstdc++ ca-certificates
 
 # The user `claude` runs as. No password, no sudo/doas.
 adduser -D -s /bin/sh agent
@@ -27,6 +27,8 @@ rc-update add agentd default
 # escalate.
 claude --version
 for c in agentd jq setpriv setsid rg; do command -v "$c" >/dev/null || { echo "missing $c"; exit 1; }; done
+# busybox also has a setpriv, but without --reuid: it must be the util-linux one
+setpriv --reuid agent --regid agent --init-groups --no-new-privs true
 if apk info -e openssh openssh-server dropbear sudo doas >/dev/null; then
 	echo "unexpected ssh/sudo package"
 	exit 1
