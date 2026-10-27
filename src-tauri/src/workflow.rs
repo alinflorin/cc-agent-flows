@@ -367,7 +367,7 @@ impl Workflow {
 /// which loops is up to the agents, as their prompts say.
 pub fn standard_workflow() -> Workflow {
     fn node(id: &str, label: &str, x: i32, y: i32, profile: &str, prompt: &str) -> Node {
-        Node { id: id.into(), label: label.into(), x, y, kind: NodeKind::Agent, profile: profile.into(), prompt: prompt.into(), max_calls: 20, timeout_mins: 30 }
+        Node { id: id.into(), label: label.into(), x, y, kind: NodeKind::Agent, profile: profile.into(), prompt: prompt.into(), max_calls: 2, timeout_mins: 30 }
     }
     fn edge(from: &str, to: &str, kind: EdgeKind) -> Edge {
         let tag = if kind == EdgeKind::Before { "-before" } else { "" };
@@ -383,7 +383,7 @@ pub fn standard_workflow() -> Workflow {
         node("rev", "Reviewer", 880, 300, "reviewer", "Review the pull request you are given. Leave your comments on the pull request itself and report whether you approve it or ask for changes, with the list of changes."),
         node("qa", "Tester", 880, 400, "qa", "Test the item you are given against its acceptance criteria once it is deployed (watch the build until the deployment finishes), and report what passed and what failed, with steps to reproduce."),
     ];
-    nodes.iter_mut().for_each(|n| n.max_calls = if n.id == "orch" || n.id == "pm" { 20 } else { 40 });
+    nodes.iter_mut().for_each(|n| n.max_calls = if n.id == "orch" || n.id == "pm" { 2 } else { 4 });
     let mut edges = vec![edge("orch", "pm", EdgeKind::Delegate), edge("pm", "lead", EdgeKind::Delegate)];
     edges.extend(["ba", "arch", "dev", "rev", "qa"].map(|w| edge("lead", w, EdgeKind::Delegate)));
     edges.extend([("ba", "arch"), ("arch", "dev"), ("dev", "rev"), ("rev", "qa")].map(|(a, b)| edge(a, b, EdgeKind::Before)));
