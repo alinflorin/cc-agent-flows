@@ -12,3 +12,7 @@ resources/qemu/*
 
 resources/nats/*
 !resources/nats/README.md
+
+# Base agent image, fetched by scripts/images/fetch.mjs
+resources/images/*
+!resources/images/README.md
