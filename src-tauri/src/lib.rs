@@ -66,6 +66,7 @@ pub fn run() {
             can_self_update,
             nats::nats_version,
             broker::broker_status,
+            broker::broker_restart,
             qemu::qemu_version,
             secrets::claude_token_set,
             secrets::claude_token_status,
