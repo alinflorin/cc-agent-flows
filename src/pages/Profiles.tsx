@@ -40,6 +40,7 @@ interface Profile {
   cpus: number | null;
   memory_mb: number;
   image: string;
+  allow_hosts: string[];
 }
 
 interface ImageInfo {
@@ -52,7 +53,7 @@ interface Entry extends Profile {
   id: string;
 }
 
-const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: null, cpus: null, memory_mb: 2048, image: "base" };
+const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: null, cpus: null, memory_mb: 2048, image: "base", allow_hosts: [] };
 
 const useStyles = makeStyles({
   head: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: tokens.spacingVerticalL },
@@ -194,6 +195,15 @@ export function Profiles() {
                         </Button>
                       </div>
                     </div>
+                  </Field>
+                  <Field label={t("profiles.allowHosts")} hint={t("profiles.allowHostsHint")}>
+                    <Textarea
+                      rows={4}
+                      className={styles.mono}
+                      placeholder={"github.com\n*.githubusercontent.com"}
+                      value={editing.profile.allow_hosts.join("\n")}
+                      onChange={(_, d) => set({ allow_hosts: d.value === "" ? [] : d.value.split("\n") })}
+                    />
                   </Field>
                   <Field label={t("profiles.model")} hint={t("profiles.modelHint")}>
                     <Select value={editing.profile.model ?? ""} onChange={(_, d) => set({ model: d.value || null })}>
