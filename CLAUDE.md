@@ -102,6 +102,14 @@ Lifecycle:
 7. Stream every line `claude` prints (thinking, partial text, tool calls and results, cost) as `kind: "event"` with a sequence number on `agent.<id>.out`, plus a periodic `heartbeat`. Chunk or truncate events that would exceed the message limit.
 8. When `claude` stops, publish one `final`: `status` (`done | needs_input | failed`), result, questions, Claude session (id and transcript), workspace (git bundle), cost and exit code. Wait for the flush, then power the VM off.
 
+Keeping `claude` away from `agentd` (planned; none of it checked against the Alpine image yet):
+- Separate users: `agentd` runs as root (or a dedicated `agentd` user) from a root-owned binary and service file; `claude` runs as the unprivileged `agent` user in a workspace only that user owns. `agentd` starts it after `setuid`/`setgid`, with `PR_SET_NO_NEW_PRIVS` and capabilities dropped.
+- Nothing to steal from disk: the agent key comes over the serial channel and stays in `agentd`'s memory (never a file, command line or `claude`'s environment); so does the NATS token. The Claude setup token is the exception, it has to be in `claude`'s own environment.
+- Hide the process: mount `/proc` with `hidepid=2` and set `kernel.yama.ptrace_scope` to 2 or higher, so `claude` cannot read `agentd`'s `/proc/<pid>` files or ptrace it. Needs checking that the Alpine kernel supports both.
+- No escalation path: no `sudo`/`doas`, no root password, and `provision.sh` fails the build on any setuid/setgid binary outside an allowlist (busybox ships several applets that need stripping), like the SSH check.
+- One-way channel: `agentd` spawns `claude` and reads its stdout/stderr through pipes; there is no socket, file or signal for `claude` to command `agentd`. Everything `claude` prints is untrusted data: parsed, wrapped in events, truncated, never run as instructions.
+- If `claude` still gets root in the guest, the damage is bounded by the host: it can only act as its own agent (publish on `agent.<id>.out`, read its own consumer), it can forge its own `final` or heartbeats (the app validates and decides the flow itself), and the identity, the 15 minute NATS session and the run timeout all expire. While the guest has full network access, root could also reach the internet and the host's loopback ports, which is why egress control matters.
+
 Failure handling:
 - `claude` fails to start or crashes: publish `final` with `failed` and the reason.
 - `agentd` itself dies: it cannot report, so the app sees QEMU exit without a `final`, or the heartbeat stop, and marks the run failed (killing the VM in the second case).
