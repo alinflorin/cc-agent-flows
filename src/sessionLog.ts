@@ -52,6 +52,10 @@ export interface TimelineItem {
   t: number;
   kind: "start" | "end" | "decision" | "wait" | "reply" | "error";
   node?: string;
+  /** the agent it is about (a name), empty for the user and for errors */
+  who: string;
+  /** the other side of a handover: who asked */
+  from?: string;
   text: string;
   status?: string;
 }
@@ -90,13 +94,13 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
         // a call started again (a continued session) starts over
         const c = callOf(b.call, b.node, e.t);
         Object.assign(c, { node: b.node, depth: b.depth, parent: b.parent ?? null, asked: b.asked ?? "", status: "open", summary: "", questions: [], t: e.t });
-        timeline.push({ t: e.t, kind: "start", node: b.node, text: `${name(b.parent) || "→"} → ${name(b.node)}${b.asked ? `: ${clip(b.asked, 140)}` : ""}` });
+        timeline.push({ t: e.t, kind: "start", node: b.node, who: name(b.node), from: name(b.parent), text: clip(b.asked ?? "", 240) });
         break;
       }
       case "call_end": {
         const c = callOf(b.call, b.node, e.t);
         Object.assign(c, { status: b.status, summary: b.summary ?? "", questions: b.questions ?? [] });
-        timeline.push({ t: e.t, kind: "end", node: b.node, status: b.status, text: `${name(b.node)}: ${clip(b.summary ?? "", 160)}` });
+        timeline.push({ t: e.t, kind: "end", node: b.node, status: b.status, who: name(b.node), text: clip(b.summary ?? "", 240) });
         break;
       }
       case "run_start": {
@@ -123,8 +127,6 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
       case "decision": {
         const c = callOf(b.call, b.node, e.t);
         c.decisions.push({ round: b.round, action: b.action, detail: b.detail ?? {}, notes: b.notes ?? "", t: e.t });
-        if (b.action === "finish") timeline.push({ t: e.t, kind: "decision", node: b.node, status: b.detail?.success === false ? "failed" : "done", text: `${name(b.node)} ${b.detail?.success === false ? "✘" : "✔"} ${clip(b.detail?.result ?? "", 160)}` });
-        if (b.action === "ask") timeline.push({ t: e.t, kind: "decision", node: b.node, status: "needs_input", text: `${name(b.node)} ? ${clip((b.detail?.questions ?? []).join(" / "), 160)}` });
         break;
       }
       case "decision_rejected": {
@@ -133,14 +135,14 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
         break;
       }
       case "wait":
-        timeline.push({ t: e.t, kind: "wait", node: b.node, text: `${name(b.node)}: ${clip(b.kind === "approve" ? b.prompt : (b.questions ?? []).join(" / "), 160)}` });
+        timeline.push({ t: e.t, kind: "wait", node: b.node, who: name(b.node), text: clip(b.kind === "approve" ? b.prompt : (b.questions ?? []).join("\n"), 240) });
         break;
       case "reply":
-        timeline.push({ t: e.t, kind: "reply", text: `${b.approved === true ? "✔ " : b.approved === false ? "✘ " : ""}${clip(b.text ?? "", 160)}` });
+        timeline.push({ t: e.t, kind: "reply", status: b.approved === true ? "done" : b.approved === false ? "failed" : undefined, who: "", text: clip(b.text ?? "", 240) });
         break;
       case "error":
         errors.push(b.reason);
-        timeline.push({ t: e.t, kind: "error", text: clip(b.reason, 200) });
+        timeline.push({ t: e.t, kind: "error", who: "", text: clip(b.reason, 240) });
         break;
     }
   }

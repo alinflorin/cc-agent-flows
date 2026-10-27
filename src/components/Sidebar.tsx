@@ -30,11 +30,20 @@ const SettingsIcon = bundleIcon(Settings24Filled, Settings24Regular);
 export const SIDEBAR_WIDTH = 240;
 
 const useStyles = makeStyles({
+  // one surface for header, items and footer, and the footer pinned to the bottom
   drawer: {
     width: `${SIDEBAR_WIDTH}px`,
+    height: "100%",
+    display: "flex",
+    flexDirection: "column",
     backgroundColor: tokens.colorNeutralBackground2,
     borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
+    "& .fui-NavItem, & .fui-NavSectionHeader": { backgroundColor: "transparent" },
+    "& .fui-NavItem:hover": { backgroundColor: tokens.colorNeutralBackground2Hover },
+    "& .fui-NavItem[aria-current=page]": { backgroundColor: tokens.colorNeutralBackground2Selected },
   },
+  body: { flex: 1, minHeight: 0, overflowY: "auto", backgroundColor: "transparent" },
+  footer: { flex: "none", borderTop: `1px solid ${tokens.colorNeutralStroke2}`, backgroundColor: "transparent", padding: tokens.spacingVerticalS },
   brand: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS, padding: `${tokens.spacingVerticalM} ${tokens.spacingHorizontalM}` },
   logo: { width: "28px", height: "28px", flex: "none" },
   name: { fontSize: tokens.fontSizeBase400, fontWeight: tokens.fontWeightSemibold, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
@@ -67,7 +76,7 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
           <span className={styles.name}>{t("title")}</span>
         </div>
       </NavDrawerHeader>
-      <NavDrawerBody>
+      <NavDrawerBody className={styles.body}>
         <NavItem value="/" icon={<HomeIcon />}>
           {t("nav.home")}
         </NavItem>
@@ -87,7 +96,7 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
           {t("nav.about")}
         </NavItem>
       </NavDrawerBody>
-      <NavDrawerFooter>
+      <NavDrawerFooter className={styles.footer}>
         <NavItem value="/settings" icon={<SettingsIcon />}>
           {t("nav.settings")}
         </NavItem>

@@ -52,21 +52,45 @@ const useStyles = makeStyles({
   body: { display: "flex", gap: tokens.spacingHorizontalM, height: "min(720px, calc(100vh - 250px))", minHeight: "460px" },
   canvas: { flex: 1, minWidth: 0, border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusMedium },
   side: { width: "440px", display: "flex", flexDirection: "column", border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusMedium, overflow: "hidden" },
-  scroll: { flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS, padding: tokens.spacingHorizontalM },
+  scroll: { flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, padding: tokens.spacingHorizontalM, "& > *": { flexShrink: 0 } },
   tabs: { padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalS}`, borderBottom: `1px solid ${tokens.colorNeutralStroke2}` },
-  box: { whiteSpace: "pre-wrap", wordBreak: "break-word", padding: tokens.spacingVerticalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorNeutralBackground2, fontSize: tokens.fontSizeBase200 },
-  user: { whiteSpace: "pre-wrap", wordBreak: "break-word", padding: tokens.spacingVerticalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorBrandBackground2, alignSelf: "flex-end", maxWidth: "88%" },
+  box: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", padding: tokens.spacingVerticalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorNeutralBackground2, fontSize: tokens.fontSizeBase200 },
+  user: { whiteSpace: "pre-wrap", overflowWrap: "anywhere", padding: tokens.spacingVerticalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorBrandBackground2, alignSelf: "flex-end", maxWidth: "88%" },
   mono: { fontFamily: tokens.fontFamilyMonospace, color: tokens.colorNeutralForeground3 },
   muted: { color: tokens.colorNeutralForeground3 },
   ask: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS, padding: tokens.spacingHorizontalM, border: `1px solid ${tokens.colorBrandStroke1}`, borderRadius: tokens.borderRadiusMedium },
   actions: { display: "flex", gap: tokens.spacingHorizontalS },
   composer: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-end", padding: tokens.spacingHorizontalM, borderTop: `1px solid ${tokens.colorNeutralStroke2}` },
-  row: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-start", cursor: "pointer", padding: `${tokens.spacingVerticalXXS} 0`, fontSize: tokens.fontSizeBase200 },
-  details: { border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusMedium, padding: tokens.spacingHorizontalS },
-  chips: { display: "flex", flexWrap: "wrap", gap: tokens.spacingHorizontalXS },
+  tl: { display: "flex", flexDirection: "column" },
+  tlItem: { display: "grid", gridTemplateColumns: "14px minmax(0, 1fr)", columnGap: tokens.spacingHorizontalM, cursor: "pointer", paddingBottom: tokens.spacingVerticalL, ":hover": { backgroundColor: tokens.colorSubtleBackgroundHover } },
+  rail: { display: "flex", flexDirection: "column", alignItems: "center" },
+  dot: { width: "12px", height: "12px", borderRadius: "50%", flex: "none", marginTop: "3px", backgroundColor: tokens.colorNeutralForeground3 },
+  dot_done: { backgroundColor: tokens.colorPaletteGreenBackground3 },
+  dot_failed: { backgroundColor: tokens.colorPaletteRedBackground3 },
+  dot_wait: { backgroundColor: tokens.colorPaletteMarigoldBackground3 },
+  dot_brand: { backgroundColor: tokens.colorBrandBackground },
+  line: { flex: 1, width: "2px", marginTop: tokens.spacingVerticalXXS, backgroundColor: tokens.colorNeutralStroke2 },
+  tlHead: { display: "flex", alignItems: "baseline", gap: tokens.spacingHorizontalS, minWidth: 0 },
+  tlWho: { fontWeight: tokens.fontWeightSemibold, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 },
+  tlTime: { marginLeft: "auto", flex: "none", color: tokens.colorNeutralForeground3 },
+  clamp: { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: "3", overflow: "hidden", whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
+  open: { WebkitLineClamp: "unset", display: "block" },
+  card: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS, padding: tokens.spacingHorizontalM, border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusLarge, minWidth: 0, "& > *": { flexShrink: 0 } },
+  cardHead: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS, flexWrap: "wrap" },
+  quote: { padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalM}`, borderLeft: `3px solid ${tokens.colorNeutralStroke1}`, color: tokens.colorNeutralForeground2 },
+  outDone: { padding: tokens.spacingHorizontalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorPaletteGreenBackground1 },
+  outFail: { padding: tokens.spacingHorizontalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorPaletteRedBackground1 },
+  outAsk: { padding: tokens.spacingHorizontalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorPaletteMarigoldBackground1 },
+  handoff: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", gap: tokens.spacingHorizontalS, alignItems: "start" },
+  chip: { padding: `1px ${tokens.spacingHorizontalS}`, borderRadius: tokens.borderRadiusCircular, backgroundColor: tokens.colorBrandBackground2, color: tokens.colorBrandForeground2, fontSize: tokens.fontSizeBase200, whiteSpace: "nowrap", maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis" },
+  steps: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalXXS, marginTop: tokens.spacingVerticalXS },
+  step: { fontSize: tokens.fontSizeBase200, color: tokens.colorNeutralForeground2, overflowWrap: "anywhere", whiteSpace: "pre-wrap" },
+  summaryRow: { cursor: "pointer", color: tokens.colorNeutralForeground3, fontSize: tokens.fontSizeBase200 },
+  link: { cursor: "pointer", color: tokens.colorBrandForeground1, fontSize: tokens.fontSizeBase200, background: "none", border: "none", padding: 0, textAlign: "left" },
   node: {
     minWidth: "150px",
     maxWidth: "210px",
+    overflowWrap: "anywhere",
     padding: `${tokens.spacingVerticalS} ${tokens.spacingHorizontalM}`,
     borderRadius: tokens.borderRadiusLarge,
     border: `2px solid ${tokens.colorNeutralStroke1}`,
@@ -197,55 +221,120 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
   );
 }
 
+/** Long text cut to three lines; a click opens the rest. */
+function Clamp({ text, className }: { text: string; className?: string }) {
+  const { t } = useTranslation();
+  const styles = useStyles();
+  const [open, setOpen] = useState(false);
+  const long = text.length > 180 || text.split("\n").length > 3;
+  return (
+    <div className={className}>
+      <div className={mergeClasses(styles.clamp, open && styles.open)}>{text}</div>
+      {long && (
+        <button type="button" className={styles.link} onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>
+          {open ? t("session.less") : t("session.more")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function CallCard({ c, d, names }: { c: CallInfo; d: Digest; names: Record<string, string> }) {
   const { t } = useTranslation();
   const styles = useStyles();
-  const decisions = c.decisions;
+  const open = c.status === "open";
   return (
-    <details className={styles.details} open={c.status === "open" || undefined}>
-      <summary>
-        <Badge appearance="filled" color={statusColor(c.status === "open" ? "running" : c.status)}>{c.status === "open" ? t("session.node.busy") : t(`runs.status.${c.status}`, c.status)}</Badge>{" "}
-        <Caption1>{c.parent ? `${names[c.parent] ?? c.parent} → ` : ""}{clip(c.asked || t("session.thisIsTheRequest"), 90)}</Caption1>
-      </summary>
-      {c.asked && <div className={styles.box}>{c.asked}</div>}
-      {c.runs.map((k) => {
+    <div className={styles.card}>
+      <div className={styles.cardHead}>
+        <Badge appearance="filled" color={statusColor(open ? "running" : c.status)}>{open ? t("session.node.busy") : t(`runs.status.${c.status}`, c.status)}</Badge>
+        <Caption1 className={styles.muted}>{c.parent ? t("session.askedBy", { name: names[c.parent] ?? c.parent }) : t("session.thisIsTheRequest")}</Caption1>
+        <Caption1 className={mergeClasses(styles.muted, styles.grow)} style={{ textAlign: "right" }}>{new Date(c.t * 1000).toLocaleTimeString()}</Caption1>
+      </div>
+      {c.asked && <Clamp className={styles.quote} text={c.asked} />}
+
+      {c.runs.map((k, n) => {
         const r = d.runs.get(k);
         if (!r) return null;
         return (
           <div key={k}>
-            <Caption1 block className={styles.muted}>
-              {t("session.run")} {r.status === "running" ? <Spinner size="extra-tiny" /> : <Badge size="small" appearance="tint" color={statusColor(r.status)}>{t(`runs.status.${r.status}`, r.status)}</Badge>}
-              {r.cost > 0 ? ` $${r.cost.toFixed(2)}` : ""}
-            </Caption1>
+            <div className={styles.cardHead}>
+              {r.status === "running" ? <Spinner size="extra-tiny" /> : <Badge size="small" appearance="tint" color={statusColor(r.status)}>{t(`runs.status.${r.status}`, r.status)}</Badge>}
+              <Caption1>{t("session.run")} {n + 1}</Caption1>
+              {r.cost > 0 && <Caption1 className={styles.muted}>${r.cost.toFixed(2)}</Caption1>}
+            </div>
             {r.pieces.length > 0 && (
               <details open={r.status === "running" || undefined}>
-                <summary><Caption1>{t("session.activity", { count: r.pieces.length })}</Caption1></summary>
-                {r.pieces.slice(-40).map((p, i) => (
-                  <div key={i} className={`${styles.box} ${p.kind === "tool" ? styles.mono : ""}`}>{clip(p.text, 1500)}</div>
-                ))}
+                <summary className={styles.summaryRow}>{t("session.activity", { count: r.pieces.length })}</summary>
+                <div className={styles.steps}>
+                  {r.pieces.slice(-30).map((p, i) => (
+                    <div key={i} className={mergeClasses(styles.step, p.kind === "tool" && styles.mono)}>{clip(p.text, 600)}</div>
+                  ))}
+                </div>
               </details>
             )}
-            {r.summary && r.status !== "running" && c.decisions.length === 0 && <div className={styles.box}>{r.summary}</div>}
-            {r.questions.length > 0 && <div className={styles.box}>{r.questions.map((q) => `? ${q}`).join("\n")}</div>}
             {r.assumptions.length > 0 && (
-              <div className={styles.chips}>
-                {r.assumptions.map((a, i) => <Badge key={i} appearance="outline" color="informative" title={t("session.assumed")}>{t("session.assumed")}: {clip(a, 80)}</Badge>)}
-              </div>
+              <Clamp className={styles.muted} text={`${t("session.assumed")}: ${r.assumptions.join("; ")}`} />
             )}
           </div>
         );
       })}
-      {decisions.map((x, i) => (
-        <div key={i} className={styles.box}>
-          {x.action === "delegate" && (x.detail.calls ?? []).map((k: any, j: number) => <div key={j}>→ <b>{k.label}</b>: {k.instructions}</div>)}
-          {x.action === "finish" && <div>{x.detail.success === false ? "✘" : "✔"} {x.detail.result}</div>}
-          {x.action === "ask" && <div>{(x.detail.questions ?? []).map((q: string) => `? ${q}`).join("\n")}</div>}
-          {x.notes && <Caption1 block className={styles.muted}>{t("session.notes")}: {x.notes}</Caption1>}
+
+      {c.decisions.map((x, i) => (
+        <div key={i} className={styles.steps}>
+          {x.action === "delegate" &&
+            (x.detail.calls ?? []).map((k: any, j: number) => (
+              <div key={j} className={styles.handoff}>
+                <span className={styles.chip} title={k.label}>→ {k.label}</span>
+                <Clamp text={k.instructions} />
+              </div>
+            ))}
+          {x.action === "finish" && (
+            <div className={x.detail.success === false ? styles.outFail : styles.outDone}>
+              <Clamp text={x.detail.result ?? ""} />
+            </div>
+          )}
+          {x.action === "ask" && (
+            <div className={styles.outAsk}>
+              <Clamp text={(x.detail.questions ?? []).map((q: string) => `? ${q}`).join("\n")} />
+            </div>
+          )}
+          {x.notes && <Clamp className={styles.muted} text={`${t("session.notes")}: ${x.notes}`} />}
         </div>
       ))}
-      {c.refused.map((r, i) => <Caption1 key={i} block className={styles.muted}>{t("session.refused", { reason: r })}</Caption1>)}
-      {c.status !== "open" && c.decisions.length === 0 && c.summary && null}
-    </details>
+      {c.refused.map((r, i) => <Clamp key={i} className={styles.muted} text={t("session.refused", { reason: r })} />)}
+      {!open && c.decisions.length === 0 && c.summary && (
+        <div className={c.status === "failed" ? styles.outFail : styles.outDone}><Clamp text={c.summary} /></div>
+      )}
+    </div>
+  );
+}
+
+function Timeline({ items, onPick }: { items: Digest["timeline"]; onPick: (node: string) => void }) {
+  const { t } = useTranslation();
+  const styles = useStyles();
+  const dotOf = (x: Digest["timeline"][number]) =>
+    x.status === "done" ? styles.dot_done : x.status === "failed" || x.kind === "error" ? styles.dot_failed : x.status === "needs_input" || x.kind === "wait" ? styles.dot_wait : styles.dot_brand;
+  const verb = (x: Digest["timeline"][number]) =>
+    x.kind === "start" ? t("session.ev.start", { from: x.from || t("session.ev.you") }) : t(`session.ev.${x.kind}${x.kind === "end" ? `_${x.status}` : ""}`, "");
+  return (
+    <div className={styles.tl}>
+      {items.map((x, i) => (
+        <div key={i} className={styles.tlItem} onClick={() => x.node && onPick(x.node)}>
+          <div className={styles.rail}>
+            <span className={mergeClasses(styles.dot, dotOf(x))} />
+            {i < items.length - 1 && <span className={styles.line} />}
+          </div>
+          <div>
+            <div className={styles.tlHead}>
+              {x.who && <span className={styles.tlWho}>{x.who}</span>}
+              <Caption1 className={styles.muted}>{verb(x)}</Caption1>
+              <Caption1 className={styles.tlTime}>{new Date(x.t * 1000).toLocaleTimeString()}</Caption1>
+            </div>
+            {x.text && <Clamp text={x.text} />}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -391,7 +480,7 @@ export function SessionView() {
           <TabList className={styles.tabs} size="small" selectedValue={tab} onTabSelect={(_, x) => setTab(x.value as Tab_)}>
             <Tab value="chat">{t("session.tabs.chat")}{pending && live ? " ●" : ""}</Tab>
             <Tab value="timeline">{t("session.tabs.timeline")}</Tab>
-            <Tab value="agent">{picked ? names[picked] : t("session.tabs.agent")}</Tab>
+            <Tab value="agent">{picked ? clip(names[picked] ?? "", 18) : t("session.tabs.agent")}</Tab>
           </TabList>
 
           <div className={styles.scroll}>
@@ -428,18 +517,7 @@ export function SessionView() {
             )}
 
             {tab === "timeline" &&
-              (d.timeline.length === 0 ? (
-                <Caption1 className={styles.muted}>{t("session.noEvents")}</Caption1>
-              ) : (
-                d.timeline.map((x, i) => (
-                  <div key={i} className={styles.row} onClick={() => x.node && pick(x.node)}>
-                    <Badge size="small" appearance="tint" color={statusColor(x.status ?? (x.kind === "error" ? "failed" : x.kind === "wait" ? "waiting" : "informative"))}>
-                      {new Date(x.t * 1000).toLocaleTimeString()}
-                    </Badge>
-                    <span>{x.text}</span>
-                  </div>
-                ))
-              ))}
+              (d.timeline.length === 0 ? <Caption1 className={styles.muted}>{t("session.noEvents")}</Caption1> : <Timeline items={d.timeline} onPick={pick} />)}
 
             {tab === "agent" &&
               (!picked ? (
