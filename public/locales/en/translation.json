@@ -129,7 +129,7 @@
   },
   "welcome": {
     "title": "Welcome",
-    "text": "Set up a starting point? This creates two images, Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with playwright-cli), built on the base image in the background, five agent profiles (orchestrator, project manager, business analyst, developer, tester), and a Demo project with the standard delivery workflow: the orchestrator plans, the project manager and business analyst shape the work, you approve the requirements, the developer builds and the tester verifies. You can edit or delete all of it later.",
+    "text": "Set up a starting point? This creates two images, Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with playwright-cli), built on the base image in the background, eight agent profiles (orchestrator, project manager, delivery lead, business analyst, architect, developer, reviewer, tester), and a Demo project with the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one; for each, the delivery lead has the analyst, architect, developer, reviewer and tester do their part. You can edit or delete all of it later.",
     "yes": "Yes, set it up",
     "no": "No, thanks",
     "done": "Starter images and profiles created. The images are building."
@@ -172,69 +172,32 @@
   },
   "wf": {
     "saved": "Workflow saved.",
-    "add": "Add step:",
+    "addAgent": "Add agent",
     "loadStandard": "Load standard workflow",
-    "pick": "Select a step to edit it. Drag from a step's right handle to another step to connect them.",
+    "pick": "An arrow from A to B means A may hand work to B. The agent nobody hands work to is the root and receives the user's request; an agent with arrows coordinates the agents it points to and decides what to hand out, in what order and how often. Drag from an agent's right handle to another agent to connect them; select an arrow to require approval.",
+    "agent": "Agent",
+    "coordinates": "Coordinates {{count}} agent(s): decides what to delegate and when it is done.",
+    "worker": "Does its work and reports; calls no one.",
     "label": "Label",
     "profile": "Agent profile",
-    "prompt": "Instructions",
-    "agentPromptHint": "Added to the task of this step, after the output of the previous steps.",
-    "schema": "Result schema (JSON, optional)",
-    "schemaHint": "Makes the result structured so conditions can read it.",
-    "maxRuns": "Max runs",
-    "maxRunsHint": "How many times a session may reach this step before it fails (loops).",
-    "field": "Field",
-    "fieldHint": "`status` or `result.<key>` of the previous agent's result.",
-    "operator": "Operator",
-    "value": "Value",
-    "remove": "Remove step",
-    "type": {
-      "start": "Start",
-      "agent": "Agent",
-      "condition": "Condition",
-      "human": "Human",
-      "end": "End"
-    },
-    "op": {
-      "eq": "equals",
-      "ne": "differs from",
-      "contains": "contains"
-    },
-    "mode": {
-      "label": "Kind",
-      "hint": "Changing it removes the step's outgoing connections.",
-      "approve": "Approve or reject",
-      "input": "Free-text answer"
-    },
-    "humanPromptHint": "Shown to the user when the session waits here.",
-    "outcome": {
-      "label": "Outcome",
-      "success": "Success",
-      "failure": "Failure"
-    },
-    "branch": {
-      "true": "yes",
-      "false": "no",
-      "approved": "approved",
-      "rejected": "rejected"
-    },
-    "problem": {
-      "unreachable": "\"{{node}}\" cannot be reached from the start.",
-      "unknown_profile": "\"{{node}}\" uses an agent profile that does not exist.",
-      "no_next": "\"{{node}}\" has no next step.",
-      "multi_out": "\"{{node}}\" has more than one exit.",
-      "missing_branch": "\"{{node}}\" is missing one of its exits.",
-      "duplicate_branch": "\"{{node}}\" has two connections on the same exit.",
-      "no_end": "The workflow has no end step."
-    },
-    "instances": "Parallel agents",
-    "instancesHint": "How many agents of this profile work on the step at once. The engine picks a number in this range and splits the work between them.",
-    "min": "min",
-    "max": "max",
-    "coordinator": "Coordinator",
-    "coordinatorHint": "The coordinator receives the result of every step and decides which of the connected steps comes next, within the connections drawn here. Without one, results flow along the connections.",
+    "prompt": "Role in this workflow",
+    "agentPromptHint": "What this agent does here. Coordinators also use it to decide how to work through the agents they call (order, loops, when to stop).",
+    "maxCalls": "Max calls",
+    "maxCallsHint": "How many times this agent may be called in a session. Bounds loops.",
     "timeout": "Timeout (minutes)",
-    "timeoutHint": "How long an agent run of this step may take before it is killed. Default 30."
+    "timeoutHint": "How long one run of this agent may take before it is killed. Default 30.",
+    "remove": "Remove agent",
+    "root": "root",
+    "approval": "Needs your approval",
+    "approvalHint": "Each time the first agent wants to hand work to the second, you approve or reject it. Asked even when the session never lets agents ask you questions.",
+    "approvalLabel": "approval",
+    "problem": {
+      "empty": "The workflow has no agents.",
+      "no_root": "No agent is the root: every agent is called by another (a cycle).",
+      "many_roots": "More than one agent is not called by anyone; exactly one root is needed.",
+      "unreachable": "\"{{node}}\" cannot be reached from the root.",
+      "unknown_profile": "\"{{node}}\" uses an agent profile that does not exist."
+    }
   },
   "runs": {
     "title": "Run an agent",
@@ -259,15 +222,24 @@
     "answer": "Your answer",
     "ask": {
       "approve": "Your approval is needed",
-      "input": "The workflow needs your input",
-      "questions": "An agent has questions"
+      "questions": "{{label}} has questions"
     },
-    "rejected": "The coordinator's answer was refused: {{reason}}",
-    "condition": "Condition on {{field}}: {{result}}",
-    "waiting": "Waiting for you at \"{{label}}\"",
-    "ended": "Ended: {{outcome}}",
+    "waiting": "Waiting for you: {{label}}",
     "rename": "Rename session",
     "firstMessage": "Tell the agents what you want done.",
-    "placeholder": "What do you want to do? Enter sends, Shift+Enter adds a line."
+    "placeholder": "What do you want to do? Enter sends, Shift+Enter adds a line.",
+    "autonomy": {
+      "label": "Questions",
+      "ask": "Ask me",
+      "never": "Never ask me",
+      "askHint": "Questions the agents cannot answer among themselves reach you.",
+      "neverHint": "Agents decide on their own and list their assumptions."
+    },
+    "turn": "turn {{n}}",
+    "notes": "notes",
+    "rejected": "{{label}}'s answer was refused: {{reason}}",
+    "result": "Result",
+    "assumptions": "Assumptions made",
+    "assumptionsHint": "What the agents assumed instead of asking. Check them."
   }
 }

@@ -1,90 +1,121 @@
-//! The workflow engine: runs a session, walking the project's workflow graph (`projects.rs`).
+//! The workflow engine: runs a session over the project's org chart (`projects.rs`).
 //!
-//! The graph is the set of allowed moves. A plain step has one exit; a condition or an approval has
-//! two, picked by the result; the *coordinator* (the orchestrator, `Workflow::coordinator`) has
-//! several and picks one by a structured decision, which the engine checks against the graph before
-//! acting. Every step's result goes into a history that the next prompts carry: each agent run is a
-//! fresh VM with no memory of the earlier ones (a Claude session cannot be resumed in another VM),
-//! so the engine rebuilds the context every time. Humans take part through approvals, free-text
-//! answers, and the questions an agent asks when it ends with `needs_input`.
+//! The root agent gets the user's request. An agent with outgoing edges is a *coordinator*: each
+//! time it runs it answers with a structured decision, to `delegate` work to agents it has an
+//! edge to (several at once run in parallel), to `finish` (its result goes to whoever called it),
+//! or to `ask` (questions it cannot answer: they go to its caller, and from the root to the user).
+//! An agent without outgoing edges does its work and reports once. A caller is run again, in a
+//! fresh VM, when the agents it called report back: no Claude session is ever resumed, so each
+//! prompt is rebuilt from the session goal, what the agent was asked, its own `notes` (progress it
+//! keeps for itself, only inside this session) and the results it is handed. The edges are the
+//! only allowed moves; the engine rejects a decision that leaves them, and the limits (calls per
+//! agent, depth, rounds, runs per session, parallel VMs) hold whatever the agents decide.
+//!
+//! The user takes part through the root's questions (unless the session's autonomy is `never`)
+//! and through edges marked as needing approval.
 //!
 //! `drive` holds the logic and talks to the outside only through `Host` (running an agent, logging,
-//! saving), so tests use a scripted host. `RealHost` is the one that boots VMs. The state is saved
-//! at every transition, so a session survives a restart of the app (`session_continue`).
+//! saving), so tests use a scripted host. `RealHost` boots VMs. Resuming a session after a restart
+//! replays it: every agent run is journaled under a key made of the path of the call, and `drive`
+//! walks the same decisions again, taking the journaled result instead of starting a VM.
 
 use std::collections::HashMap;
 use std::future::Future;
 use std::io::Write as _;
 use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 
 use crate::profiles::Profile;
-use crate::projects::{HumanMode, Node, Op, Outcome, Step, Workflow};
+use crate::projects::{Node, Workflow};
 use crate::protocol::{Final, Outbound, Status, Task, TaskEnv};
 use crate::runs::{Spec, failed};
 
-/// Agent runs (VMs) one session may start, whatever the per-step limits say.
+/// Agent runs (VMs) one session may start, whatever the per-agent limits say.
 const MAX_RUNS: u32 = 300;
-/// How much history the prompts carry.
-const HISTORY_CHARS: usize = 24_000;
-const ITEM_CHARS: usize = 6_000;
-/// Attempts the coordinator gets to give a decision the graph allows.
+/// How deep delegation may go (the root is 0).
+const MAX_DEPTH: usize = 8;
+/// Turns one coordinator call may take.
+const MAX_ROUNDS: u32 = 60;
+/// Agents one decision may call at once.
+const MAX_PARALLEL_CALLS: usize = 5;
+/// VMs running at the same time.
+const MAX_VMS: usize = 4;
+/// Questions that may reach the user in one run of the session; later ones are refused.
+const MAX_USER_QUESTIONS: u32 = 10;
+/// Attempts a coordinator gets to give a decision the graph allows.
 const DECISION_ATTEMPTS: u32 = 2;
+/// How much text the prompts carry.
+const LOG_CHARS: usize = 8_000;
+const ITEM_CHARS: usize = 6_000;
+
+/// What a coordinator answers: where `calls` go, or `finish` with a `result`, or `ask`.
+pub const COORDINATOR_SCHEMA: &str = r#"{"type":"object","properties":{"action":{"type":"string","enum":["delegate","finish","ask"]},"calls":{"type":"array","items":{"type":"object","properties":{"to":{"type":"string"},"instructions":{"type":"string"}},"required":["to","instructions"]}},"result":{"type":"string"},"success":{"type":"boolean"},"questions":{"type":"array","items":{"type":"string"}},"notes":{"type":"string"},"assumptions":{"type":"array","items":{"type":"string"}}},"required":["action","notes"]}"#;
 
 // ---- state ----
-
-/// The result of one step, as the following prompts and conditions see it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Done {
-    pub node: String,
-    pub label: String,
-    /// `done | needs_input | failed`
-    pub status: String,
-    pub summary: String,
-    #[serde(default)]
-    pub output: Option<Value>,
-    #[serde(default)]
-    pub questions: Vec<String>,
-    #[serde(default)]
-    pub cost_usd: f64,
-}
 
 /// What a session is waiting for the user to answer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Pending {
+    /// Key of the answer in `State::replies`.
+    pub id: String,
     pub node: String,
-    /// `approve | input | questions`
+    pub label: String,
+    /// `approve | questions`
     pub kind: String,
     pub prompt: String,
     #[serde(default)]
     pub questions: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+/// A finished agent run, in the order they finished.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Journaled {
+    pub seq: u64,
+    pub done: Final,
+}
+
+/// Saved at every transition (`sessions/<sid>.state.json`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct State {
-    pub current: Option<String>,
-    /// Completed visits per step, against `max_runs`.
+    /// Finished agent runs by key (the path of the call, the round and the attempt).
     #[serde(default)]
-    pub visits: HashMap<String, u32>,
+    pub journal: HashMap<String, Journaled>,
     #[serde(default)]
-    pub history: Vec<Done>,
-    /// Instructions for the next step (from the coordinator, or the user's answers).
+    pub seq: u64,
+    /// The user's answers by the key of the question.
     #[serde(default)]
-    pub carry: Option<String>,
-    /// The coordinator's split of the work for the next step's parallel instances.
-    #[serde(default)]
-    pub parts: Vec<String>,
+    pub replies: HashMap<String, Reply>,
     #[serde(default)]
     pub pending: Option<Pending>,
+    /// What the agents assumed instead of asking, for the user to check.
+    #[serde(default)]
+    pub assumptions: Vec<String>,
     #[serde(default)]
     pub runs: u32,
     #[serde(default)]
     pub cost_usd: f64,
+    /// The root's final report.
+    #[serde(default)]
+    pub result: Option<String>,
+}
+
+impl State {
+    /// Before a session is continued: forgets the first failed run and everything decided after
+    /// it, so that run is tried again (what came before is replayed).
+    pub fn rewind_failures(&mut self) {
+        if let Some(first) = self.journal.values().filter(|j| j.done.status == Status::Failed).map(|j| j.seq).min() {
+            self.journal.retain(|_, j| j.seq < first);
+        }
+        self.pending = None;
+        self.result = None;
+    }
 }
 
 /// The user's answer to a `Pending`.
@@ -106,11 +137,12 @@ pub enum Ended {
 
 pub struct AgentReq {
     pub node: String,
-    pub instance: u32,
-    pub instances: u32,
+    /// The key of this run in the journal.
+    pub call: String,
+    pub depth: usize,
     pub profile: String,
     pub prompt: String,
-    /// JSON schema of the answer; empty for the default one.
+    /// JSON schema of the answer.
     pub schema: String,
     /// Minutes the run may take.
     pub timeout_mins: u32,
@@ -122,6 +154,18 @@ pub trait Host: Send + Sync + 'static {
     fn log(&self, kind: &str, body: Value);
     /// Saves the state and sets the session's status (`running | waiting`).
     fn checkpoint(&self, state: &State, status: &str);
+    /// Whether the agents may reach the user: `ask` or `never` (read each time, the user may change it).
+    fn autonomy(&self) -> String;
+}
+
+/// A result as the agent that called sees it.
+#[derive(Debug, Clone)]
+pub struct Reported {
+    pub label: String,
+    /// `done | failed | needs_input | rejected | user`
+    pub status: String,
+    pub summary: String,
+    pub questions: Vec<String>,
 }
 
 // ---- prompts ----
@@ -135,472 +179,555 @@ fn clip(s: &str, n: usize) -> String {
     out
 }
 
-/// The history as text, newest entries kept first when it is too long.
-pub fn render_history(history: &[Done]) -> String {
-    if history.is_empty() {
-        return "Nothing has been done yet.".into();
-    }
-    let items: Vec<String> = history
-        .iter()
-        .map(|d| {
-            let mut s = format!("### {} ({})\n{}", d.label, d.status, clip(&d.summary, ITEM_CHARS));
-            if let Some(o) = &d.output {
-                s.push_str(&format!("\nStructured result: {}", clip(&o.to_string(), 2000)));
-            }
-            s
-        })
-        .collect();
-    let (mut kept, mut total) = (vec![], 0);
-    for item in items.iter().rev() {
-        if total + item.len() > HISTORY_CHARS && !kept.is_empty() {
-            kept.push("(earlier steps left out)".to_string());
-            break;
-        }
-        total += item.len();
-        kept.push(item.clone());
-    }
-    kept.reverse();
-    kept.join("\n\n")
-}
-
 fn section(title: &str, body: &str) -> String {
     format!("# {title}\n{}\n\n", body.trim())
 }
 
-pub fn worker_prompt(task: &str, history: &[Done], step_prompt: &str, carry: Option<&str>, part: Option<(u32, u32, &str)>) -> String {
-    let mut p = section("Task of the session", task);
-    p += &section("Work done so far", &render_history(history));
-    if !step_prompt.trim().is_empty() {
-        p += &section("Your step", step_prompt);
-    }
-    if let Some(c) = carry.filter(|c| !c.trim().is_empty()) {
-        p += &section("Instructions for this run", c);
-    }
-    if let Some((i, n, text)) = part {
-        p += &section("Your part", &format!("You are instance {i} of {n}, working in parallel with the others. Do only this part: {text}"));
-    }
-    p.trim_end().to_string()
+fn label_of(n: &Node) -> String {
+    if n.label.trim().is_empty() { n.profile.clone() } else { n.label.clone() }
 }
 
-/// A way out of the coordinator: a step it may send the work to.
+/// A way out of a coordinator: an agent it may call.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Opt {
     pub id: String,
     pub label: String,
     pub desc: String,
-    pub min: u32,
-    pub max: u32,
+    pub approval: bool,
 }
 
-fn label_of(n: &Node) -> String {
-    if !n.label.trim().is_empty() {
-        return n.label.clone();
-    }
-    match &n.step {
-        Step::Agent { profile, .. } => profile.clone(),
-        _ => n.id.clone(),
-    }
-}
-
-pub fn coordinator_options(wf: &Workflow, coord: &str) -> Vec<Opt> {
+pub fn options(wf: &Workflow, from: &str) -> Vec<Opt> {
     let mut out: Vec<Opt> = vec![];
-    for e in wf.edges.iter().filter(|e| e.from == coord) {
+    for e in wf.edges.iter().filter(|e| e.from == from) {
         let Some(n) = wf.nodes.iter().find(|n| n.id == e.to) else { continue };
-        if out.iter().any(|o| o.id == n.id) {
-            continue;
-        }
-        let (desc, min, max) = match &n.step {
-            Step::Agent { profile, min_instances, max_instances, .. } => {
-                let mut d = format!("the {profile} agent");
-                if max_instances > &1 {
-                    d += &format!(" (between {min_instances} and {max_instances} instances in parallel: put one entry per instance in `parts`)");
-                }
-                (d, *min_instances, *max_instances)
-            }
-            Step::Human { mode, prompt, .. } => {
-                let how = if *mode == HumanMode::Approve { "approves or rejects" } else { "answers" };
-                (format!("the user {how}: {}", clip(prompt, 200)), 1, 1)
-            }
-            Step::End { outcome } => (format!("end the session ({})", if *outcome == Outcome::Success { "success" } else { "failure" }), 1, 1),
-            Step::Condition { .. } => ("a check on the last result".into(), 1, 1),
-            Step::Start => continue,
-        };
-        out.push(Opt { id: n.id.clone(), label: label_of(n), desc, min, max });
+        let role = if n.prompt.trim().is_empty() { String::new() } else { format!(": {}", clip(n.prompt.trim(), 240)) };
+        out.push(Opt { id: n.id.clone(), label: label_of(n), desc: format!("{} agent{role}", n.profile), approval: e.approval });
     }
     out
 }
 
-pub fn coordinator_prompt(task: &str, history: &[Done], step_prompt: &str, options: &[Opt], carry: Option<&str>, feedback: Option<&str>) -> String {
-    let mut p = section("Task of the session", task);
-    p += &section("What has happened so far", &render_history(history));
-    if !step_prompt.trim().is_empty() {
-        p += &section("Your role", step_prompt);
+fn render_reported(items: &[Reported]) -> String {
+    items
+        .iter()
+        .map(|r| {
+            let mut s = format!("### {} ({})\n{}", r.label, r.status, clip(&r.summary, ITEM_CHARS));
+            if !r.questions.is_empty() {
+                s += &format!("\nQuestions:\n{}", r.questions.iter().map(|q| format!("- {q}")).collect::<Vec<_>>().join("\n"));
+            }
+            s
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+const WORKER_ANSWER: &str = "Do the work, then end with: `status` (`done`; `failed` if you could not do it; `needs_input` only when you cannot continue at all without an answer, and then put the blocking questions in `questions`), `summary` (what you did and found, with every identifier the next agent needs: ticket ids, branches, pull request numbers, links) and `assumptions` (what you assumed instead of asking). Do not ask about what you can reasonably assume or find out yourself: assume it and say so in `assumptions`.";
+
+pub fn worker_prompt(task: &str, n: &Node, asked: &str) -> String {
+    let mut p = section("Goal of the session", &clip(task, 4_000));
+    if !n.prompt.trim().is_empty() {
+        p += &section("Your role in this workflow", &n.prompt);
     }
-    if let Some(c) = carry.filter(|c| !c.trim().is_empty()) {
-        p += &section("Note", c);
+    p += &section("What is asked of you", asked);
+    p += &section("How to answer", WORKER_ANSWER);
+    p.trim_end().to_string()
+}
+
+pub struct TurnContext<'a> {
+    pub task: &'a str,
+    /// What the caller asked (`None` for the root: the goal of the session is the request).
+    pub asked: Option<&'a str>,
+    pub notes: &'a str,
+    pub log: &'a [String],
+    pub inbox: &'a [Reported],
+    pub options: &'a [Opt],
+    pub is_root: bool,
+    pub can_ask_user: bool,
+    pub feedback: Option<&'a str>,
+}
+
+pub fn coordinator_prompt(n: &Node, c: &TurnContext) -> String {
+    let mut p = section(if c.is_root { "The user's request" } else { "Goal of the session" }, &clip(c.task, 4_000));
+    if !n.prompt.trim().is_empty() {
+        p += &section("Your role in this workflow", &n.prompt);
     }
-    let list: Vec<String> = options.iter().map(|o| format!("- `{}`: {} ({})", o.id, o.label, o.desc)).collect();
+    if let Some(a) = c.asked {
+        p += &section("What was asked of you", a);
+    }
+    if !c.notes.trim().is_empty() {
+        p += &section("Your notes (written by you on your last turn)", c.notes);
+    }
+    if !c.log.is_empty() {
+        let mut kept: Vec<&str> = vec![];
+        let mut total = 0;
+        for line in c.log.iter().rev() {
+            if total + line.len() > LOG_CHARS && !kept.is_empty() {
+                kept.push("(earlier calls left out)");
+                break;
+            }
+            total += line.len();
+            kept.push(line);
+        }
+        kept.reverse();
+        p += &section("What you have handed out so far", &kept.join("\n"));
+    }
+    if !c.inbox.is_empty() {
+        p += &section("Results since your last turn", &render_reported(c.inbox));
+    }
+    let list: Vec<String> = c.options.iter().map(|o| format!("- `{}`: {} ({}){}", o.id, o.label, o.desc, if o.approval { " [the user approves each handover]" } else { "" })).collect();
+    let up = if c.is_root {
+        if c.can_ask_user { "the user" } else { "nobody: the user cannot be asked in this session, decide yourself" }
+    } else {
+        "whoever called you"
+    };
     p += &section(
-        "Decide the next step",
+        "Decide what happens now",
         &format!(
-            "Choose where the work goes next, from exactly these options:\n{}\n\nAnswer with `next` (one of the ids above), `instructions` (what that step must do, precise and complete: it knows only what you tell it and the history above) and, only when the step runs several instances, `parts` (one entry per instance).",
-            list.join("\n")
+            "You can call these agents, and only these:\n{}\n\nAnswer with `action`:\n- `delegate`: `calls` is a list of `{{to, instructions}}`, up to {MAX_PARALLEL_CALLS}, `to` one of the ids above. Calls in the same answer run at the same time; each agent knows only what you write in its `instructions`, so make them complete. You are run again when they report back.\n- `finish`: you are done. `result` is your report to {} and `success` says whether the goal was met.\n- `ask`: `questions` you cannot answer and cannot go on without; they go to {up}. Use it rarely: prefer to assume and list what you assumed.\n\nAlways fill `notes` with the progress you will need on your next turn (what is done, what remains): you remember nothing else. Put what you assumed in `assumptions`.",
+            list.join("\n"),
+            if c.is_root { "the user" } else { "whoever called you" },
         ),
     );
-    if let Some(f) = feedback {
-        p += &section("Your previous answer was rejected", f);
+    if let Some(f) = c.feedback {
+        p += &section("Your previous answer was refused", f);
     }
     p.trim_end().to_string()
 }
 
-/// Reads the coordinator's answer and checks it against the options. Returns the chosen option,
-/// the instructions and the parts for its instances.
-pub fn parse_decision<'a>(output: Option<&Value>, options: &'a [Opt]) -> Result<(&'a Opt, String, Vec<String>), String> {
+// ---- decisions ----
+
+#[derive(Debug, PartialEq)]
+pub enum Action {
+    Delegate(Vec<(Opt, String)>),
+    Finish { result: String, success: bool },
+    Ask(Vec<String>),
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Decision {
+    pub action: Action,
+    pub notes: String,
+    pub assumptions: Vec<String>,
+}
+
+fn strings(v: Option<&Value>) -> Vec<String> {
+    v.and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()).unwrap_or_default()
+}
+
+pub fn assumptions_of(output: Option<&Value>) -> Vec<String> {
+    strings(output.and_then(|o| o.get("assumptions")))
+}
+
+/// Reads a coordinator's answer and checks it against the agents it may call.
+pub fn parse_decision(output: Option<&Value>, options: &[Opt]) -> Result<Decision, String> {
     let Some(o) = output.and_then(Value::as_object) else {
-        return Err("the answer was not the structured object with `next` and `instructions`".into());
+        return Err("the answer was not the structured object with `action` and `notes`".into());
     };
-    let next = o.get("next").and_then(Value::as_str).unwrap_or("").trim();
-    let Some(opt) = options.iter().find(|x| x.id == next).or_else(|| options.iter().find(|x| x.label.eq_ignore_ascii_case(next))) else {
-        let ids: Vec<&str> = options.iter().map(|x| x.id.as_str()).collect();
-        return Err(format!("`next` was {next:?}, which is not one of the options: {}", ids.join(", ")));
+    let notes = o.get("notes").and_then(Value::as_str).unwrap_or("").to_string();
+    let assumptions = strings(o.get("assumptions"));
+    let action = match o.get("action").and_then(Value::as_str).unwrap_or("") {
+        "delegate" => {
+            let calls = o.get("calls").and_then(Value::as_array).cloned().unwrap_or_default();
+            if calls.is_empty() || calls.len() > MAX_PARALLEL_CALLS {
+                return Err(format!("`calls` needs between 1 and {MAX_PARALLEL_CALLS} entries"));
+            }
+            let mut out = vec![];
+            for c in &calls {
+                let to = c.get("to").and_then(Value::as_str).unwrap_or("").trim();
+                let Some(opt) = options.iter().find(|x| x.id == to).or_else(|| options.iter().find(|x| x.label.eq_ignore_ascii_case(to))) else {
+                    let ids: Vec<&str> = options.iter().map(|x| x.id.as_str()).collect();
+                    return Err(format!("`to` was {to:?}, which you may not call; the options are: {}", ids.join(", ")));
+                };
+                let instructions = c.get("instructions").and_then(Value::as_str).unwrap_or("").trim().to_string();
+                if instructions.is_empty() {
+                    return Err(format!("the call to {} has no `instructions`", opt.id));
+                }
+                out.push((opt.clone(), instructions));
+            }
+            Action::Delegate(out)
+        }
+        "finish" => {
+            let result = o.get("result").and_then(Value::as_str).unwrap_or("").trim().to_string();
+            if result.is_empty() {
+                return Err("`finish` needs a `result`".into());
+            }
+            Action::Finish { result, success: o.get("success").and_then(Value::as_bool).unwrap_or(true) }
+        }
+        "ask" => {
+            let questions = strings(o.get("questions"));
+            if questions.is_empty() {
+                return Err("`ask` needs `questions`".into());
+            }
+            Action::Ask(questions)
+        }
+        other => return Err(format!("`action` was {other:?}; it must be delegate, finish or ask")),
     };
-    let instructions = o.get("instructions").and_then(Value::as_str).unwrap_or("").to_string();
-    let parts: Vec<String> = o.get("parts").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
-    if opt.max > 1 && !parts.is_empty() && !(opt.min as usize..=opt.max as usize).contains(&parts.len()) {
-        return Err(format!("`parts` has {} entries, but {} takes between {} and {} instances", parts.len(), opt.label, opt.min, opt.max));
-    }
-    // a step that cannot run in parallel ignores parts
-    let parts = if opt.max > 1 { parts } else { vec![] };
-    Ok((opt, instructions, parts))
-}
-
-// ---- graph ----
-
-fn node<'a>(wf: &'a Workflow, id: &str) -> Result<&'a Node, String> {
-    wf.nodes.iter().find(|n| n.id == id).ok_or_else(|| format!("the step {id} does not exist (the workflow changed?)"))
-}
-
-/// The one exit of a plain step.
-fn single_next(wf: &Workflow, n: &Node) -> Result<String, String> {
-    let outs: Vec<_> = wf.edges.iter().filter(|e| e.from == n.id).collect();
-    match outs.as_slice() {
-        [e] => Ok(e.to.clone()),
-        [] => Err(format!("{} has no next step", label_of(n))),
-        _ => Err(format!("{} has several exits and is not the coordinator", label_of(n))),
-    }
-}
-
-fn branch_next(wf: &Workflow, n: &Node, branch: &str) -> Result<String, String> {
-    wf.edges
-        .iter()
-        .find(|e| e.from == n.id && e.branch.as_deref() == Some(branch))
-        .map(|e| e.to.clone())
-        .ok_or_else(|| format!("{} has no `{branch}` exit", label_of(n)))
-}
-
-fn lookup<'a>(v: &'a Value, path: &str) -> Option<&'a Value> {
-    path.split('.').try_fold(v, |v, k| v.get(k))
-}
-
-fn text_of(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        Value::Null => String::new(),
-        Value::Array(a) => a.iter().map(text_of).collect::<Vec<_>>().join(","),
-        other => other.to_string(),
-    }
-}
-
-/// A condition on the last result: its `status`, or `result.<path>` in its structured output.
-pub fn eval_condition(field: &str, op: Op, value: &str, last: Option<&Done>) -> bool {
-    let actual = match (field, last) {
-        (_, None) => String::new(),
-        ("status", Some(d)) => d.status.clone(),
-        (f, Some(d)) => f
-            .strip_prefix("result.")
-            .and_then(|path| d.output.as_ref().and_then(|o| lookup(o, path)))
-            .map(text_of)
-            .unwrap_or_default(),
-    };
-    match op {
-        Op::Eq => actual == value,
-        Op::Ne => actual != value,
-        Op::Contains => actual.contains(value),
-    }
+    Ok(Decision { action, notes, assumptions })
 }
 
 // ---- running ----
 
-fn done_from(n: &Node, f: &Final) -> Done {
-    Done {
-        node: n.id.clone(),
-        label: label_of(n),
-        status: match f.status {
-            Status::Done => "done",
-            Status::NeedsInput => "needs_input",
-            Status::Failed => "failed",
-        }
-        .into(),
-        summary: f.result.clone(),
-        output: f.output.clone(),
-        questions: f.questions.clone(),
-        cost_usd: f.cost_usd.unwrap_or(0.0),
-    }
+enum Stop {
+    Cancelled,
+    Fail(String),
 }
 
-/// Folds the runs of a step's parallel instances into one result.
-fn aggregate(n: &Node, finals: &[Final]) -> Done {
-    if let [one] = finals {
-        return done_from(n, one);
-    }
-    let dones: Vec<Done> = finals.iter().map(|f| done_from(n, f)).collect();
-    let status = if dones.iter().any(|d| d.status == "failed") {
-        "failed"
-    } else if dones.iter().any(|d| d.status == "needs_input") {
-        "needs_input"
-    } else {
-        "done"
-    };
-    Done {
-        node: n.id.clone(),
-        label: label_of(n),
-        status: status.into(),
-        summary: dones.iter().enumerate().map(|(i, d)| format!("Instance {} ({}): {}", i + 1, d.status, d.summary)).collect::<Vec<_>>().join("\n\n"),
-        output: Some(json!({"instances": dones.iter().map(|d| d.output.clone()).collect::<Vec<_>>()})),
-        questions: dones.iter().flat_map(|d| d.questions.clone()).collect(),
-        cost_usd: dones.iter().map(|d| d.cost_usd).sum(),
-    }
-}
+type Res<T> = Result<T, Stop>;
 
-async fn wait_reply(cancel: &watch::Receiver<bool>, replies: &mut mpsc::Receiver<Reply>) -> Option<Reply> {
-    let mut c = cancel.clone();
-    tokio::select! {
-        r = replies.recv() => r,
-        _ = c.wait_for(|v| *v) => None,
-    }
-}
-
-fn step_end(host: &impl Host, d: &Done) {
-    host.log("step_end", json!({"node": d.node, "label": d.label, "status": d.status, "summary": d.summary, "output": d.output, "cost_usd": d.cost_usd}));
-}
-
-/// Runs the session until it ends. `state` is updated (and saved through the host) as it goes.
-pub async fn drive<H: Host>(
+struct Ctx<H: Host> {
     host: Arc<H>,
-    wf: &Workflow,
-    task: &str,
-    state: &mut State,
+    wf: Workflow,
+    task: String,
     cancel: watch::Receiver<bool>,
-    replies: &mut mpsc::Receiver<Reply>,
-) -> Ended {
-    macro_rules! fail {
-        ($e:expr) => {
-            match $e {
-                Ok(v) => v,
-                Err(e) => return Ended::Failed(e),
+    state: Mutex<State>,
+    visits: Mutex<HashMap<String, u32>>,
+    /// Holding it is having the user's attention: one question at a time.
+    human: tokio::sync::Mutex<mpsc::Receiver<Reply>>,
+    vms: Semaphore,
+    asked_user: AtomicU32,
+}
+
+fn reported(n: &Node, f: &Final) -> Reported {
+    let status = match f.status {
+        Status::Done => "done",
+        Status::NeedsInput => "needs_input",
+        Status::Failed => "failed",
+    };
+    Reported { label: label_of(n), status: status.into(), summary: f.result.clone(), questions: f.questions.clone() }
+}
+
+fn failure(n: &Node, why: impl Into<String>) -> Reported {
+    Reported { label: label_of(n), status: "failed".into(), summary: why.into(), questions: vec![] }
+}
+
+impl<H: Host> Ctx<H> {
+    fn cancelled(&self) -> bool {
+        *self.cancel.borrow()
+    }
+
+    fn save(&self) {
+        let (snap, status) = {
+            let s = self.state.lock().unwrap();
+            (s.clone(), if s.pending.is_some() { "waiting" } else { "running" })
+        };
+        self.host.checkpoint(&snap, status);
+    }
+
+    fn replayed(&self, key: &str) -> bool {
+        self.state.lock().unwrap().journal.contains_key(key)
+    }
+
+    /// Runs an agent, or takes its result from the journal. The flag says it came from there.
+    async fn run(&self, req: AgentReq) -> Res<(Final, bool)> {
+        if self.cancelled() {
+            return Err(Stop::Cancelled);
+        }
+        let journaled = self.state.lock().unwrap().journal.get(&req.call).map(|j| j.done.clone());
+        if let Some(f) = journaled {
+            return Ok((f, true));
+        }
+        {
+            let mut s = self.state.lock().unwrap();
+            if s.runs >= MAX_RUNS {
+                return Err(Stop::Fail(format!("the session reached its limit of {MAX_RUNS} agent runs")));
+            }
+            s.runs += 1;
+        }
+        let key = req.call.clone();
+        let permit = self.vms.acquire().await.map_err(|_| Stop::Cancelled)?;
+        if self.cancelled() {
+            return Err(Stop::Cancelled);
+        }
+        let f = self.host.run_agent(req).await;
+        drop(permit);
+        if self.cancelled() {
+            return Err(Stop::Cancelled);
+        }
+        {
+            let mut s = self.state.lock().unwrap();
+            s.cost_usd += f.cost_usd.unwrap_or(0.0);
+            s.seq += 1;
+            let seq = s.seq;
+            s.journal.insert(key, Journaled { seq, done: f.clone() });
+        }
+        self.save();
+        Ok((f, false))
+    }
+
+    fn keep_assumptions(&self, label: &str, output: Option<&Value>) {
+        let list = assumptions_of(output);
+        if list.is_empty() {
+            return;
+        }
+        let mut s = self.state.lock().unwrap();
+        for a in list {
+            s.assumptions.push(format!("{label}: {a}"));
+        }
+    }
+
+    /// Puts something in front of the user and waits for the answer. `gate`: an approval, which is
+    /// asked whatever the autonomy; otherwise a question, refused (`None`) when the session is on
+    /// `never` or too many have been asked. An answer given before (journaled) is reused.
+    async fn ask_user(&self, pending: Pending, gate: bool) -> Res<Option<Reply>> {
+        if !gate {
+            self.asked_user.fetch_add(1, Ordering::SeqCst);
+        }
+        let known = self.state.lock().unwrap().replies.get(&pending.id).cloned();
+        if let Some(r) = known {
+            return Ok(Some(r));
+        }
+        if !gate && (self.host.autonomy() == "never" || self.asked_user.load(Ordering::SeqCst) > MAX_USER_QUESTIONS) {
+            return Ok(None);
+        }
+        let mut rx = self.human.lock().await;
+        let id = pending.id.clone();
+        self.host.log("wait", json!({"id": id, "node": pending.node, "label": pending.label, "kind": pending.kind, "prompt": pending.prompt, "questions": pending.questions}));
+        self.state.lock().unwrap().pending = Some(pending);
+        self.save();
+        let mut cancel = self.cancel.clone();
+        let reply = loop {
+            let r = tokio::select! {
+                r = rx.recv() => r,
+                _ = cancel.wait_for(|v| *v) => None,
+            };
+            match r {
+                None => return Err(Stop::Cancelled),
+                Some(r) if gate && r.approved.is_none() => continue, // an approval needs yes or no
+                Some(r) => break r,
             }
         };
-    }
-    loop {
-        if *cancel.borrow() {
-            return Ended::Cancelled;
+        while rx.try_recv().is_ok() {} // a second click must not answer the next question
+        self.host.log("reply", json!({"id": id, "approved": reply.approved, "text": reply.text}));
+        {
+            let mut s = self.state.lock().unwrap();
+            s.pending = None;
+            s.replies.insert(id, reply.clone());
         }
+        self.save();
+        Ok(Some(reply))
+    }
+}
 
-        // The user's turn.
-        if let Some(p) = state.pending.clone() {
-            host.checkpoint(state, "waiting");
-            let Some(reply) = wait_reply(&cancel, replies).await else { return Ended::Cancelled };
-            let n = fail!(node(wf, &p.node));
-            if p.kind == "approve" && reply.approved.is_none() {
-                continue; // an approval needs yes or no
+fn find<'a>(wf: &'a Workflow, id: &str) -> Res<&'a Node> {
+    wf.nodes.iter().find(|n| n.id == id).ok_or_else(|| Stop::Fail(format!("the agent {id} does not exist (the workflow changed?)")))
+}
+
+type Call = Pin<Box<dyn Future<Output = Res<Reported>> + Send>>;
+
+/// One call of an agent, to its end. `path` identifies the call in the journal.
+fn call<H: Host>(ctx: Arc<Ctx<H>>, node_id: String, path: String, asked: String, depth: usize) -> Call {
+    Box::pin(async move {
+        let n = find(&ctx.wf, &node_id)?.clone();
+        if depth > MAX_DEPTH {
+            return Ok(failure(&n, format!("calls are nested more than {MAX_DEPTH} deep")));
+        }
+        {
+            let mut v = ctx.visits.lock().unwrap();
+            let c = v.entry(n.id.clone()).or_insert(0);
+            if *c >= n.max_calls {
+                return Ok(failure(&n, format!("{} was already called {c} times, its limit", label_of(&n))));
             }
-            host.log("reply", json!({"node": p.node, "approved": reply.approved, "text": reply.text}));
-            let text = clip(reply.text.trim(), 20_000);
-            match p.kind.as_str() {
-                "approve" => {
-                    let ok = reply.approved == Some(true);
-                    let summary = format!("The user {} it.{}", if ok { "approved" } else { "rejected" }, if text.is_empty() { String::new() } else { format!(" Comment: {text}") });
-                    let d = Done { node: n.id.clone(), label: label_of(n), status: "done".into(), summary, output: Some(json!({"approved": ok, "comment": text})), questions: vec![], cost_usd: 0.0 };
-                    state.current = Some(fail!(branch_next(wf, n, if ok { "approved" } else { "rejected" })));
-                    step_end(&*host, &d);
-                    state.history.push(d);
-                }
-                "input" => {
-                    let d = Done { node: n.id.clone(), label: label_of(n), status: "done".into(), summary: text.clone(), output: Some(json!({"answer": text})), questions: vec![], cost_usd: 0.0 };
-                    state.current = Some(fail!(single_next(wf, n)));
-                    step_end(&*host, &d);
-                    state.history.push(d);
-                }
-                _ => {
-                    // an agent's questions: run it again with the answer
-                    let qa = format!("You stopped to ask the user:\n{}\n\nThe user answered:\n{text}\n\nContinue the work with this answer.", p.questions.join("\n"));
-                    state.carry = Some(match state.carry.take() {
-                        Some(c) if !c.trim().is_empty() => format!("{c}\n\n{qa}"),
-                        _ => qa,
-                    });
-                    state.current = Some(p.node.clone());
-                }
-            }
-            state.pending = None;
-            host.checkpoint(state, "running");
+            *c += 1;
+        }
+        let opts = options(&ctx.wf, &n.id);
+        if opts.is_empty() { worker(ctx, n, path, asked, depth).await } else { coordinator(ctx, n, opts, path, asked, depth).await }
+    })
+}
+
+fn request(n: &Node, call: &str, depth: usize, prompt: String, schema: &str) -> AgentReq {
+    AgentReq { node: n.id.clone(), call: call.into(), depth, profile: n.profile.clone(), prompt, schema: schema.into(), timeout_mins: n.timeout_mins }
+}
+
+fn log_step<H: Host>(ctx: &Ctx<H>, n: &Node, call: &str, depth: usize, info: Value) {
+    ctx.host.log("step", json!({"node": n.id, "label": label_of(n), "profile": n.profile, "call": call, "depth": depth, "info": info}));
+}
+
+fn log_step_end<H: Host>(ctx: &Ctx<H>, n: &Node, call: &str, depth: usize, r: &Reported, cost: Option<f64>) {
+    ctx.host.log("step_end", json!({"node": n.id, "label": label_of(n), "call": call, "depth": depth, "status": r.status, "summary": r.summary, "questions": r.questions, "cost_usd": cost}));
+}
+
+async fn worker<H: Host>(ctx: Arc<Ctx<H>>, n: Node, path: String, asked: String, depth: usize) -> Res<Reported> {
+    let mut asked = if depth == 0 { ctx.task.clone() } else { asked };
+    let mut round = 0;
+    loop {
+        let key = if round == 0 { path.clone() } else { format!("{path}~{round}") };
+        let replay = ctx.replayed(&key);
+        if !replay {
+            log_step(&ctx, &n, &key, depth, json!({"asked": clip(&asked, 2000)}));
+        }
+        let (f, replayed) = ctx.run(request(&n, &key, depth, worker_prompt(&ctx.task, &n, &asked), crate::protocol::RESULT_SCHEMA)).await?;
+        let r = reported(&n, &f);
+        if !replayed {
+            ctx.keep_assumptions(&label_of(&n), f.output.as_ref());
+            log_step_end(&ctx, &n, &key, depth, &r, f.cost_usd);
+        }
+        // The root has nobody above it: its blocking questions go to the user.
+        if depth == 0 && r.status == "needs_input" && round < MAX_ROUNDS {
+            let pending = Pending { id: format!("{key}:ask"), node: n.id.clone(), label: label_of(&n), kind: "questions".into(), prompt: clip(&r.summary, 2000), questions: r.questions.clone() };
+            asked = match ctx.ask_user(pending, false).await? {
+                Some(reply) => format!("{asked}\n\nYou stopped to ask:\n{}\n\nThe user answered:\n{}\n\nContinue with this answer.", r.questions.join("\n"), clip(reply.text.trim(), 20_000)),
+                None => format!("{asked}\n\nThe user cannot be asked in this session: decide yourself and list your assumptions."),
+            };
+            round += 1;
             continue;
         }
+        return Ok(r);
+    }
+}
 
-        let Some(cur) = state.current.clone() else { return Ended::Failed("the session has no current step".into()) };
-        let n = fail!(node(wf, &cur));
-        match &n.step {
-            Step::Start => state.current = Some(fail!(single_next(wf, n))),
-
-            Step::Condition { field, op, value } => {
-                let ok = eval_condition(field, *op, value, state.history.last());
-                host.log("condition", json!({"node": n.id, "field": field, "result": ok}));
-                state.current = Some(fail!(branch_next(wf, n, if ok { "true" } else { "false" })));
+async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: String, asked: String, depth: usize) -> Res<Reported> {
+    let is_root = depth == 0;
+    let mut notes = String::new();
+    let mut log: Vec<String> = vec![];
+    let mut inbox: Vec<Reported> = vec![];
+    let mut feedback: Option<String> = None;
+    let mut round = 0;
+    loop {
+        round += 1;
+        if round > MAX_ROUNDS {
+            return Ok(failure(&n, format!("{} took more than {MAX_ROUNDS} turns", label_of(&n))));
+        }
+        let can_ask_user = is_root && ctx.host.autonomy() != "never";
+        let mut attempt = 0;
+        let (decision, replayed) = loop {
+            attempt += 1;
+            let key = format!("{path}:{round}:{attempt}");
+            if !ctx.replayed(&key) {
+                log_step(&ctx, &n, &key, depth, json!({"round": round}));
             }
-
-            Step::Human { mode, prompt } => {
-                let kind = if *mode == HumanMode::Approve { "approve" } else { "input" };
-                state.pending = Some(Pending { node: n.id.clone(), kind: kind.into(), prompt: prompt.clone(), questions: vec![] });
-                host.log("wait", json!({"node": n.id, "label": label_of(n), "kind": kind, "prompt": prompt}));
+            let prompt = coordinator_prompt(
+                &n,
+                &TurnContext { task: &ctx.task, asked: (!is_root).then_some(asked.as_str()), notes: &notes, log: &log, inbox: &inbox, options: &opts, is_root, can_ask_user, feedback: feedback.as_deref() },
+            );
+            let (f, replayed) = ctx.run(request(&n, &key, depth, prompt, COORDINATOR_SCHEMA)).await?;
+            if f.status == Status::Failed {
+                let r = reported(&n, &f);
+                if !replayed {
+                    log_step_end(&ctx, &n, &key, depth, &r, f.cost_usd);
+                }
+                return Ok(r);
             }
-
-            Step::End { outcome } => {
-                host.log("end", json!({"node": n.id, "outcome": if *outcome == Outcome::Success { "success" } else { "failure" }}));
-                return match outcome {
-                    Outcome::Success => Ended::Done,
-                    Outcome::Failure => Ended::Failed("the workflow ended in failure".into()),
-                };
+            match parse_decision(f.output.as_ref(), &opts) {
+                Ok(d) => {
+                    if !replayed {
+                        ctx.keep_assumptions(&label_of(&n), f.output.as_ref());
+                    }
+                    break (d, replayed);
+                }
+                Err(e) if attempt < DECISION_ATTEMPTS => {
+                    if !replayed {
+                        ctx.host.log("decision_rejected", json!({"node": n.id, "label": label_of(&n), "call": key, "reason": e}));
+                    }
+                    feedback = Some(e);
+                }
+                Err(e) => return Ok(failure(&n, format!("{} gave no valid decision: {e}", label_of(&n)))),
             }
+        };
+        feedback = None;
+        if !decision.notes.trim().is_empty() {
+            notes = decision.notes.clone();
+        }
+        if !replayed {
+            let (action, detail) = match &decision.action {
+                Action::Delegate(calls) => ("delegate", json!({"calls": calls.iter().map(|(o, i)| json!({"to": o.id, "label": o.label, "instructions": i})).collect::<Vec<_>>()})),
+                Action::Finish { result, success } => ("finish", json!({"result": result, "success": success})),
+                Action::Ask(q) => ("ask", json!({"questions": q})),
+            };
+            ctx.host.log("decision", json!({"node": n.id, "label": label_of(&n), "depth": depth, "round": round, "action": action, "detail": detail, "notes": notes}));
+        }
 
-            Step::Agent { profile, prompt, schema, max_runs, min_instances, max_instances, timeout_mins } => {
-                let is_coord = wf.coordinator.as_deref() == Some(n.id.as_str());
-                let visits = state.visits.get(&n.id).copied().unwrap_or(0);
-                if visits >= *max_runs {
-                    return Ended::Failed(format!("{} already ran {visits} times, its limit", label_of(n)));
+        match decision.action {
+            Action::Finish { result, success } => {
+                return Ok(Reported { label: label_of(&n), status: if success { "done" } else { "failed" }.into(), summary: result, questions: vec![] });
+            }
+            Action::Ask(questions) => {
+                if !is_root {
+                    return Ok(Reported { label: label_of(&n), status: "needs_input".into(), summary: format!("{} cannot go on without answers.", label_of(&n)), questions });
                 }
-
-                // How many instances, and what each one does.
-                let count = if is_coord {
-                    1
-                } else if state.parts.is_empty() {
-                    *min_instances
-                } else {
-                    (state.parts.len() as u32).clamp(*min_instances, *max_instances)
-                };
-                if state.runs + count > MAX_RUNS {
-                    return Ended::Failed(format!("the session reached its limit of {MAX_RUNS} agent runs"));
+                let pending = Pending { id: format!("{path}:{round}:ask"), node: n.id.clone(), label: label_of(&n), kind: "questions".into(), prompt: String::new(), questions: questions.clone() };
+                match ctx.ask_user(pending, false).await? {
+                    Some(reply) => {
+                        inbox = vec![Reported {
+                                            label: "The user".into(),
+                            status: "user".into(),
+                            summary: format!("Your questions:\n{}\n\nThe user answered:\n{}", questions.join("\n"), clip(reply.text.trim(), 20_000)),
+                            questions: vec![],
+                        }];
+                    }
+                    None => feedback = Some("The user cannot be asked (this session does not allow it, or too many questions were asked). Decide yourself, list what you assumed in `assumptions`, and go on.".into()),
                 }
-                host.log("step", json!({"node": n.id, "label": label_of(n), "profile": profile, "instances": count}));
-                host.checkpoint(state, "running");
-
-                let options = if is_coord { coordinator_options(wf, &n.id) } else { vec![] };
-                if is_coord && options.is_empty() {
-                    return Ended::Failed("the coordinator has no exits".into());
-                }
-
-                // Run (the coordinator may need a second try to give an allowed decision).
-                let mut feedback: Option<String> = None;
-                let mut attempt = 0;
-                let (done, decision) = loop {
-                    attempt += 1;
-                    let finals = if is_coord {
-                        let req = AgentReq {
-                            node: n.id.clone(),
-                            instance: 1,
-                            instances: 1,
-                            profile: profile.clone(),
-                            prompt: coordinator_prompt(task, &state.history, prompt, &options, state.carry.as_deref(), feedback.as_deref()),
-                            schema: crate::projects::ORCHESTRATOR_SCHEMA.into(),
-                            timeout_mins: *timeout_mins,
-                        };
-                        vec![host.run_agent(req).await]
-                    } else {
-                        let mut set = tokio::task::JoinSet::new();
-                        for i in 0..count {
-                            let part = state.parts.get(i as usize).map(String::as_str);
-                            let req = AgentReq {
-                                node: n.id.clone(),
-                                instance: i + 1,
-                                instances: count,
-                                profile: profile.clone(),
-                                prompt: worker_prompt(task, &state.history, prompt, state.carry.as_deref(), part.map(|t| (i + 1, count, t))),
-                                schema: schema.clone(),
-                                timeout_mins: *timeout_mins,
+            }
+            Action::Delegate(calls) => {
+                let mut set = tokio::task::JoinSet::new();
+                for (i, (opt, instructions)) in calls.iter().cloned().enumerate() {
+                    let ctx = ctx.clone();
+                    let child_path = format!("{path}/{round}.{i}");
+                    let from = n.clone();
+                    set.spawn(async move {
+                        if opt.approval {
+                            let pending = Pending {
+                                id: format!("{child_path}:gate"),
+                                node: opt.id.clone(),
+                                label: opt.label.clone(),
+                                kind: "approve".into(),
+                                prompt: format!("{} wants to hand work to {}:\n\n{}", label_of(&from), opt.label, clip(&instructions, 3000)),
+                                questions: vec![],
                             };
-                            let h = host.clone();
-                            set.spawn(async move { (i, h.run_agent(req).await) });
-                        }
-                        let mut slots: Vec<Option<Final>> = (0..count).map(|_| None).collect();
-                        while let Some(r) = set.join_next().await {
-                            match r {
-                                Ok((i, f)) => slots[i as usize] = Some(f),
-                                Err(e) => return Ended::Failed(format!("an agent task crashed: {e}")),
+                            let approved = ctx.ask_user(pending, true).await?.is_some_and(|r| r.approved == Some(true));
+                            if !approved {
+                                let summary = "The user did not approve this handover. Do not do it; choose another way or finish.".to_string();
+                                return Ok((i, Reported { label: opt.label, status: "rejected".into(), summary, questions: vec![] }));
                             }
                         }
-                        slots.into_iter().map(|f| f.unwrap_or_else(|| failed("no result"))).collect()
-                    };
-                    state.runs += finals.len() as u32;
-                    let done = aggregate(n, &finals);
-                    state.cost_usd += done.cost_usd;
-                    if *cancel.borrow() {
-                        return Ended::Cancelled;
-                    }
-                    if !is_coord || done.status != "done" {
-                        break (done, None);
-                    }
-                    match parse_decision(done.output.as_ref(), &options) {
-                        Ok((opt, instr, parts)) => break (done, Some((opt.clone(), instr, parts))),
-                        Err(e) if attempt < DECISION_ATTEMPTS => {
-                            host.log("decision_rejected", json!({"node": n.id, "reason": e}));
-                            feedback = Some(e);
-                        }
-                        Err(e) => return Ended::Failed(format!("the coordinator gave no valid decision: {e}")),
-                    }
-                };
-
-                let mut done = done;
-                if let Some((opt, instr, parts)) = &decision {
-                    done.summary = format!("Decided that {} goes next.{}", opt.label, if instr.trim().is_empty() { String::new() } else { format!(" Instructions: {instr}") });
-                    if !parts.is_empty() {
-                        done.summary += &format!(" Parts: {}", parts.join(" | "));
-                    }
-                    host.log("decision", json!({"node": n.id, "next": opt.id, "label": opt.label, "instructions": instr, "parts": parts}));
+                        let r = call(ctx, opt.id.clone(), child_path, instructions, depth + 1).await?;
+                        Ok::<_, Stop>((i, r))
+                    });
                 }
-                step_end(&*host, &done);
-
-                if done.status == "needs_input" {
-                    // Ask the user; the same step runs again with the answer (its visit is not counted).
-                    state.pending = Some(Pending { node: n.id.clone(), kind: "questions".into(), prompt: done.summary.clone(), questions: done.questions.clone() });
-                    state.history.push(done);
-                    continue;
-                }
-
-                *state.visits.entry(n.id.clone()).or_insert(0) += 1;
-                state.carry = None;
-                state.parts.clear();
-                let status = done.status.clone();
-                let reason = done.summary.clone();
-                state.history.push(done);
-
-                if let Some((opt, instr, parts)) = decision {
-                    state.current = Some(opt.id);
-                    state.carry = Some(instr).filter(|i| !i.trim().is_empty());
-                    state.parts = parts;
-                } else if status == "failed" {
-                    // Only a coordinator downstream may deal with a failure.
-                    let next = fail!(single_next(wf, n));
-                    if wf.coordinator.as_deref() != Some(next.as_str()) {
-                        return Ended::Failed(format!("{} failed: {reason}", label_of(n)));
+                let mut results: Vec<Option<Reported>> = (0..calls.len()).map(|_| None).collect();
+                while let Some(joined) = set.join_next().await {
+                    match joined {
+                        Ok(Ok((i, r))) => results[i] = Some(r),
+                        Ok(Err(stop)) => return Err(stop),
+                        Err(e) => return Err(Stop::Fail(format!("an agent task crashed: {e}"))),
                     }
-                    state.current = Some(next);
-                } else if is_coord {
-                    return Ended::Failed("the coordinator ended without a decision".into());
-                } else {
-                    state.current = Some(fail!(single_next(wf, n)));
+                }
+                inbox = Vec::new();
+                for ((opt, instructions), r) in calls.iter().zip(results) {
+                    let r = r.unwrap_or_else(|| failure(&n, "no result"));
+                    log.push(format!("- round {round}: {} ← {} → {}: {}", opt.label, clip(instructions, 160), r.status, clip(&r.summary, 200)));
+                    inbox.push(r);
                 }
             }
         }
-        host.checkpoint(state, "running");
     }
+}
+
+/// Runs the session until it ends. `state` is the journal of an earlier run (empty for a new one).
+pub async fn drive<H: Host>(host: Arc<H>, wf: Workflow, task: String, state: State, cancel: watch::Receiver<bool>, replies: mpsc::Receiver<Reply>) -> (Ended, State) {
+    let Some(root) = wf.root().map(|n| n.id.clone()) else {
+        return (Ended::Failed("the workflow needs exactly one root agent: one that no other agent hands work to".into()), state);
+    };
+    let ctx = Arc::new(Ctx {
+        host,
+        wf,
+        task,
+        cancel,
+        state: Mutex::new(state),
+        visits: Mutex::new(HashMap::new()),
+        human: tokio::sync::Mutex::new(replies),
+        vms: Semaphore::new(MAX_VMS),
+        asked_user: AtomicU32::new(0),
+    });
+    let res = call(ctx.clone(), root, "r".into(), String::new(), 0).await;
+    let ended = match res {
+        Ok(r) => {
+            ctx.state.lock().unwrap().result = Some(r.summary.clone());
+            if r.status == "done" { Ended::Done } else { Ended::Failed(r.summary) }
+        }
+        Err(Stop::Cancelled) => Ended::Cancelled,
+        Err(Stop::Fail(e)) => Ended::Failed(e),
+    };
+    let state = ctx.state.lock().unwrap().clone();
+    (ended, state)
 }
 
 // ---- the real host ----
@@ -630,13 +757,13 @@ struct RealHost {
 }
 
 impl RealHost {
-    fn on_msg(&self, req: (&str, u32, u32), m: &Outbound) {
-        let (node, instance, instances) = req;
+    fn on_msg(&self, req: (&str, &str, usize), m: &Outbound) {
+        let (node, call, depth) = req;
         // The partial-message stream is far too chatty to keep; whole messages are enough.
         if let Outbound::Event(e) = m
             && e.event.get("type").and_then(Value::as_str) != Some("stream_event")
         {
-            self.log("agent", json!({"node": node, "instance": instance, "instances": instances, "seq": e.seq, "event": e.event}));
+            self.log("agent", json!({"node": node, "call": call, "depth": depth, "seq": e.seq, "event": e.event}));
         }
     }
 }
@@ -654,7 +781,7 @@ impl Host for RealHost {
             effort: profile.effort.clone(),
             session_id: crate::runs::uuid_v4(),
             resume: false,
-            schema: if req.schema.trim().is_empty() { crate::protocol::RESULT_SCHEMA.into() } else { req.schema },
+            schema: req.schema,
             system_prompt: crate::projects::combine_system_prompts(&self.project_prompt, &profile.system_prompt),
             env: profile.env.iter().map(|v| TaskEnv { name: v.name.clone(), value: v.value.clone() }).collect(),
             timeout_secs: u64::from(req.timeout_mins) * 60,
@@ -668,7 +795,7 @@ impl Host for RealHost {
                 let _ = tx.send(());
             }
         });
-        let res = crate::runs::run_vm(&self.app, spec, rx, |m| self.on_msg((&req.node, req.instance, req.instances), m)).await;
+        let res = crate::runs::run_vm(&self.app, spec, rx, |m| self.on_msg((&req.node, &req.call, req.depth), m)).await;
         forward.abort();
         res.unwrap_or_else(failed)
     }
@@ -686,10 +813,17 @@ impl Host for RealHost {
         if let Ok(path) = crate::projects::session_file(&self.root, &self.project, &self.sid, "state.json")
             && let Ok(text) = serde_json::to_string(state)
         {
-            let _ = std::fs::write(path, text);
+            let tmp = path.with_extension("json.tmp");
+            if std::fs::write(&tmp, text).is_ok() {
+                let _ = std::fs::rename(&tmp, &path);
+            }
         }
         let _ = crate::projects::set_session_status(&self.root, &self.project, &self.sid, status);
         self.log("status", json!({"status": status, "cost_usd": state.cost_usd}));
+    }
+
+    fn autonomy(&self) -> String {
+        crate::projects::read_session(&self.root, &self.project, &self.sid).map_or_else(|_| "ask".into(), |s| s.autonomy)
     }
 }
 
@@ -711,11 +845,9 @@ fn prepare(app: &AppHandle, project: &str) -> Result<(Workflow, crate::projects:
         return Err(format!("the workflow has problems: {}", codes.join(", ")));
     }
     for n in &wf.nodes {
-        if let Step::Agent { profile, .. } = &n.step {
-            let image = &profiles[profile].image;
-            if crate::images::path(app, image).is_none() {
-                return Err(format!("the image {image} (profile {profile}) is not built yet"));
-            }
+        let image = &profiles[&n.profile].image;
+        if crate::images::path(app, image).is_none() {
+            return Err(format!("the image {image} (profile {}) is not built yet", n.profile));
         }
     }
     if crate::secrets::claude_token().is_none() {
@@ -738,12 +870,10 @@ fn launch(app: AppHandle, project: String, sid: String, fresh: bool) -> Result<(
     }
     let (wf, project_info, profiles) = prepare(&app, &project)?;
     let mut state = if fresh { State::default() } else { read_state(&root, &project, &sid).unwrap_or_default() };
-    if state.current.is_none() {
-        state.current = wf.nodes.iter().find(|n| n.step == Step::Start).map(|n| n.id.clone());
-    }
+    state.rewind_failures();
 
     let (cancel_tx, cancel_rx) = watch::channel(false);
-    let (reply_tx, mut reply_rx) = mpsc::channel(4);
+    let (reply_tx, reply_rx) = mpsc::channel(4);
     app.state::<Sessions>().0.lock().unwrap().insert(k.clone(), Live { cancel: cancel_tx, reply: reply_tx });
 
     let log_file = crate::projects::session_file(&root, &project, &sid, "log.jsonl")
@@ -763,7 +893,7 @@ fn launch(app: AppHandle, project: String, sid: String, fresh: bool) -> Result<(
     tauri::async_runtime::spawn(async move {
         host.log("started", json!({"continued": !fresh}));
         host.checkpoint(&state, "running");
-        let ended = drive(host.clone(), &wf, &task, &mut state, cancel_rx, &mut reply_rx).await;
+        let (ended, state) = drive(host.clone(), wf, task, state, cancel_rx, reply_rx).await;
         let status = match &ended {
             Ended::Done => "done",
             Ended::Failed(reason) => {
@@ -791,6 +921,7 @@ pub fn recover(app: &AppHandle) {
     }
 }
 
+/// Starts a new session; `task` (the user's first message) is saved first.
 #[tauri::command]
 pub fn session_start(app: AppHandle, project: String, id: String, task: Option<String>) -> Result<(), String> {
     if let Some(task) = task {
@@ -799,7 +930,8 @@ pub fn session_start(app: AppHandle, project: String, id: String, task: Option<S
     launch(app, project, id, true)
 }
 
-/// Continues an interrupted, failed or cancelled session from the step it stopped at.
+/// Continues an interrupted, failed or cancelled session: what finished is replayed from the
+/// journal, the rest runs again.
 #[tauri::command]
 pub fn session_continue(app: AppHandle, project: String, id: String) -> Result<(), String> {
     launch(app, project, id, false)
@@ -827,6 +959,8 @@ pub struct SessionView {
     pub pending: Option<Pending>,
     pub live: bool,
     pub cost_usd: f64,
+    pub assumptions: Vec<String>,
+    pub result: Option<String>,
 }
 
 #[tauri::command]
@@ -835,7 +969,7 @@ pub fn session_get(app: AppHandle, project: String, id: String) -> Result<Sessio
     let session = crate::projects::read_session(&root, &project, &id)?;
     let state = read_state(&root, &project, &id).unwrap_or_default();
     let live = app.state::<Sessions>().0.lock().unwrap().contains_key(&key(&project, &id));
-    Ok(SessionView { session, pending: state.pending, live, cost_usd: state.cost_usd })
+    Ok(SessionView { session, pending: state.pending.filter(|_| live), live, cost_usd: state.cost_usd, assumptions: state.assumptions, result: state.result })
 }
 
 /// The session's log (the last entries when it is long).
@@ -858,30 +992,34 @@ mod tests {
 
     struct Fake {
         script: Mutex<Script>,
-        seen: Mutex<Vec<(String, u32, u32, String)>>,
-        states: Mutex<Vec<String>>,
+        /// (node, call key, prompt) of every run, in the order they started.
+        seen: Mutex<Vec<(String, String, String)>>,
+        autonomy: Mutex<String>,
+        /// Keeps the cancel channel open.
+        gone: Mutex<Option<watch::Sender<bool>>>,
     }
 
     impl Fake {
         fn new(f: impl FnMut(&AgentReq) -> Final + Send + 'static) -> Arc<Self> {
-            Arc::new(Fake { script: Mutex::new(Box::new(f)), seen: Mutex::new(vec![]), states: Mutex::new(vec![]) })
+            Arc::new(Fake { script: Mutex::new(Box::new(f)), seen: Mutex::new(vec![]), autonomy: Mutex::new("ask".into()), gone: Mutex::new(None) })
         }
         fn nodes(&self) -> Vec<String> {
-            self.seen.lock().unwrap().iter().map(|s| format!("{}#{}/{}", s.0, s.1, s.2)).collect()
+            self.seen.lock().unwrap().iter().map(|s| s.0.clone()).collect()
         }
         fn prompt(&self, i: usize) -> String {
-            self.seen.lock().unwrap()[i].3.clone()
+            self.seen.lock().unwrap()[i].2.clone()
         }
     }
 
     impl Host for Fake {
         async fn run_agent(&self, req: AgentReq) -> Final {
-            self.seen.lock().unwrap().push((req.node.clone(), req.instance, req.instances, req.prompt.clone()));
+            self.seen.lock().unwrap().push((req.node.clone(), req.call.clone(), req.prompt.clone()));
             (self.script.lock().unwrap())(&req)
         }
         fn log(&self, _: &str, _: Value) {}
-        fn checkpoint(&self, _: &State, status: &str) {
-            self.states.lock().unwrap().push(status.into());
+        fn checkpoint(&self, _: &State, _: &str) {}
+        fn autonomy(&self) -> String {
+            self.autonomy.lock().unwrap().clone()
         }
     }
 
@@ -889,218 +1027,315 @@ mod tests {
         Final { status, result: summary.into(), questions: vec![], session_id: None, cost_usd: Some(0.5), output, exit_code: Some(0) }
     }
 
-    fn decide(next: &str, instr: &str, parts: &[&str]) -> Final {
-        fin(Status::Done, "", Some(json!({"next": next, "instructions": instr, "parts": parts})))
+    fn done(summary: &str) -> Final {
+        fin(Status::Done, summary, None)
     }
 
-    async fn run(host: &Arc<Fake>, wf: &Workflow, replies: Vec<Reply>) -> (Ended, State) {
-        let (tx, mut rx) = mpsc::channel(16);
+    fn delegate(calls: &[(&str, &str)], notes: &str) -> Final {
+        let calls: Vec<Value> = calls.iter().map(|(to, i)| json!({"to": to, "instructions": i})).collect();
+        fin(Status::Done, "", Some(json!({"action": "delegate", "calls": calls, "notes": notes})))
+    }
+
+    fn finish(result: &str) -> Final {
+        fin(Status::Done, "", Some(json!({"action": "finish", "result": result, "success": true, "notes": "done"})))
+    }
+
+    fn ask(questions: &[&str]) -> Final {
+        fin(Status::Done, "", Some(json!({"action": "ask", "questions": questions, "notes": "blocked"})))
+    }
+
+    async fn run_with(host: &Arc<Fake>, wf: &Workflow, state: State, replies: Vec<Reply>) -> (Ended, State) {
+        let (tx, rx) = mpsc::channel(16);
         for r in replies {
             tx.send(r).await.unwrap();
         }
-        let (_c, crx) = watch::channel(false);
-        let mut state = State { current: Some("start".into()), ..Default::default() };
-        let ended = drive(host.clone(), wf, "build a thing", &mut state, crx, &mut rx).await;
-        (ended, state)
+        let (c, crx) = watch::channel(false);
+        *host.gone.lock().unwrap() = Some(c);
+        drive(host.clone(), wf.clone(), "build a thing".into(), state, crx, rx).await
+    }
+
+    async fn run(host: &Arc<Fake>, wf: &Workflow, replies: Vec<Reply>) -> (Ended, State) {
+        run_with(host, wf, State::default(), replies).await
+    }
+
+    /// An org chart from `(from, to)` pairs; the nodes are the names in order of appearance.
+    fn chart(edges: &[(&str, &str)]) -> Workflow {
+        let mut seen = std::collections::HashSet::new();
+        let nodes = edges
+            .iter()
+            .flat_map(|(a, b)| [*a, *b])
+            .filter(|i| seen.insert(*i))
+            .map(|id| Node { id: id.into(), label: id.into(), x: 0, y: 0, profile: "dev".into(), prompt: String::new(), max_calls: 20, timeout_mins: 30 })
+            .collect();
+        Workflow { nodes, edges: edges.iter().map(|(a, b)| Edge { id: format!("{a}-{b}"), from: (*a).into(), to: (*b).into(), approval: false }).collect() }
     }
 
     #[tokio::test]
-    async fn the_orchestrator_drives_the_standard_workflow() {
-        let mut orch = 0;
+    async fn a_coordinator_loops_over_items_and_the_result_goes_back_up() {
+        // orch -> pm -> lead -> {ba, dev}; the pm goes through two tickets one at a time
+        let wf = chart(&[("orch", "pm"), ("pm", "lead"), ("lead", "ba"), ("lead", "dev")]);
+        let (mut orch, mut pm, mut lead) = (0, 0, 0);
         let host = Fake::new(move |req| match req.node.as_str() {
             "orch" => {
                 orch += 1;
-                match orch {
-                    1 => decide("pm", "scope it", &[]),
-                    2 => decide("ba", "write requirements", &[]),
-                    3 => decide("review", "", &[]),
-                    4 => decide("dev", "build it", &["api", "ui", "docs", "extra"]), // too many parts: rejected
-                    5 => decide("dev", "build it", &["api", "ui"]),
-                    6 => decide("test", "verify", &[]),
-                    _ => decide("done", "", &[]),
+                if orch == 1 { delegate(&[("pm", "deliver PROJ-1 and PROJ-2")], "waiting for pm") } else { finish("both delivered") }
+            }
+            "pm" => {
+                pm += 1;
+                match pm {
+                    1 => delegate(&[("lead", "PROJ-1")], "ticket 1 started"),
+                    2 => delegate(&[("lead", "PROJ-2")], "ticket 1 done, ticket 2 started"),
+                    _ => finish("PROJ-1 and PROJ-2 done"),
                 }
             }
-            "test" => fin(Status::Done, "all good", Some(json!({"passed": true, "report": "ok"}))),
-            other => fin(Status::Done, &format!("{other} finished"), None),
+            "lead" => {
+                lead += 1;
+                match lead % 3 {
+                    1 => delegate(&[("ba", "write the requirements")], "ba asked"),
+                    2 => delegate(&[("dev", "implement it")], "dev asked"),
+                    _ => finish("delivered"),
+                }
+            }
+            other => done(&format!("{other} finished")),
         });
-        let reply = Reply { approved: Some(true), text: "looks fine".into() };
-        let (ended, state) = run(&host, &standard_workflow(), vec![reply]).await;
+        let (ended, state) = run(&host, &wf, vec![]).await;
         assert_eq!(ended, Ended::Done);
-        assert_eq!(
-            host.nodes(),
-            ["orch#1/1", "pm#1/1", "orch#1/1", "ba#1/1", "orch#1/1", "orch#1/1", "orch#1/1", "dev#1/2", "dev#2/2", "orch#1/1", "test#1/1", "orch#1/1"]
-        );
-        // the retry says why the first answer was refused
-        assert!(host.prompt(6).contains("rejected") && host.prompt(6).contains("4 entries"));
-        // workers get the task, the history, the coordinator's instructions and their part
-        let dev = host.prompt(7);
-        assert!(dev.contains("build a thing") && dev.contains("pm finished") && dev.contains("build it"));
-        assert!(dev.contains("instance 1 of 2") && dev.contains("api"));
-        // the user's approval is in the history the coordinator sees afterwards
-        assert!(host.prompt(5).contains("The user approved it. Comment: looks fine"));
-        assert_eq!(state.visits["dev"], 1);
-        assert_eq!(state.visits["orch"], 6, "the refused answer is not a visit");
-        assert!(state.pending.is_none() && state.parts.is_empty());
+        assert_eq!(state.result.as_deref(), Some("both delivered"));
+        assert_eq!(host.nodes(), ["orch", "pm", "lead", "ba", "lead", "dev", "lead", "pm", "lead", "ba", "lead", "dev", "lead", "pm", "orch"]);
+        // a coordinator gets the result of what it called, its own notes and what it handed out
+        let pm_second = host.prompt(7);
+        assert!(pm_second.contains("delivered") && pm_second.contains("ticket 1 started") && pm_second.contains("PROJ-1"));
+        // workers know the goal, their role and only what they were told
+        let ba = host.prompt(3);
+        assert!(ba.contains("build a thing") && ba.contains("write the requirements") && !ba.contains("PROJ-2"));
+        assert_eq!(state.cost_usd, 7.5);
     }
 
     #[tokio::test]
-    async fn a_decision_outside_the_graph_fails_the_session() {
-        let host = Fake::new(|_| decide("nowhere", "", &[]));
-        let (ended, _) = run(&host, &standard_workflow(), vec![]).await;
-        assert!(matches!(ended, Ended::Failed(r) if r.contains("no valid decision") && r.contains("nowhere")));
-        assert_eq!(host.nodes().len(), 2, "one retry, then it gives up");
-    }
-
-    fn linear() -> Workflow {
-        let n = |id: &str, step: Step| Node { id: id.into(), label: id.into(), x: 0, y: 0, step };
-        let e = |from: &str, to: &str, b: Option<&str>| Edge { id: format!("{from}{to}{}", b.unwrap_or("")), from: from.into(), to: to.into(), branch: b.map(Into::into) };
-        Workflow {
-            nodes: vec![
-                n("start", Step::Start),
-                n("a", Step::Agent { profile: "dev".into(), prompt: "do it".into(), schema: String::new(), max_runs: 2, min_instances: 1, max_instances: 1, timeout_mins: 30 }),
-                n("c", Step::Condition { field: "result.passed".into(), op: Op::Eq, value: "true".into() }),
-                n("end", Step::End { outcome: Outcome::Success }),
-            ],
-            edges: vec![e("start", "a", None), e("a", "c", None), e("c", "end", Some("true")), e("c", "a", Some("false"))],
-            coordinator: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn conditions_loop_back_until_they_pass() {
+    async fn calls_in_one_decision_run_in_parallel() {
+        let wf = chart(&[("root", "dev")]);
         let mut n = 0;
-        let host = Fake::new(move |_| {
-            n += 1;
-            fin(Status::Done, "tried", Some(json!({"passed": n == 2})))
+        let host = Fake::new(move |req| match req.node.as_str() {
+            "root" => {
+                n += 1;
+                if n == 1 { delegate(&[("dev", "api"), ("dev", "ui")], "two devs") } else { finish("ok") }
+            }
+            _ => done("built"),
         });
-        let (ended, state) = run(&host, &linear(), vec![]).await;
-        assert_eq!(ended, Ended::Done);
-        assert_eq!(host.nodes(), ["a#1/1", "a#1/1"]);
-        assert_eq!(state.cost_usd, 1.0);
-        assert!(host.prompt(1).contains("Structured result: {\"passed\":false}"), "the second try sees the first result");
-    }
-
-    #[tokio::test]
-    async fn each_step_passes_its_own_timeout() {
-        let seen = Arc::new(Mutex::new(vec![]));
-        let s2 = seen.clone();
-        let host = Fake::new(move |req| {
-            s2.lock().unwrap().push(req.timeout_mins);
-            fin(Status::Done, "ok", Some(json!({"passed": true})))
-        });
-        let mut wf = linear();
-        if let Step::Agent { timeout_mins, .. } = &mut wf.nodes[1].step {
-            *timeout_mins = 7;
-        }
         let (ended, _) = run(&host, &wf, vec![]).await;
         assert_eq!(ended, Ended::Done);
-        assert_eq!(*seen.lock().unwrap(), [7]);
+        assert_eq!(host.nodes().iter().filter(|n| *n == "dev").count(), 2);
+        assert_eq!(host.prompt(3).matches("### dev (done)").count(), 2, "both results come back together");
     }
 
     #[tokio::test]
-    async fn max_runs_stops_a_loop() {
-        let host = Fake::new(|_| fin(Status::Done, "nope", Some(json!({"passed": false}))));
-        let (ended, _) = run(&host, &linear(), vec![]).await;
-        assert!(matches!(ended, Ended::Failed(r) if r.contains("its limit")));
-        assert_eq!(host.nodes().len(), 2);
+    async fn a_decision_outside_the_chart_is_refused_then_fails_the_call() {
+        let wf = chart(&[("root", "dev")]);
+        let host = Fake::new(|_| delegate(&[("qa", "test")], ""));
+        let (ended, _) = run(&host, &wf, vec![]).await;
+        assert!(matches!(ended, Ended::Failed(r) if r.contains("no valid decision") && r.contains("qa")));
+        assert_eq!(host.nodes().len(), 2, "one retry, then it gives up");
+        assert!(host.prompt(1).contains("refused") && host.prompt(1).contains("may not call"));
+
+        // a first bad answer followed by a good one goes through
+        let mut n = 0;
+        let host = Fake::new(move |req| {
+            n += 1;
+            match (req.node.as_str(), n) {
+                ("root", 1) => delegate(&[("qa", "x")], ""),
+                ("root", 2) => delegate(&[("dev", "x")], "n"),
+                ("root", _) => finish("ok"),
+                _ => done("built"),
+            }
+        });
+        assert_eq!(run(&host, &wf, vec![]).await.0, Ended::Done);
     }
 
     #[tokio::test]
-    async fn a_failed_agent_fails_the_session_unless_the_coordinator_is_next() {
-        let host = Fake::new(|_| fin(Status::Failed, "boom", None));
-        let (ended, _) = run(&host, &linear(), vec![]).await;
-        assert!(matches!(ended, Ended::Failed(r) if r.contains("failed: boom")));
-
-        // in the standard workflow the orchestrator sees the failure and decides
-        let mut orch = 0;
+    async fn a_subordinate_question_goes_to_its_caller_which_may_answer() {
+        let wf = chart(&[("root", "lead"), ("lead", "ba")]);
+        let (mut lead, mut ba) = (0, 0);
         let host = Fake::new(move |req| match req.node.as_str() {
-            "orch" => {
-                orch += 1;
-                match orch {
-                    1 => decide("pm", "", &[]),
-                    _ => decide("done", "", &[]),
+            "root" => {
+                if req.prompt.contains("Results since") { finish("done") } else { delegate(&[("lead", "go")], "") }
+            }
+            "lead" => {
+                lead += 1;
+                match lead {
+                    1 => delegate(&[("ba", "write requirements")], ""),
+                    2 => delegate(&[("ba", "write requirements; the limit is 10 items")], ""),
+                    _ => finish("delivered"),
                 }
             }
-            _ => fin(Status::Failed, "pm crashed", None),
+            _ => {
+                ba += 1;
+                if ba == 1 { Final { questions: vec!["What is the limit?".into()], ..fin(Status::NeedsInput, "blocked", None) } } else { done("requirements written") }
+            }
         });
-        let (ended, _) = run(&host, &standard_workflow(), vec![]).await;
+        let (ended, state) = run(&host, &wf, vec![]).await;
         assert_eq!(ended, Ended::Done);
-        assert!(host.prompt(2).contains("pm crashed"));
+        assert_eq!(host.nodes(), ["root", "lead", "ba", "lead", "ba", "lead", "root"]);
+        assert!(host.prompt(3).contains("What is the limit?") && host.prompt(3).contains("needs_input"));
+        assert!(state.pending.is_none() && state.replies.is_empty(), "the user was not bothered");
     }
 
     #[tokio::test]
-    async fn an_agent_that_needs_input_waits_for_the_user_and_runs_again() {
+    async fn a_question_that_reaches_the_root_goes_to_the_user() {
+        let wf = chart(&[("root", "dev")]);
         let mut n = 0;
         let host = Fake::new(move |_| {
             n += 1;
-            if n == 1 {
-                let mut f = fin(Status::NeedsInput, "half done", None);
-                f.questions = vec!["which database?".into()];
-                f
-            } else {
-                fin(Status::Done, "done", Some(json!({"passed": true})))
-            }
+            if n == 1 { ask(&["Which database?"]) } else { finish("used postgres") }
         });
-        let reply = Reply { approved: None, text: "postgres".into() };
-        let (ended, state) = run(&host, &linear(), vec![reply]).await;
+        let (ended, state) = run(&host, &wf, vec![Reply { approved: None, text: "postgres".into() }]).await;
         assert_eq!(ended, Ended::Done);
-        assert_eq!(host.nodes().len(), 2);
-        let second = host.prompt(1);
-        assert!(second.contains("which database?") && second.contains("postgres") && second.contains("half done"));
-        assert_eq!(state.visits["a"], 1, "the question round is not a visit");
+        assert!(host.prompt(1).contains("Which database?") && host.prompt(1).contains("postgres"));
+        assert_eq!(state.replies.len(), 1);
+
+        // never: nobody is asked, the root is told to assume
+        let mut n = 0;
+        let host = Fake::new(move |_| {
+            n += 1;
+            if n == 1 { ask(&["Which database?"]) } else { finish("assumed") }
+        });
+        *host.autonomy.lock().unwrap() = "never".into();
+        let (ended, state) = run(&host, &wf, vec![]).await;
+        assert_eq!(ended, Ended::Done);
+        assert!(host.prompt(0).contains("decide yourself"));
+        assert!(host.prompt(1).contains("cannot be asked") && state.replies.is_empty());
     }
 
     #[tokio::test]
-    async fn waits_for_an_answer_that_is_a_decision_and_can_be_cancelled() {
-        let host = Fake::new(|req| if req.node == "orch" { decide("review", "", &[]) } else { fin(Status::Done, "", None) });
-        let (tx, mut rx) = mpsc::channel(4);
-        let (ctx, crx) = watch::channel(false);
-        let mut state = State { current: Some("start".into()), ..Default::default() };
-        let wf = standard_workflow();
-        let h = host.clone();
-        let task = tokio::spawn(async move {
-            let ended = drive(h, &wf, "t", &mut state, crx, &mut rx).await;
-            (ended, state)
+    async fn a_lone_agent_that_needs_input_asks_the_user_and_runs_again() {
+        let wf = Workflow { nodes: chart(&[("a", "b")]).nodes.into_iter().filter(|n| n.id == "b").collect(), edges: vec![] };
+        let mut n = 0;
+        let host = Fake::new(move |_| {
+            n += 1;
+            if n == 1 { Final { questions: vec!["Name?".into()], ..fin(Status::NeedsInput, "need a name", None) } } else { done("hello Ana") }
         });
-        // an approval without yes or no is ignored; then the session is cancelled while it waits
-        tx.send(Reply::default()).await.unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        ctx.send(true).unwrap();
-        let (ended, state) = tokio::time::timeout(std::time::Duration::from_secs(5), task).await.unwrap().unwrap();
+        let (ended, state) = run(&host, &wf, vec![Reply { approved: None, text: "Ana".into() }]).await;
+        assert_eq!(ended, Ended::Done);
+        assert_eq!(state.result.as_deref(), Some("hello Ana"));
+        assert!(host.prompt(1).contains("Name?") && host.prompt(1).contains("Ana"));
+    }
+
+    #[tokio::test]
+    async fn an_edge_with_approval_waits_for_the_user() {
+        let mut wf = chart(&[("root", "dev")]);
+        wf.edges[0].approval = true;
+        let mut n = 0;
+        let host = Fake::new(move |req| match req.node.as_str() {
+            "root" => {
+                n += 1;
+                if n == 1 { delegate(&[("dev", "merge it")], "") } else { finish("stopped") }
+            }
+            _ => done("merged"),
+        });
+        *host.autonomy.lock().unwrap() = "never".into(); // the gate asks anyway
+        let (ended, _) = run(&host, &wf, vec![Reply { approved: Some(false), text: "not yet".into() }]).await;
+        assert_eq!(ended, Ended::Done);
+        assert_eq!(host.nodes(), ["root", "root"], "the dev never ran");
+        assert!(host.prompt(1).contains("did not approve"));
+
+        let mut n = 0;
+        let host = Fake::new(move |req| match req.node.as_str() {
+            "root" => {
+                n += 1;
+                if n == 1 { delegate(&[("dev", "merge it")], "") } else { finish("merged") }
+            }
+            _ => done("merged"),
+        });
+        let (_, state) = run(&host, &wf, vec![Reply { approved: Some(true), text: String::new() }]).await;
+        assert_eq!(host.nodes(), ["root", "dev", "root"]);
+        assert_eq!(state.replies.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn limits_hold() {
+        // an agent may be called only max_calls times; a coordinator that keeps going runs out of turns
+        let mut wf = chart(&[("root", "dev")]);
+        wf.nodes[1].max_calls = 2;
+        let host = Fake::new(|req| if req.node == "root" { delegate(&[("dev", "again")], "") } else { done("x") });
+        let (ended, _) = run(&host, &wf, vec![]).await;
+        assert!(matches!(&ended, Ended::Failed(r) if r.contains("took more than")), "{ended:?}");
+        assert_eq!(host.nodes().iter().filter(|n| *n == "dev").count(), 2);
+        assert!(host.prompt(5).contains("its limit"), "the caller is told the limit was hit");
+
+        // a failed worker is reported to its caller, which decides
+        let wf = chart(&[("root", "dev")]);
+        let mut n = 0;
+        let host = Fake::new(move |req| match req.node.as_str() {
+            "root" => {
+                n += 1;
+                if n == 1 { delegate(&[("dev", "x")], "") } else { fin(Status::Done, "", Some(json!({"action": "finish", "result": "gave up", "success": false, "notes": "n"}))) }
+            }
+            _ => fin(Status::Failed, "the VM died", None),
+        });
+        let (ended, _) = run(&host, &wf, vec![]).await;
+        assert_eq!(ended, Ended::Failed("gave up".into()));
+        assert!(host.prompt(2).contains("the VM died"));
+    }
+
+    #[tokio::test]
+    async fn a_failed_session_continues_from_its_journal() {
+        let wf = chart(&[("root", "dev")]);
+        // the decisions depend on the round, so a second script makes the same ones
+        let script = |dev_fails: bool| {
+            Fake::new(move |req| match (req.node.as_str(), req.call.as_str()) {
+                ("root", "r:1:1") => delegate(&[("dev", "a")], "first"),
+                ("root", "r:2:1") => delegate(&[("dev", "b")], "second"),
+                ("root", _) => finish("all done"),
+                ("dev", call) if dev_fails && call == "r/2.0" => fin(Status::Failed, "boom", None),
+                _ => done("built"),
+            })
+        };
+        let first = script(true);
+        let (ended, mut state) = run(&first, &wf, vec![]).await;
+        assert_eq!(ended, Ended::Done, "the root finished anyway");
+        assert_eq!(first.nodes(), ["root", "dev", "root", "dev", "root"]);
+
+        // continuing forgets the failed run and what was decided after it
+        state.rewind_failures();
+        assert_eq!(state.journal.len(), 3, "root, dev a, root again");
+        let again = script(false);
+        let (ended, state) = run_with(&again, &wf, state, vec![]).await;
+        assert_eq!(ended, Ended::Done);
+        assert_eq!(again.nodes(), ["dev", "root"], "only the failed run and what came after start VMs");
+        assert_eq!(state.journal.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn cancelling_stops_the_session() {
+        let wf = chart(&[("root", "dev")]);
+        let host = Fake::new(|_| done("x"));
+        let (_tx, rx) = mpsc::channel(1);
+        let (_c, crx) = watch::channel(true);
+        let (ended, _) = drive(host.clone(), wf, "t".into(), State::default(), crx, rx).await;
         assert_eq!(ended, Ended::Cancelled);
-        assert_eq!(state.pending.as_ref().map(|p| p.kind.as_str()), Some("approve"));
+        assert!(host.nodes().is_empty());
     }
 
     #[test]
-    fn conditions_read_status_and_nested_results() {
-        let d = Done { node: "a".into(), label: "a".into(), status: "done".into(), summary: String::new(), output: Some(json!({"a": {"b": ["x", "y"]}, "n": 3, "ok": true})), questions: vec![], cost_usd: 0.0 };
-        let c = |f: &str, op, v: &str| eval_condition(f, op, v, Some(&d));
-        assert!(c("status", Op::Eq, "done"));
-        assert!(c("result.n", Op::Eq, "3") && c("result.ok", Op::Eq, "true"));
-        assert!(c("result.a.b", Op::Contains, "y"));
-        assert!(c("result.missing", Op::Ne, "x") && !c("result.missing", Op::Eq, "x"));
-        assert!(!eval_condition("status", Op::Eq, "done", None));
-    }
-
-    #[test]
-    fn long_histories_keep_the_newest_steps() {
-        let d = |i: usize| Done { node: "n".into(), label: format!("step {i}"), status: "done".into(), summary: "x".repeat(5000), output: None, questions: vec![], cost_usd: 0.0 };
-        let all: Vec<Done> = (0..20).map(d).collect();
-        let text = render_history(&all);
-        assert!(text.contains("step 19") && !text.contains("step 0\n") && text.contains("earlier steps left out"));
-        assert!(text.len() < HISTORY_CHARS + 6000);
-    }
-
-    #[test]
-    fn the_coordinator_is_offered_the_graph_exits() {
-        let opts = coordinator_options(&standard_workflow(), "orch");
-        let ids: Vec<&str> = opts.iter().map(|o| o.id.as_str()).collect();
-        assert_eq!(ids, ["pm", "ba", "dev", "test", "review", "done"]);
-        assert_eq!(opts[2].max, 3);
-        let (opt, _, parts) = parse_decision(Some(&json!({"next": "Developer", "instructions": "x", "parts": ["a"]})), &opts).unwrap();
-        assert_eq!((opt.id.as_str(), parts.len()), ("dev", 1), "labels work too");
-        let (_, _, parts) = parse_decision(Some(&json!({"next": "pm", "parts": ["a", "b"]})), &opts).unwrap();
-        assert!(parts.is_empty(), "a step without instances ignores parts");
-        assert!(parse_decision(Some(&json!("dev")), &opts).is_err());
+    fn decisions_are_checked_against_the_options() {
+        let wf = standard_workflow();
+        let opts = options(&wf, "lead");
+        assert_eq!(opts.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), ["ba", "arch", "dev", "rev", "qa"]);
+        let ok = parse_decision(Some(&json!({"action": "delegate", "calls": [{"to": "Developer", "instructions": "x"}], "notes": "n", "assumptions": ["a"]})), &opts).unwrap();
+        assert!(matches!(&ok.action, Action::Delegate(c) if c[0].0.id == "dev"));
+        assert_eq!(ok.assumptions, ["a"]);
+        for bad in [
+            json!({"action": "delegate", "calls": [], "notes": ""}),
+            json!({"action": "delegate", "calls": [{"to": "pm", "instructions": "x"}], "notes": ""}),
+            json!({"action": "delegate", "calls": [{"to": "dev", "instructions": " "}], "notes": ""}),
+            json!({"action": "finish", "notes": ""}),
+            json!({"action": "ask", "questions": [], "notes": ""}),
+            json!({"action": "dance", "notes": ""}),
+        ] {
+            assert!(parse_decision(Some(&bad), &opts).is_err(), "{bad}");
+        }
+        let six: Vec<Value> = (0..6).map(|_| json!({"to": "dev", "instructions": "x"})).collect();
+        assert!(parse_decision(Some(&json!({"action": "delegate", "calls": six, "notes": ""})), &opts).is_err());
+        assert!(parse_decision(None, &opts).is_err());
+        serde_json::from_str::<Value>(COORDINATOR_SCHEMA).unwrap();
     }
 }

@@ -1,17 +1,19 @@
-//! Projects: a project has one workflow (a graph of steps, edited visually) and any number of
-//! sessions (one execution of the workflow for a task the user gives). Stored under
+//! Projects: a project has one workflow (an org chart of agents, edited visually) and any number
+//! of sessions (one execution of the workflow for a task the user gives). Stored under
 //! `<app data>/projects/<id>/`: `project.json`, `workflow.json` and `sessions/<sid>.json`.
 //!
-//! The workflow is data only; the engine that runs it does not exist yet. Conditions are
-//! structured (a field of the previous agent's result, an operator, a value) so the engine can
-//! evaluate them without running anything an agent wrote.
+//! The workflow does not describe a sequence of steps. Its nodes are agents (roles) and an edge
+//! `A -> B` means A may hand work to B. The one node nobody hands work to is the root: it gets the
+//! user's request. An agent with outgoing edges coordinates the agents it may call: it decides
+//! what to delegate, in what order, how often (loops and "for each" included) and when it is done;
+//! an agent without them just does its work. The engine (`engine.rs`) enforces the edges.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-const MAX_NODES: usize = 200;
-const MAX_EDGES: usize = 500;
+const MAX_NODES: usize = 100;
+const MAX_EDGES: usize = 300;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Project {
@@ -24,7 +26,6 @@ pub struct Project {
 }
 
 /// The system prompt an agent of a project gets: the project's, then the profile's.
-#[allow(dead_code)] // used by the engine
 pub fn combine_system_prompts(project: &str, profile: &str) -> Option<String> {
     let parts: Vec<&str> = [project.trim(), profile.trim()].into_iter().filter(|p| !p.is_empty()).collect();
     (!parts.is_empty()).then(|| parts.join("\n\n"))
@@ -39,20 +40,27 @@ pub struct ProjectEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Session {
+    /// Empty = untitled.
     pub name: String,
-    /// What the user wants done; the workflow's first input.
+    /// What the user asked for (the first chat message).
     #[serde(default)]
     pub task: String,
     /// Unix seconds.
     #[serde(default)]
     pub created: u64,
-    /// `new` until the engine exists.
     #[serde(default = "new_status")]
     pub status: String,
+    /// Whether the agents may reach the user with their questions: `ask` or `never`.
+    #[serde(default = "ask")]
+    pub autonomy: String,
 }
 
 fn new_status() -> String {
     "new".into()
+}
+
+fn ask() -> String {
+    "ask".into()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -62,87 +70,7 @@ pub struct SessionEntry {
     pub session: Session,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Op {
-    Eq,
-    Ne,
-    Contains,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum HumanMode {
-    /// The user approves or rejects; two exits, `approved` and `rejected`.
-    Approve,
-    /// The user types an answer that travels on; one exit.
-    Input,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Outcome {
-    Success,
-    Failure,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum Step {
-    Start,
-    /// Runs an agent profile once per visit, at most `max_runs` visits in a session.
-    Agent {
-        profile: String,
-        #[serde(default)]
-        prompt: String,
-        /// Optional JSON schema of the structured result, for conditions downstream.
-        #[serde(default)]
-        schema: String,
-        #[serde(default = "three")]
-        max_runs: u32,
-        /// How many agents of this profile work on the step at once: the engine picks a number
-        /// between `min_instances` and `max_instances` and splits the work between them.
-        #[serde(default = "one")]
-        min_instances: u32,
-        #[serde(default = "one")]
-        max_instances: u32,
-        /// Minutes an agent run may take before it is killed (the VM's boot and shutdown come on top).
-        #[serde(default = "thirty")]
-        timeout_mins: u32,
-    },
-    /// Branches on the previous agent's result: `status`, or `result.<key>`.
-    Condition { field: String, op: Op, value: String },
-    Human {
-        mode: HumanMode,
-        #[serde(default)]
-        prompt: String,
-    },
-    End { outcome: Outcome },
-}
-
-fn three() -> u32 {
-    3
-}
-
-fn one() -> u32 {
-    1
-}
-
-fn thirty() -> u32 {
-    30
-}
-
-impl Step {
-    /// The exit labels edges leaving this step must use (empty: one unlabelled exit).
-    pub fn branches(&self) -> &'static [&'static str] {
-        match self {
-            Step::Condition { .. } => &["true", "false"],
-            Step::Human { mode: HumanMode::Approve, .. } => &["approved", "rejected"],
-            _ => &[],
-        }
-    }
-}
-
+/// An agent of the workflow.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Node {
     pub id: String,
@@ -150,32 +78,40 @@ pub struct Node {
     pub label: String,
     pub x: i32,
     pub y: i32,
-    #[serde(flatten)]
-    pub step: Step,
+    pub profile: String,
+    /// What this agent does in this workflow (added to its prompts).
+    #[serde(default)]
+    pub prompt: String,
+    /// How many times it may be called in one session (1 to 500); bounds loops.
+    #[serde(default = "twenty")]
+    pub max_calls: u32,
+    /// Minutes one run of it may take (1 to 480).
+    #[serde(default = "thirty")]
+    pub timeout_mins: u32,
 }
 
+fn twenty() -> u32 {
+    20
+}
+
+fn thirty() -> u32 {
+    30
+}
+
+/// `from` may hand work to `to`. With `approval`, the user must approve each such handover.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Edge {
     pub id: String,
     pub from: String,
     pub to: String,
     #[serde(default)]
-    pub branch: Option<String>,
+    pub approval: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Workflow {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
-    /// The agent step that coordinates the others (the orchestrator), if any. The engine hands the
-    /// result of every step to it, by resuming its session, and it answers with a structured
-    /// decision: which of the step's outgoing edges to take (for the coordinator itself: any of
-    /// its edges, one is a worker or an end), with what instructions, and how to split the work
-    /// across parallel instances. The engine rejects a decision that is not an edge of the graph,
-    /// so the graph stays the set of allowed moves. Without a coordinator the engine follows the
-    /// edges itself and puts each result into the next step's prompt.
-    #[serde(default)]
-    pub coordinator: Option<String>,
 }
 
 /// Something wrong with a workflow that does not stop it being saved (it may be a draft).
@@ -196,184 +132,148 @@ impl Workflow {
         if self.nodes.len() > MAX_NODES || self.edges.len() > MAX_EDGES {
             return Err("the workflow is too large".into());
         }
-        let mut ids = std::collections::HashMap::new();
+        let mut ids = std::collections::HashSet::new();
         for n in &self.nodes {
             if n.id.is_empty() || n.id.len() > 64 || n.label.len() > 120 {
-                return Err("a step has a bad id or label".into());
+                return Err("an agent has a bad id or label".into());
             }
-            if ids.insert(n.id.as_str(), n).is_some() {
-                return Err(format!("step {} appears twice", n.id));
+            if !ids.insert(n.id.as_str()) {
+                return Err(format!("agent {} appears twice", n.id));
             }
-            match &n.step {
-                Step::Agent { profile, prompt, schema, max_runs, min_instances, max_instances, timeout_mins } => {
-                    if profile.is_empty() {
-                        return Err("an agent step needs a profile".into());
-                    }
-                    if !(1..=100).contains(max_runs) {
-                        return Err("max runs must be between 1 and 100".into());
-                    }
-                    if !(1..=10).contains(min_instances) || !(*min_instances..=10).contains(max_instances) {
-                        return Err("instances must be between 1 and 10, with min not above max".into());
-                    }
-                    if !(1..=480).contains(timeout_mins) {
-                        return Err("the timeout must be between 1 and 480 minutes".into());
-                    }
-                    if prompt.len() > 64 * 1024 || schema.len() > 64 * 1024 {
-                        return Err("an agent step is too large".into());
-                    }
-                    if !schema.trim().is_empty() && serde_json::from_str::<serde_json::Value>(schema).is_err() {
-                        return Err(format!("the schema of {} is not valid JSON", n.id));
-                    }
-                }
-                Step::Condition { field, value, .. } => {
-                    let ok = field == "status" || field.strip_prefix("result.").is_some_and(|k| !k.is_empty());
-                    if !ok || field.len() > 200 || value.len() > 1000 {
-                        return Err("a condition needs `status` or `result.<key>` as its field".into());
-                    }
-                }
-                Step::Human { prompt, .. } if prompt.len() > 16 * 1024 => return Err("a prompt is too large".into()),
-                _ => {}
+            if n.profile.is_empty() {
+                return Err("an agent needs a profile".into());
             }
-        }
-        if let Some(c) = &self.coordinator
-            && !matches!(ids.get(c.as_str()).map(|n| &n.step), Some(Step::Agent { .. }))
-        {
-            return Err("the coordinator must be an agent step".into());
-        }
-        if self.nodes.iter().filter(|n| n.step == Step::Start).count() != 1 {
-            return Err("a workflow has exactly one start".into());
+            if !(1..=500).contains(&n.max_calls) {
+                return Err("max calls must be between 1 and 500".into());
+            }
+            if !(1..=480).contains(&n.timeout_mins) {
+                return Err("the timeout must be between 1 and 480 minutes".into());
+            }
+            if n.prompt.len() > 64 * 1024 {
+                return Err("an agent's prompt is too large".into());
+            }
         }
         let mut edge_ids = std::collections::HashSet::new();
+        let mut pairs = std::collections::HashSet::new();
         for e in &self.edges {
             if !edge_ids.insert(e.id.as_str()) {
                 return Err(format!("edge {} appears twice", e.id));
             }
-            let (Some(from), Some(to)) = (ids.get(e.from.as_str()), ids.get(e.to.as_str())) else {
-                return Err("an edge points to a missing step".into());
-            };
-            if matches!(from.step, Step::End { .. }) || to.step == Step::Start {
-                return Err("nothing leaves an end or enters the start".into());
+            if !ids.contains(e.from.as_str()) || !ids.contains(e.to.as_str()) {
+                return Err("an edge points to a missing agent".into());
             }
-            let allowed = from.step.branches();
-            match &e.branch {
-                None if !allowed.is_empty() => return Err(format!("an edge from {} needs a branch", from.id)),
-                Some(b) if !allowed.contains(&b.as_str()) => return Err(format!("an edge from {} has a wrong branch", from.id)),
-                _ => {}
+            if e.from == e.to {
+                return Err("an agent cannot hand work to itself".into());
+            }
+            if !pairs.insert((e.from.as_str(), e.to.as_str())) {
+                return Err("two edges connect the same agents".into());
             }
         }
         Ok(())
     }
 
+    /// The agent nobody hands work to; it gets the user's request. `None` unless there is exactly one.
+    pub fn root(&self) -> Option<&Node> {
+        let mut roots = self.nodes.iter().filter(|n| !self.edges.iter().any(|e| e.to == n.id));
+        let first = roots.next()?;
+        roots.next().is_none().then_some(first)
+    }
+
     /// Soft problems: a draft may have them, a run would refuse them.
     pub fn problems(&self, profiles: &[String]) -> Vec<Problem> {
         let mut out = vec![];
-        let by_id: std::collections::HashMap<&str, &Node> = self.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
-        // reachability from the start
-        let mut seen = std::collections::HashSet::new();
-        let mut stack: Vec<&str> = self.nodes.iter().filter(|n| n.step == Step::Start).map(|n| n.id.as_str()).collect();
-        while let Some(id) = stack.pop() {
-            if seen.insert(id) {
-                stack.extend(self.edges.iter().filter(|e| e.from == id).map(|e| e.to.as_str()));
-            }
+        if self.nodes.is_empty() {
+            return vec![problem("empty", None)];
         }
         for n in &self.nodes {
-            let outs: Vec<&Edge> = self.edges.iter().filter(|e| e.from == n.id).collect();
-            if !seen.contains(n.id.as_str()) {
-                out.push(problem("unreachable", Some(&n.id)));
-            }
-            if let Step::Agent { profile, .. } = &n.step
-                && !profiles.contains(profile)
-            {
+            if !profiles.contains(&n.profile) {
                 out.push(problem("unknown_profile", Some(&n.id)));
             }
-            let branches = n.step.branches();
-            if branches.is_empty() {
-                match (&n.step, outs.len()) {
-                    (Step::End { .. }, _) => {}
-                    (_, 0) => out.push(problem("no_next", Some(&n.id))),
-                    (_, 1) => {}
-                    // the coordinator chooses among its exits
-                    _ if self.coordinator.as_deref() == Some(n.id.as_str()) => {}
-                    _ => out.push(problem("multi_out", Some(&n.id))),
-                }
-            } else {
-                for b in branches {
-                    match outs.iter().filter(|e| e.branch.as_deref() == Some(b)).count() {
-                        0 => out.push(problem("missing_branch", Some(&n.id))),
-                        1 => {}
-                        _ => out.push(problem("duplicate_branch", Some(&n.id))),
+        }
+        match self.root() {
+            None => {
+                let roots = self.nodes.iter().filter(|n| !self.edges.iter().any(|e| e.to == n.id)).count();
+                out.push(problem(if roots == 0 { "no_root" } else { "many_roots" }, None));
+            }
+            Some(root) => {
+                let mut seen = std::collections::HashSet::new();
+                let mut stack = vec![root.id.as_str()];
+                while let Some(id) = stack.pop() {
+                    if seen.insert(id) {
+                        stack.extend(self.edges.iter().filter(|e| e.from == id).map(|e| e.to.as_str()));
                     }
                 }
+                for n in self.nodes.iter().filter(|n| !seen.contains(n.id.as_str())) {
+                    out.push(problem("unreachable", Some(&n.id)));
+                }
             }
-        }
-        if !by_id.values().any(|n| matches!(n.step, Step::End { .. })) {
-            out.push(problem("no_end", None));
         }
         out
     }
 
-    pub fn start_only() -> Self {
-        Workflow { nodes: vec![Node { id: "start".into(), label: String::new(), x: 0, y: 0, step: Step::Start }], edges: vec![], coordinator: None }
+    /// Reads a workflow file's JSON, converting the old step-graph format (start / agent /
+    /// condition / human / end nodes) into an org chart: the agents stay, the edges between them
+    /// stay, the ones back to the old coordinator and the return edges go.
+    pub fn from_json(v: serde_json::Value) -> Option<Workflow> {
+        let nodes = v.get("nodes")?.as_array()?;
+        if !nodes.iter().any(|n| n.get("type").is_some()) {
+            return serde_json::from_value(v).ok();
+        }
+        let text = |n: &serde_json::Value, k: &str| n.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let num = |n: &serde_json::Value, k: &str, d: u32| n.get(k).and_then(|x| x.as_u64()).map_or(d, |x| x as u32);
+        let agents: Vec<Node> = nodes
+            .iter()
+            .filter(|n| n.get("type").and_then(|t| t.as_str()) == Some("agent"))
+            .map(|n| Node {
+                id: text(n, "id"),
+                label: text(n, "label"),
+                x: num(n, "x", 0) as i32,
+                y: num(n, "y", 0) as i32,
+                profile: text(n, "profile"),
+                prompt: text(n, "prompt"),
+                max_calls: num(n, "max_runs", 20).max(20),
+                timeout_mins: num(n, "timeout_mins", 30),
+            })
+            .collect();
+        let coordinator = v.get("coordinator").and_then(|c| c.as_str()).unwrap_or("");
+        let mut edges: Vec<Edge> = vec![];
+        for e in v.get("edges")?.as_array()? {
+            let (from, to) = (text(e, "from"), text(e, "to"));
+            let known = |id: &str| agents.iter().any(|a| a.id == id);
+            let linked = edges.iter().any(|k| (k.from == from && k.to == to) || (k.from == to && k.to == from));
+            if known(&from) && known(&to) && to != coordinator && from != to && !linked {
+                edges.push(Edge { id: format!("{from}-{to}"), from, to, approval: false });
+            }
+        }
+        Some(Workflow { nodes: agents, edges })
     }
 }
 
-/// What the orchestrator answers after each step (see `Workflow::coordinator`): `next` names one of
-/// the options the engine lists in its task, `instructions` go to that step, `parts` splits the
-/// work between parallel instances.
-pub const ORCHESTRATOR_SCHEMA: &str = r#"{"type":"object","properties":{"next":{"type":"string"},"instructions":{"type":"string"},"parts":{"type":"array","items":{"type":"string"}}},"required":["next","instructions"]}"#;
-
-/// The standard delivery workflow, with the orchestrator as the hub: it starts the work and every
-/// other step reports back to it. It decides whether the project manager, the business analyst, the
-/// requirements review (the user), the developers (1 to 3 in parallel) or the tester go next, and
-/// when the work is done.
+/// The standard delivery workflow, as an org chart: the orchestrator takes the request to the
+/// project manager, who goes through the work items one by one, handing each to the delivery lead,
+/// who has the business analyst, architect, developer, reviewer and tester do it. The order is in
+/// the prompts, not in the graph: the agents decide.
 pub fn standard_workflow() -> Workflow {
-    fn node(id: &str, label: &str, x: i32, y: i32, step: Step) -> Node {
-        Node { id: id.into(), label: label.into(), x, y, step }
+    fn node(id: &str, label: &str, x: i32, y: i32, profile: &str, prompt: &str) -> Node {
+        Node { id: id.into(), label: label.into(), x, y, profile: profile.into(), prompt: prompt.into(), max_calls: 20, timeout_mins: 30 }
     }
-    fn agent(profile: &str, prompt: &str, schema: &str, max_runs: u32, instances: (u32, u32)) -> Step {
-        Step::Agent { profile: profile.into(), prompt: prompt.into(), schema: schema.into(), max_runs, min_instances: instances.0, max_instances: instances.1, timeout_mins: 30 }
+    fn edge(from: &str, to: &str) -> Edge {
+        Edge { id: format!("{from}-{to}"), from: from.into(), to: to.into(), approval: false }
     }
-    fn edge(from: &str, to: &str, branch: Option<&str>) -> Edge {
-        Edge { id: format!("{from}-{to}{}", branch.map(|b| format!("-{b}")).unwrap_or_default()), from: from.into(), to: to.into(), branch: branch.map(Into::into) }
-    }
-    let test_schema = r#"{"type":"object","properties":{"passed":{"type":"boolean"},"report":{"type":"string"}},"required":["passed","report"]}"#;
-    let mut edges = vec![edge("start", "orch", None)];
-    for worker in ["pm", "ba", "dev", "test"] {
-        edges.push(edge("orch", worker, None));
-        edges.push(edge(worker, "orch", None));
-    }
-    edges.extend([
-        edge("orch", "review", None),
-        edge("review", "orch", Some("approved")),
-        edge("review", "orch", Some("rejected")),
-        edge("orch", "done", None),
-    ]);
-    Workflow {
-        coordinator: Some("orch".into()),
-        nodes: vec![
-            node("start", "", 0, 240, Step::Start),
-            node(
-                "orch",
-                "Orchestrator",
-                260,
-                240,
-                agent(
-                    "orchestrator",
-                    "You coordinate the team. After every step you receive its result. Decide what happens next: the project manager to define the scope, the business analyst to write testable requirements, the requirements review by the user (always before any implementation starts), the developers to implement (split the work between them when it can be done in parallel), the tester to verify, and the end when the delivered work meets the goal. When the tester reports a failure, send the developers back with the report. Give the next step precise instructions.",
-                    ORCHESTRATOR_SCHEMA,
-                    30,
-                    (1, 1),
-                ),
-            ),
-            node("pm", "Project manager", 640, 0, agent("project-manager", "Define the scope: deliverables, milestones in order, dependencies, risks and open questions. Be short and concrete.", "", 3, (1, 1))),
-            node("ba", "Business analyst", 640, 120, agent("business-analyst", "Write the requirements: user stories with acceptance criteria a tester can check, and the edge cases.", "", 4, (1, 1))),
-            node("review", "Approve requirements", 640, 240, Step::Human { mode: HumanMode::Approve, prompt: "Review the requirements. Approve to let the implementation start, or reject with your comments.".into() }),
-            node("dev", "Developer", 640, 360, agent("developer", "Implement what the orchestrator asks. When several developers work at once, each takes only its own part.", "", 5, (1, 3))),
-            node("test", "Tester", 640, 480, agent("qa", "Test the result against the acceptance criteria. Report whether everything passed and, for each failure, the steps to reproduce it.", test_schema, 5, (1, 1))),
-            node("done", "", 1020, 240, Step::End { outcome: Outcome::Success }),
-        ],
-        edges,
-    }
+    let mut nodes = vec![
+        node("orch", "Orchestrator", 0, 200, "orchestrator", "You receive the user's request. Restate it precisely, with its goal and what done means, and hand it to the project manager. When the project manager reports back, check the report against the request and finish with a short summary for the user: what was delivered and what was not."),
+        node("pm", "Project manager", 280, 200, "project-manager", "Turn the request into work items. If it refers to a list of items (tickets, tasks), fetch the list yourself and go through the items one at a time: hand each to the delivery lead and wait for its report before the next. Keep your progress in your notes (items done, blocked, remaining). Finish with a summary per item."),
+        node("lead", "Delivery lead", 560, 200, "delivery-lead", "Deliver one work item from start to finish. Typical order: the business analyst writes the requirements, the architect designs the change, the developer implements it in a branch and opens a pull request, the reviewer reviews it; while the reviewer asks for changes, send the developer back; then the developer merges and the tester verifies the result. Give each agent everything it needs (item id, links, branch, pull request number): it knows only what you tell it. Finish with a short report: delivered, or blocked and why."),
+        node("ba", "Business analyst", 880, 0, "business-analyst", "Write testable requirements for the item you are given: user stories with acceptance criteria and the edge cases."),
+        node("arch", "Architect", 880, 100, "architect", "Design the change for the item you are given: which parts of the code change and how, risks, and the order of the work. Do not write code."),
+        node("dev", "Developer", 880, 200, "developer", "Implement what you are asked in the repository: work in a feature branch, run the tests, open a pull request and wait for its checks. When asked to, address review comments, and merge when the pull request is approved."),
+        node("rev", "Reviewer", 880, 300, "reviewer", "Review the pull request you are given. Leave your comments on the pull request itself and report whether you approve it or ask for changes, with the list of changes."),
+        node("qa", "Tester", 880, 400, "qa", "Test the item you are given against its acceptance criteria once it is deployed (watch the build until the deployment finishes), and report what passed and what failed, with steps to reproduce."),
+    ];
+    nodes.iter_mut().for_each(|n| n.max_calls = if n.id == "orch" || n.id == "pm" { 20 } else { 40 });
+    let mut edges = vec![edge("orch", "pm"), edge("pm", "lead")];
+    edges.extend(["ba", "arch", "dev", "rev", "qa"].map(|w| edge("lead", w)));
+    Workflow { nodes, edges }
 }
 
 // ---- storage ----
@@ -426,7 +326,7 @@ pub fn list(root: &Path) -> Vec<ProjectEntry> {
     out
 }
 
-/// Saves a project; a new one starts with a workflow that only has its start. Returns the id.
+/// Saves a project; a new one starts with an empty workflow. Returns the id.
 pub fn save(root: &Path, id: Option<&str>, project: &Project) -> Result<String, String> {
     validate_project(project)?;
     let id = match id {
@@ -447,7 +347,7 @@ pub fn save(root: &Path, id: Option<&str>, project: &Project) -> Result<String, 
     let dir = project_dir(root, &id)?;
     write_json(&dir.join("project.json"), project)?;
     if !dir.join("workflow.json").exists() {
-        write_json(&dir.join("workflow.json"), &Workflow::start_only())?;
+        write_json(&dir.join("workflow.json"), &Workflow::default())?;
     }
     Ok(id)
 }
@@ -461,7 +361,7 @@ pub fn workflow(root: &Path, id: &str) -> Result<Workflow, String> {
     if !dir.join("project.json").exists() {
         return Err("no such project".into());
     }
-    Ok(read_json(&dir.join("workflow.json")).unwrap_or_else(Workflow::start_only))
+    Ok(read_json::<serde_json::Value>(&dir.join("workflow.json")).and_then(Workflow::from_json).unwrap_or_default())
 }
 
 pub fn save_workflow(root: &Path, id: &str, wf: &Workflow) -> Result<(), String> {
@@ -526,7 +426,7 @@ pub fn create_session(root: &Path, project: &str, name: &str, task: &str) -> Res
         id = format!("{base}-{n}");
         n += 1;
     }
-    let session = Session { name: name.trim().into(), task: task.into(), created: now.as_secs(), status: new_status() };
+    let session = Session { name: name.trim().into(), task: task.into(), created: now.as_secs(), status: new_status(), autonomy: ask() };
     write_json(&session_path(root, project, &id)?, &session)?;
     Ok(id)
 }
@@ -549,6 +449,15 @@ pub fn edit_session(root: &Path, project: &str, sid: &str, name: Option<&str>, t
         }
         session.task = task.into();
     }
+    write_json(&session_path(root, project, sid)?, &session)
+}
+
+pub fn set_session_autonomy(root: &Path, project: &str, sid: &str, autonomy: &str) -> Result<(), String> {
+    if !matches!(autonomy, "ask" | "never") {
+        return Err("autonomy is `ask` or `never`".into());
+    }
+    let mut session = read_session(root, project, sid)?;
+    session.autonomy = autonomy.into();
     write_json(&session_path(root, project, sid)?, &session)
 }
 
@@ -641,6 +550,12 @@ pub fn sessions_rename(app: tauri::AppHandle, project: String, id: String, name:
     edit_session(&root(&app)?, &project, &id, Some(&name), None)
 }
 
+/// Whether the agents may ask the user (`ask`) or must decide themselves (`never`).
+#[tauri::command]
+pub fn sessions_autonomy(app: tauri::AppHandle, project: String, id: String, autonomy: String) -> Result<(), String> {
+    set_session_autonomy(&root(&app)?, &project, &id, &autonomy)
+}
+
 #[tauri::command]
 pub fn sessions_delete(app: tauri::AppHandle, project: String, id: String) -> Result<(), String> {
     delete_session(&root(&app)?, &project, &id)
@@ -658,90 +573,91 @@ mod tests {
     }
 
     fn profiles() -> Vec<String> {
-        ["orchestrator", "project-manager", "business-analyst", "developer", "qa"].map(String::from).to_vec()
+        ["orchestrator", "project-manager", "delivery-lead", "business-analyst", "architect", "developer", "reviewer", "qa"].map(String::from).to_vec()
+    }
+
+    fn n(id: &str) -> Node {
+        Node { id: id.into(), label: String::new(), x: 0, y: 0, profile: "developer".into(), prompt: String::new(), max_calls: 20, timeout_mins: 30 }
+    }
+
+    fn e(from: &str, to: &str) -> Edge {
+        Edge { id: format!("{from}-{to}"), from: from.into(), to: to.into(), approval: false }
     }
 
     #[test]
     fn standard_workflow_is_valid_and_complete() {
         let wf = standard_workflow();
         wf.validate().unwrap();
+        assert_eq!(wf.root().unwrap().id, "orch");
         assert_eq!(wf.problems(&profiles()), vec![]);
-        assert_eq!(wf.problems(&[]).iter().filter(|p| p.code == "unknown_profile").count(), 5);
+        assert_eq!(wf.problems(&[]).iter().filter(|p| p.code == "unknown_profile").count(), 8);
     }
 
     #[test]
     fn rejects_broken_workflows() {
         let mut wf = standard_workflow();
-        wf.edges.push(Edge { id: "x".into(), from: "pm".into(), to: "nope".into(), branch: None });
+        wf.edges.push(e("pm", "nope"));
         assert!(wf.validate().is_err());
 
         let mut wf = standard_workflow();
-        wf.edges.iter_mut().find(|e| e.from == "review" && e.branch.as_deref() == Some("approved")).unwrap().branch = None;
-        assert!(wf.validate().is_err());
+        wf.edges.push(e("dev", "dev"));
+        assert!(wf.validate().is_err(), "no self handover");
 
         let mut wf = standard_workflow();
-        wf.edges.push(Edge { id: "back".into(), from: "dev".into(), to: "start".into(), branch: None });
-        assert!(wf.validate().is_err());
+        wf.edges.push(Edge { id: "again".into(), ..e("orch", "pm") });
+        assert!(wf.validate().is_err(), "one edge per pair");
 
         let mut wf = standard_workflow();
-        wf.coordinator = Some("review".into());
-        assert!(wf.validate().is_err(), "a human step cannot coordinate");
-
-        let mut wf = standard_workflow();
-        wf.nodes.retain(|n| n.id != "start");
-        wf.edges.retain(|e| e.from != "start");
+        wf.nodes[0].max_calls = 0;
         assert!(wf.validate().is_err());
-    }
-
-    #[test]
-    fn validates_instances() {
-        let mut wf = standard_workflow();
-        let dev = wf.nodes.iter_mut().find(|n| n.id == "dev").unwrap();
-        let Step::Agent { min_instances, max_instances, .. } = &mut dev.step else { panic!() };
-        assert_eq!((*min_instances, *max_instances), (1, 3));
-        *min_instances = 4;
+        wf.nodes[0].max_calls = 20;
+        wf.nodes[0].timeout_mins = 481;
         assert!(wf.validate().is_err());
-        // old files without the fields mean one instance
-        let old: Step = serde_json::from_str(r#"{"type":"agent","profile":"x"}"#).unwrap();
-        assert!(matches!(old, Step::Agent { min_instances: 1, max_instances: 1, timeout_mins: 30, .. }));
-        let with_timeout = |m: u32| {
-            let mut w = standard_workflow();
-            if let Step::Agent { timeout_mins, .. } = &mut w.nodes.iter_mut().find(|n| n.id == "dev").unwrap().step {
-                *timeout_mins = m;
-            }
-            w.validate()
-        };
-        assert!(with_timeout(0).is_err() && with_timeout(481).is_err());
-        assert!(with_timeout(90).is_ok());
+        wf.nodes[0].timeout_mins = 90;
+        assert!(wf.validate().is_ok());
     }
 
     #[test]
     fn reports_soft_problems() {
         let mut wf = standard_workflow();
-        wf.edges.retain(|e| !(e.from == "review" && e.branch.as_deref() == Some("rejected")));
-        wf.nodes.push(Node { id: "lonely".into(), label: String::new(), x: 0, y: 0, step: Step::End { outcome: Outcome::Failure } });
+        wf.nodes.push(n("lonely"));
         wf.validate().unwrap();
-        let codes: Vec<_> = wf.problems(&profiles()).into_iter().map(|p| (p.code, p.node.unwrap_or_default())).collect();
-        assert!(codes.contains(&("missing_branch", "review".into())));
-        assert!(codes.contains(&("unreachable", "lonely".into())));
-        // only the coordinator may have several exits
-        wf.coordinator = None;
-        assert!(wf.problems(&profiles()).iter().any(|p| p.code == "multi_out" && p.node.as_deref() == Some("orch")));
+        // a second node nobody calls: two roots
+        assert!(wf.problems(&profiles()).iter().any(|p| p.code == "many_roots"));
+        wf.edges.push(e("dev", "lonely"));
+        assert_eq!(wf.problems(&profiles()), vec![]);
+        // a cycle that swallows the root leaves no root
+        wf.edges.push(e("lead", "orch"));
+        assert!(wf.problems(&profiles()).iter().any(|p| p.code == "no_root"));
+        assert!(Workflow::default().problems(&[]).iter().any(|p| p.code == "empty"));
     }
 
     #[test]
-    fn conditions_need_both_branches() {
-        let mut wf = Workflow::start_only();
-        wf.nodes.push(Node { id: "c".into(), label: String::new(), x: 0, y: 0, step: Step::Condition { field: "result.passed".into(), op: Op::Eq, value: "true".into() } });
-        wf.nodes.push(Node { id: "e".into(), label: String::new(), x: 0, y: 0, step: Step::End { outcome: Outcome::Success } });
-        let e = |id: &str, b: Option<&str>| Edge { id: id.into(), from: if id == "s" { "start".into() } else { "c".into() }, to: if id == "s" { "c".into() } else { "e".into() }, branch: b.map(Into::into) };
-        wf.edges = vec![e("s", None), e("t", Some("true"))];
+    fn converts_the_old_step_graph() {
+        let old = serde_json::json!({
+            "nodes": [
+                {"id": "start", "type": "start", "x": 0, "y": 0},
+                {"id": "orch", "type": "agent", "profile": "orchestrator", "label": "O", "x": 1, "y": 2, "max_runs": 30},
+                {"id": "ba", "type": "agent", "profile": "business-analyst", "prompt": "p", "timeout_mins": 45, "x": 0, "y": 0},
+                {"id": "end", "type": "end", "outcome": "success", "x": 0, "y": 0}
+            ],
+            "edges": [
+                {"id": "a", "from": "start", "to": "orch"},
+                {"id": "b", "from": "orch", "to": "ba"},
+                {"id": "c", "from": "ba", "to": "orch"},
+                {"id": "d", "from": "orch", "to": "end"}
+            ],
+            "coordinator": "orch"
+        });
+        let wf = Workflow::from_json(old).unwrap();
         wf.validate().unwrap();
-        assert!(wf.problems(&[]).iter().any(|p| p.code == "missing_branch"));
-        wf.edges.push(e("f", Some("false")));
-        assert!(wf.problems(&[]).is_empty());
-        wf.nodes[1].step = Step::Condition { field: "result".into(), op: Op::Eq, value: String::new() };
-        assert!(wf.validate().is_err());
+        assert_eq!(wf.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), ["orch", "ba"]);
+        assert_eq!(wf.edges.len(), 1);
+        assert_eq!((wf.nodes[0].max_calls, wf.nodes[1].timeout_mins, wf.nodes[1].prompt.as_str()), (30, 45, "p"));
+        assert_eq!(wf.root().unwrap().id, "orch");
+        // the new format passes through
+        let new = serde_json::to_value(standard_workflow()).unwrap();
+        assert_eq!(Workflow::from_json(new), Some(standard_workflow()));
     }
 
     #[test]
@@ -752,22 +668,13 @@ mod tests {
     }
 
     #[test]
-    fn json_shape_is_flat() {
-        let json = serde_json::to_value(standard_workflow()).unwrap();
-        assert_eq!(json["nodes"][1]["type"], "agent");
-        assert_eq!(json["nodes"][1]["profile"], "orchestrator");
-        let back: Workflow = serde_json::from_value(json).unwrap();
-        assert_eq!(back, standard_workflow());
-    }
-
-    #[test]
     fn projects_and_sessions_roundtrip() {
         let root = tmp("rt");
         let p = Project { name: "My App".into(), description: String::new(), system_prompt: String::new() };
         let id = save(&root, None, &p).unwrap();
         assert_eq!(id, "my-app");
         assert_eq!(save(&root, None, &p).unwrap(), "my-app-2");
-        assert_eq!(workflow(&root, &id).unwrap().nodes.len(), 1);
+        assert!(workflow(&root, &id).unwrap().nodes.is_empty());
         save_workflow(&root, &id, &standard_workflow()).unwrap();
         assert_eq!(workflow(&root, &id).unwrap(), standard_workflow());
         // saving the project again keeps its workflow
