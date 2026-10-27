@@ -6,7 +6,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
-use protocol::{Final, Status, Task};
+use protocol::{Bootstrap, Final, Status, Task};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
@@ -140,7 +140,7 @@ struct Outcome {
     session: Option<String>,
 }
 
-pub async fn run(args: &Args, link: &Link, task: Task) -> Result<Final, String> {
+pub async fn run(args: &Args, link: &Link, boot: &Bootstrap, task: Task) -> Result<Final, String> {
     let name = args.run_as.clone().unwrap_or_else(|| "agent".into());
     let user = args.run_as.as_deref().map(lookup).transpose()?;
     prepare(args, &task, &user, &name).await?;
@@ -151,7 +151,7 @@ pub async fn run(args: &Args, link: &Link, task: Task) -> Result<Final, String> 
         .args(["-p", &task.prompt, "--output-format", "stream-json", "--verbose", "--include-partial-messages"])
         .args(["--json-schema", &schema, "--dangerously-skip-permissions"])
         .args([if task.resume { "--resume" } else { "--session-id" }, &task.session_id])
-        .env("CLAUDE_CODE_OAUTH_TOKEN", &task.claude_token)
+        .env("CLAUDE_CODE_OAUTH_TOKEN", &boot.claude_token)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some(m) = &task.model {
@@ -190,7 +190,7 @@ pub async fn run(args: &Args, link: &Link, task: Task) -> Result<Final, String> 
                     session: event["session_id"].as_str().map(str::to_string),
                 });
             }
-            if let Err(e) = link.event(seq, event).await {
+            if let Err(e) = link.event(seq, event) {
                 eprintln!("agentd: event {seq} not sent: {e}");
             }
         }

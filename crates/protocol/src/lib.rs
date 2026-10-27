@@ -1,32 +1,25 @@
 //! The messages between the app and `agentd`, the program inside each agent VM.
 //!
-//! On the wire every message is `{"kind": ..., "body": ...}`. The app sends `Inbound` on
-//! `agent.<id>.in` (the router adds `from`, which is ignored here) and `agentd` sends `Outbound`
-//! on `agent.<id>.out`. Everything an agent sends is untrusted: the app validates it.
+//! They travel over one virtio-serial port per VM (the guest sees `/dev/virtio-ports/agent`), one
+//! JSON message per line, in this order: the app sends `Bootstrap`, `agentd` answers `Ready`, the
+//! app sends the `Task`, then `agentd` streams `Heartbeat`, `Event` and finally one `Final`. The
+//! channel belongs to one VM, so there are no tokens or identities: the app knows who is talking
+//! because of the socket. Everything the agent sends is untrusted: the app validates it.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Largest message either side sends. The broker router refuses more than 1 MiB.
+/// Longest line either side accepts. A longer line is dropped (events) or ends the run (the app).
 pub const MAX_MESSAGE: usize = 1 << 20;
 
-/// What the app writes to the one-shot bootstrap channel when it boots the VM. `seed` is the only
-/// secret that travels outside NATS.
+/// The first message, from the app: what this VM is and the Claude setup token. It never touches a
+/// disk or a command line: it goes through the channel into `agentd`, and from there only into
+/// `claude`'s environment.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Bootstrap {
     pub id: String,
-    /// The agent's SPIFFE name: `iss` and `sub` of its proofs.
-    pub name: String,
-    /// The agent's private key (nkey seed).
-    pub seed: String,
-    /// The pull consumer to read the task from.
-    pub consumer: String,
-    /// The issuer string of the identity provider. Only compared with, never connected to.
-    pub issuer: String,
-    /// Where the identity provider can be reached from the VM, e.g. `10.0.2.2:41000`.
-    pub idp_addr: String,
-    /// Where NATS can be reached from the VM, e.g. `10.0.2.2:4222`.
-    pub nats_addr: String,
+    /// The Claude setup token. It goes only into the `claude` process environment.
+    pub claude_token: String,
 }
 
 /// Messages from the app to the agent.
@@ -34,8 +27,6 @@ pub struct Bootstrap {
 #[serde(tag = "kind", content = "body", rename_all = "snake_case")]
 pub enum Inbound {
     Task(Task),
-    /// The router tells an agent when it sent something malformed.
-    Error { reason: String },
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -46,8 +37,6 @@ pub struct Task {
     /// `low | medium | high | xhigh | max`.
     #[serde(default)]
     pub effort: Option<String>,
-    /// The Claude setup token. It goes only into the `claude` process environment.
-    pub claude_token: String,
     /// The Claude session id: new with `--session-id`, or resumed with `--resume` when `resume`.
     pub session_id: String,
     #[serde(default)]
@@ -71,12 +60,14 @@ fn default_timeout() -> u64 {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "body", rename_all = "snake_case")]
 pub enum Outbound {
+    /// `agentd` has read the bootstrap and asks for its task.
+    Ready,
     Heartbeat(Heartbeat),
     Event(Event),
     Final(Final),
 }
 
-/// Sent every few seconds, the first one right at start.
+/// Sent every few seconds once the task started.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Heartbeat {
     pub seq: u64,
@@ -131,12 +122,7 @@ mod tests {
     fn wire_format_is_kind_and_body() {
         let m = Outbound::Heartbeat(Heartbeat { seq: 3 });
         assert_eq!(serde_json::to_value(&m).unwrap(), serde_json::json!({"kind":"heartbeat","body":{"seq":3}}));
-    }
-
-    #[test]
-    fn router_stamp_is_ignored() {
-        let raw = r#"{"from":"app","kind":"error","body":{"reason":"x"}}"#;
-        assert!(matches!(serde_json::from_str::<Inbound>(raw).unwrap(), Inbound::Error { .. }));
+        assert_eq!(serde_json::to_string(&Outbound::Ready).unwrap(), r#"{"kind":"ready"}"#);
     }
 
     #[test]
