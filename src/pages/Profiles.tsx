@@ -77,6 +77,12 @@ export function Profiles() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [images, setImages] = useState<ImageInfo[]>([]);
   const [editing, setEditing] = useState<{ id: string | null; profile: Profile } | null>(null);
+  // closing only hides the dialog: its content stays until the next open, so the title cannot flip to "New profile" while it fades out
+  const [open, setOpen] = useState(false);
+  const edit = (v: { id: string | null; profile: Profile }) => {
+    setEditing(v);
+    setOpen(true);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -95,7 +101,7 @@ export function Profiles() {
     if (!editing) return;
     try {
       await call("profiles_save", { id: editing.id, profile: editing.profile });
-      setEditing(null);
+      setOpen(false);
       await load();
     } catch (e) {
       notify(String(e), "error");
@@ -119,7 +125,7 @@ export function Profiles() {
     <>
       <div className={styles.head}>
         <Title2 as="h1">{t("profiles.title")}</Title2>
-        <Button appearance="primary" icon={<Add16Regular />} disabled={!desktop} onClick={() => setEditing({ id: null, profile: EMPTY })}>
+        <Button appearance="primary" icon={<Add16Regular />} disabled={!desktop} onClick={() => edit({ id: null, profile: EMPTY })}>
           {t("profiles.new")}
         </Button>
       </div>
@@ -127,7 +133,7 @@ export function Profiles() {
       {desktop && entries.length === 0 && <Body1 block>{t("profiles.empty")}</Body1>}
       <div className={styles.list}>
         {entries.map((e) => (
-          <Card key={e.id} onClick={() => setEditing({ id: e.id, profile: e })}>
+          <Card key={e.id} onClick={() => edit({ id: e.id, profile: e })}>
             <CardHeader
               header={<Body1><b>{e.name}</b></Body1>}
               description={<Caption1>{e.description || t("profiles.noDescription")}</Caption1>}
@@ -147,8 +153,8 @@ export function Profiles() {
         ))}
       </div>
 
-      <Dialog open={editing !== null} onOpenChange={(_, d) => !d.open && setEditing(null)}>
-        <DialogSurface>
+      <Dialog surfaceMotion={null} open={open} onOpenChange={(_, d) => setOpen(d.open)}>
+        <DialogSurface backdropMotion={null}>
           <DialogBody>
             <DialogTitle>{editing?.id ? t("profiles.edit") : t("profiles.new")}</DialogTitle>
             <DialogContent className={styles.form}>
@@ -244,7 +250,7 @@ export function Profiles() {
               )}
             </DialogContent>
             <DialogActions>
-              <Button appearance="secondary" onClick={() => setEditing(null)}>
+              <Button appearance="secondary" onClick={() => setOpen(false)}>
                 {t("common.cancel")}
               </Button>
               <Button appearance="primary" disabled={!editing?.profile.name.trim() || (editing?.profile.memory_mb ?? 0) < 1024} onClick={save}>
