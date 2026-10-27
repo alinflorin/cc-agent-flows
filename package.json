@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "qemu:fetch": "node scripts/qemu/fetch.mjs",
     "nats:fetch": "node scripts/nats/fetch.mjs",
+    "images:fetch": "node scripts/images/fetch.mjs",
     "driver:install": "cargo install tauri-driver --locked --root .tools",
     "driver": ".tools/bin/tauri-driver --port 4444"
   },
