@@ -1,4 +1,6 @@
 mod agent;
+mod base;
+mod builder;
 #[cfg(test)]
 mod agentd_e2e;
 mod profiles;
@@ -66,6 +68,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             can_self_update,
             qemu::qemu_version,
+            base::base_status,
+            base::base_build,
             profiles::profiles_list,
             profiles::profiles_save,
             profiles::profiles_delete,
@@ -73,6 +77,12 @@ pub fn run() {
             secrets::claude_token_status,
             secrets::claude_token_clear
         ])
+        .setup(|app| {
+            use tauri::Manager;
+            app.manage(base::Base::default());
+            base::ensure(app.handle());
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_, _| {});

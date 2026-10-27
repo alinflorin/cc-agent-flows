@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+# Starts agentd at boot: one task per boot, then it powers the VM off.
+description="agentd"
+command=/usr/local/bin/agentd
+command_args="--run-as agent --poweroff"
+command_background=true
+pidfile=/run/agentd.pid
+export USE_BUILTIN_RIPGREP=0
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+
+depend() {
+	need localmount
+	after mdev
+}

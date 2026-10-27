@@ -39,7 +39,8 @@
     "autoUpdate": "Caută actualizări la pornire",
     "tabs": {
       "llm": "LLM",
-      "general": "General"
+      "general": "General",
+      "base": "Imagine de bază"
     },
     "llm": {
       "token": "Setup token Claude Code",
@@ -59,7 +60,18 @@
         "max": "Maxim"
       }
     },
-    "saved": "Setările au fost salvate."
+    "saved": "Setările au fost salvate.",
+    "base": {
+      "intro": "Imaginea de bază este sistemul de la care pornește fiecare agent: Alpine cu agentd, Claude Code și ripgrep. Aplicația o construiește singură prima dată și din nou după o actualizare care o schimbă. Nu poate fi editată.",
+      "state": {
+        "missing": "Neconstruită",
+        "building": "Se construiește…",
+        "ready": "Gata",
+        "stale": "Depășită"
+      },
+      "builtAt": "Construită {{date}}",
+      "rebuild": "Reconstruiește"
+    }
   },
   "updates": {
     "title": "Actualizări",
