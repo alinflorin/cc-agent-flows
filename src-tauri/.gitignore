@@ -9,3 +9,6 @@
 # Prebuilt QEMU, fetched by scripts/qemu/fetch.mjs
 resources/qemu/*
 !resources/qemu/README.md
+
+resources/nats/*
+!resources/nats/README.md

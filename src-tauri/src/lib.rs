@@ -1,4 +1,9 @@
+use tauri::Manager;
+
+mod broker;
+mod nats;
 mod qemu;
+mod secrets;
 
 /// Whether the updater can replace this installation. On Linux only an AppImage can;
 /// a .deb or .rpm belongs to the package manager.
@@ -57,7 +62,31 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
 
     builder
-        .invoke_handler(tauri::generate_handler![can_self_update, qemu::qemu_version])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .invoke_handler(tauri::generate_handler![
+            can_self_update,
+            nats::nats_version,
+            broker::broker_status,
+            qemu::qemu_version,
+            secrets::claude_token_set,
+            secrets::claude_token_status,
+            secrets::claude_token_clear
+        ])
+        .setup(|app| {
+            app.manage(broker::State::default());
+            // Started in the background: a missing nats-server must not keep the app from opening.
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = handle.state::<broker::State>();
+                state.start(&handle).await;
+            });
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Dropping the broker kills nats-server.
+            if let tauri::RunEvent::Exit = event {
+                app.state::<broker::State>().stop();
+            }
+        });
 }
