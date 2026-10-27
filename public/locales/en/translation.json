@@ -270,7 +270,21 @@
     "pickAgent": "Click an agent in the graph to see its calls.",
     "noCalls": "This agent has not been called yet.",
     "noEvents": "Nothing has happened yet.",
-    "noWorkflow": "This project has no workflow yet."
+    "noWorkflow": "This project has no workflow yet.",
+    "more": "show more",
+    "less": "show less",
+    "askedBy": "asked by {{name}}",
+    "ev": {
+      "start": "got a task from {{from}}",
+      "you": "you",
+      "end_done": "finished",
+      "end_failed": "failed",
+      "end_needs_input": "has questions",
+      "end_open": "",
+      "wait": "waits for you",
+      "reply": "you answered",
+      "error": "error"
+    }
   },
   "app": {
     "desktopOnly": "Only available in the desktop app."

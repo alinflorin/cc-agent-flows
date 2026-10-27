@@ -272,7 +272,21 @@
     "pickAgent": "Fă click pe un agent din graf ca să-i vezi apelurile.",
     "noCalls": "Acest agent nu a fost chemat încă.",
     "noEvents": "Nu s-a întâmplat nimic încă.",
-    "noWorkflow": "Proiectul nu are încă un workflow."
+    "noWorkflow": "Proiectul nu are încă un workflow.",
+    "more": "arată mai mult",
+    "less": "arată mai puțin",
+    "askedBy": "cerut de {{name}}",
+    "ev": {
+      "start": "a primit o sarcină de la {{from}}",
+      "you": "tine",
+      "end_done": "a terminat",
+      "end_failed": "a eșuat",
+      "end_needs_input": "are întrebări",
+      "end_open": "",
+      "wait": "te așteaptă",
+      "reply": "ai răspuns",
+      "error": "eroare"
+    }
   },
   "app": {
     "desktopOnly": "Disponibil doar în aplicația desktop."

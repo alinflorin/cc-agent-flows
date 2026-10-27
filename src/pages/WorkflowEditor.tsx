@@ -80,8 +80,10 @@ const useStyles = makeStyles({
     padding: tokens.spacingHorizontalM,
     border: `1px solid ${tokens.colorNeutralStroke2}`,
     borderRadius: tokens.borderRadiusMedium,
+    "& > *": { flexShrink: 0 },
   },
   node: {
+    overflowWrap: "anywhere",
     minWidth: "150px",
     maxWidth: "220px",
     padding: `${tokens.spacingVerticalS} ${tokens.spacingHorizontalM}`,
@@ -256,7 +258,22 @@ function Editor() {
   };
 
   const agent = selected?.data.agent;
-  const outgoing = selected ? edges.filter((e) => e.source === selected.id).length : 0;
+  // the agents it may hand work to (through approval gates too); order arrows are not handovers
+  const handsTo = (() => {
+    if (!selected) return 0;
+    const out = new Set<string>();
+    const walk = (id: string, seen: Set<string>) => {
+      for (const e of edges) {
+        if (e.source !== id || e.data?.kind === "before") continue;
+        const n = nodes.find((x) => x.id === e.target);
+        if (!n || seen.has(n.id)) continue;
+        if (n.data.agent.kind === "agent") out.add(n.id);
+        else if (n.data.agent.kind === "approve") walk(n.id, new Set([...seen, n.id]));
+      }
+    };
+    walk(selected.id, new Set([selected.id]));
+    return out.size;
+  })();
   return (
     <div className={styles.root}>
       <div className={styles.bar}>
@@ -353,7 +370,7 @@ function Editor() {
             ) : (
             <>
               <Subtitle2>{t("wf.agent")}</Subtitle2>
-              <Caption1>{outgoing > 0 ? t("wf.coordinates", { count: outgoing }) : t("wf.worker")}</Caption1>
+              <Caption1>{handsTo > 0 ? t("wf.coordinates", { count: handsTo }) : t("wf.worker")}</Caption1>
               <Field label={t("wf.label")}>
                 <Input value={selected.data.label} maxLength={120} onChange={(_, d) => patchData(selected.id, (x) => ({ ...x, label: d.value }))} />
               </Field>
