@@ -5,6 +5,7 @@ import { Layout } from "./components/Layout";
 import { NotificationsProvider } from "./notifications";
 import { About } from "./pages/About";
 import { Home } from "./pages/Home";
+import { Profiles } from "./pages/Profiles";
 import { Settings } from "./pages/Settings";
 import { useFluentTheme } from "./theme";
 import { UpdatesProvider } from "./updates";
@@ -15,6 +16,7 @@ const router = createHashRouter([
     element: <Layout />,
     children: [
       { path: "/", element: <Home /> },
+      { path: "/profiles", element: <Profiles /> },
       { path: "/about", element: <About /> },
       { path: "/settings", element: <Settings /> },
     ],

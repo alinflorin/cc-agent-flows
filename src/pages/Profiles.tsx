@@ -1,0 +1,214 @@
+import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  Body1,
+  Button,
+  Card,
+  CardHeader,
+  Caption1,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
+  Field,
+  Input,
+  Switch,
+  Textarea,
+  Title2,
+  makeStyles,
+  tokens,
+} from "@fluentui/react-components";
+import { Add16Regular, Delete16Regular } from "@fluentui/react-icons";
+import { inTauri } from "../prefs";
+import { useNotify } from "../notifications";
+
+interface EnvVar {
+  name: string;
+  /** null: supplied by the app when a task starts. */
+  value: string | null;
+}
+
+interface Profile {
+  name: string;
+  description: string;
+  system_prompt: string;
+  env: EnvVar[];
+  script: string;
+}
+
+interface Entry extends Profile {
+  id: string;
+}
+
+const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], script: "" };
+
+const useStyles = makeStyles({
+  head: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: tokens.spacingVerticalL },
+  list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM },
+  form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM },
+  envRow: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-start" },
+  grow: { flex: 1 },
+  mono: { fontFamily: tokens.fontFamilyMonospace },
+});
+
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args);
+}
+
+export function Profiles() {
+  const { t } = useTranslation();
+  const styles = useStyles();
+  const notify = useNotify();
+  const desktop = inTauri();
+
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [editing, setEditing] = useState<{ id: string | null; profile: Profile } | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setEntries(await call<Entry[]>("profiles_list"));
+    } catch (e) {
+      notify(String(e), "error");
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    if (desktop) void load();
+  }, [desktop, load]);
+
+  const save = async () => {
+    if (!editing) return;
+    try {
+      await call("profiles_save", { id: editing.id, profile: editing.profile });
+      setEditing(null);
+      await load();
+    } catch (e) {
+      notify(String(e), "error");
+    }
+  };
+
+  const remove = async (id: string) => {
+    try {
+      await call("profiles_delete", { id });
+      await load();
+    } catch (e) {
+      notify(String(e), "error");
+    }
+  };
+
+  const set = (patch: Partial<Profile>) => editing && setEditing({ ...editing, profile: { ...editing.profile, ...patch } });
+  const setEnv = (i: number, patch: Partial<EnvVar>) =>
+    set({ env: editing!.profile.env.map((v, j) => (j === i ? { ...v, ...patch } : v)) });
+
+  return (
+    <>
+      <div className={styles.head}>
+        <Title2 as="h1">{t("profiles.title")}</Title2>
+        <Button appearance="primary" icon={<Add16Regular />} disabled={!desktop} onClick={() => setEditing({ id: null, profile: EMPTY })}>
+          {t("profiles.new")}
+        </Button>
+      </div>
+      {!desktop && <Body1 block>{t("profiles.desktopOnly")}</Body1>}
+      {desktop && entries.length === 0 && <Body1 block>{t("profiles.empty")}</Body1>}
+      <div className={styles.list}>
+        {entries.map((e) => (
+          <Card key={e.id} onClick={() => setEditing({ id: e.id, profile: e })}>
+            <CardHeader
+              header={<Body1><b>{e.name}</b></Body1>}
+              description={<Caption1>{e.description || t("profiles.noDescription")}</Caption1>}
+              action={
+                <Button
+                  appearance="subtle"
+                  icon={<Delete16Regular />}
+                  aria-label={t("profiles.delete")}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    void remove(e.id);
+                  }}
+                />
+              }
+            />
+          </Card>
+        ))}
+      </div>
+
+      <Dialog open={editing !== null} onOpenChange={(_, d) => !d.open && setEditing(null)}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>{editing?.id ? t("profiles.edit") : t("profiles.new")}</DialogTitle>
+            <DialogContent className={styles.form}>
+              {editing && (
+                <>
+                  <Field label={t("profiles.name")} required>
+                    <Input value={editing.profile.name} maxLength={80} onChange={(_, d) => set({ name: d.value })} />
+                  </Field>
+                  <Field label={t("profiles.description")}>
+                    <Input value={editing.profile.description} onChange={(_, d) => set({ description: d.value })} />
+                  </Field>
+                  <Field label={t("profiles.systemPrompt")} hint={t("profiles.systemPromptHint")}>
+                    <Textarea rows={5} value={editing.profile.system_prompt} onChange={(_, d) => set({ system_prompt: d.value })} />
+                  </Field>
+                  <Field label={t("profiles.env")} hint={t("profiles.envHint")}>
+                    <div className={styles.form}>
+                      {editing.profile.env.map((v, i) => (
+                        <div key={i} className={styles.envRow}>
+                          <Input
+                            className={styles.mono}
+                            placeholder="NAME"
+                            value={v.name}
+                            onChange={(_, d) => setEnv(i, { name: d.value })}
+                          />
+                          {v.value === null ? (
+                            <Input className={styles.grow} disabled value={t("profiles.atRuntime")} />
+                          ) : (
+                            <Input className={`${styles.grow} ${styles.mono}`} value={v.value} onChange={(_, d) => setEnv(i, { value: d.value })} />
+                          )}
+                          <Switch
+                            label={t("profiles.runtime")}
+                            checked={v.value === null}
+                            onChange={(_, d) => setEnv(i, { value: d.checked ? null : "" })}
+                          />
+                          <Button
+                            appearance="subtle"
+                            icon={<Delete16Regular />}
+                            aria-label={t("profiles.delete")}
+                            onClick={() => set({ env: editing.profile.env.filter((_, j) => j !== i) })}
+                          />
+                        </div>
+                      ))}
+                      <div>
+                        <Button size="small" icon={<Add16Regular />} onClick={() => set({ env: [...editing.profile.env, { name: "", value: "" }] })}>
+                          {t("profiles.addVar")}
+                        </Button>
+                      </div>
+                    </div>
+                  </Field>
+                  <Field label={t("profiles.script")} hint={t("profiles.scriptHint")}>
+                    <Textarea
+                      rows={8}
+                      className={styles.mono}
+                      resize="vertical"
+                      value={editing.profile.script}
+                      onChange={(_, d) => set({ script: d.value })}
+                    />
+                  </Field>
+                </>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button appearance="secondary" onClick={() => setEditing(null)}>
+                {t("common.cancel")}
+              </Button>
+              <Button appearance="primary" disabled={!editing?.profile.name.trim()} onClick={save}>
+                {t("common.save")}
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
+    </>
+  );
+}

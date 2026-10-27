@@ -3,7 +3,8 @@
   "language": "Limbă",
   "common": {
     "save": "Salvează",
-    "reset": "Resetează"
+    "reset": "Resetează",
+    "cancel": "Anulează"
   },
   "validation": {
     "required": "Acest câmp este obligatoriu.",
@@ -14,7 +15,8 @@
     "more": "Mai multe opțiuni",
     "home": "Acasă",
     "about": "Despre",
-    "settings": "Setări"
+    "settings": "Setări",
+    "profiles": "Profiluri de agent"
   },
   "theme": {
     "label": "Temă",
@@ -35,7 +37,10 @@
     "title": "Setări",
     "displayName": "Nume afișat",
     "autoUpdate": "Caută actualizări la pornire",
-    "tabs": {"llm": "LLM", "general": "General"},
+    "tabs": {
+      "llm": "LLM",
+      "general": "General"
+    },
     "llm": {
       "token": "Setup token Claude Code",
       "tokenHint": "Generează unul cu `claude setup-token`. Este păstrat în depozitul de credențiale al sistemului.",
@@ -46,7 +51,13 @@
       "tokenError": "Nu s-a putut accesa depozitul de credențiale: {{error}}",
       "model": "Modelul implicit pentru agenți",
       "thinking": "Nivelul implicit de gândire",
-      "levels": {"low": "Scăzut", "medium": "Mediu", "high": "Ridicat", "xhigh": "Foarte ridicat", "max": "Maxim"}
+      "levels": {
+        "low": "Scăzut",
+        "medium": "Mediu",
+        "high": "Ridicat",
+        "xhigh": "Foarte ridicat",
+        "max": "Maxim"
+      }
     },
     "saved": "Setările au fost salvate."
   },
@@ -58,5 +69,25 @@
     "managed": "Versiunea {{version}} este disponibilă. Această instalare este gestionată de managerul de pachete.",
     "ready": "Versiunea {{version}} a fost instalată. Reporniți pentru a o folosi.",
     "restart": "Repornește pentru actualizare ({{version}})"
+  },
+  "profiles": {
+    "title": "Profiluri de agent",
+    "new": "Profil nou",
+    "edit": "Editează profilul",
+    "empty": "Încă nu există profiluri de agent. Creează unul pentru a defini cum este configurat un agent.",
+    "desktopOnly": "Disponibil doar în aplicația desktop.",
+    "noDescription": "Fără descriere",
+    "delete": "Șterge",
+    "name": "Nume",
+    "description": "Descriere",
+    "systemPrompt": "Prompt de sistem",
+    "systemPromptHint": "Adăugat la promptul de sistem al lui Claude pentru fiecare sarcină a acestui agent.",
+    "env": "Variabile de mediu",
+    "envHint": "O valoare este inclusă în imagine. O variabilă de runtime primește valoarea de la aplicație când pornește sarcina.",
+    "atRuntime": "setată la pornirea sarcinii",
+    "runtime": "Runtime",
+    "addVar": "Adaugă variabilă",
+    "script": "Script de personalizare (sh)",
+    "scriptHint": "Rulează o dată ca root la construirea imaginii, peste imaginea de bază (Alpine; apk este disponibil). Modificarea lui reconstruiește imaginea."
   }
 }

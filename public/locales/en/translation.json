@@ -3,7 +3,8 @@
   "language": "Language",
   "common": {
     "save": "Save",
-    "reset": "Reset"
+    "reset": "Reset",
+    "cancel": "Cancel"
   },
   "validation": {
     "required": "This field is required.",
@@ -14,7 +15,8 @@
     "more": "More options",
     "home": "Home",
     "about": "About",
-    "settings": "Settings"
+    "settings": "Settings",
+    "profiles": "Agent profiles"
   },
   "theme": {
     "label": "Theme",
@@ -35,7 +37,10 @@
     "title": "Settings",
     "displayName": "Display name",
     "autoUpdate": "Check for updates on startup",
-    "tabs": {"llm": "LLM", "general": "General"},
+    "tabs": {
+      "llm": "LLM",
+      "general": "General"
+    },
     "llm": {
       "token": "Claude Code setup token",
       "tokenHint": "Generate one with `claude setup-token`. It is kept in the OS credential store.",
@@ -46,7 +51,13 @@
       "tokenError": "Could not access the credential store: {{error}}",
       "model": "Default model for agents",
       "thinking": "Default thinking level",
-      "levels": {"low": "Low", "medium": "Medium", "high": "High", "xhigh": "Extra high", "max": "Max"}
+      "levels": {
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "xhigh": "Extra high",
+        "max": "Max"
+      }
     },
     "saved": "Settings saved."
   },
@@ -58,5 +69,25 @@
     "managed": "Version {{version}} is available. This install is managed by your package manager.",
     "ready": "Version {{version}} was installed. Restart to use it.",
     "restart": "Restart to update ({{version}})"
+  },
+  "profiles": {
+    "title": "Agent profiles",
+    "new": "New profile",
+    "edit": "Edit profile",
+    "empty": "No agent profiles yet. Create one to define how an agent is set up.",
+    "desktopOnly": "Only available in the desktop app.",
+    "noDescription": "No description",
+    "delete": "Delete",
+    "name": "Name",
+    "description": "Description",
+    "systemPrompt": "System prompt",
+    "systemPromptHint": "Added to Claude's system prompt for every task of this agent.",
+    "env": "Environment variables",
+    "envHint": "A value is built into the image. A runtime variable gets its value from the app when a task starts.",
+    "atRuntime": "set when the task starts",
+    "runtime": "Runtime",
+    "addVar": "Add variable",
+    "script": "Customization script (sh)",
+    "scriptHint": "Runs once as root when the image is built, on top of the base image (Alpine; apk is available). Changing it rebuilds the image."
   }
 }

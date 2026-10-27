@@ -37,7 +37,6 @@
     "resources": {
       "resources/qemu/": "qemu/",
       "resources/images/": "images/",
-      "resources/profiles/": "profiles/",
       "resources/agentd/": "agentd/"
     },
     "publisher": "Alin-Florin Ciu",
