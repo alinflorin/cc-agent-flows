@@ -2,6 +2,8 @@ use tauri::Manager;
 
 mod broker;
 mod callout;
+#[cfg(test)]
+mod agentd_e2e;
 mod idp;
 mod nats;
 mod qemu;
