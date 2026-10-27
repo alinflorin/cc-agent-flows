@@ -11,6 +11,7 @@ import { AppearanceFields } from "../components/AppearanceFields";
 import { ImagesSettings } from "./SettingsImages";
 import { LlmSettings } from "./SettingsLlm";
 import { NetworkSettings } from "./SettingsNetwork";
+import { SecretsSettings } from "./SettingsSecrets";
 
 const NAME_MAX = 40;
 
@@ -132,8 +133,9 @@ export function Settings() {
         <Tab value="llm">{t("settings.tabs.llm")}</Tab>
         <Tab value="images">{t("settings.tabs.images")}</Tab>
         <Tab value="network">{t("settings.tabs.network")}</Tab>
+        <Tab value="secrets">{t("settings.tabs.secrets")}</Tab>
       </TabList>
-      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : tab === "network" ? <NetworkSettings /> : <ImagesSettings />}
+      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : tab === "network" ? <NetworkSettings /> : tab === "secrets" ? <SecretsSettings /> : <ImagesSettings />}
     </>
   );
 }

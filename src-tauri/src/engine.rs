@@ -34,7 +34,7 @@ use tokio::sync::{Semaphore, mpsc, oneshot, watch};
 
 use crate::profiles::Profile;
 use crate::workflow::{Node, Workflow};
-use crate::protocol::{Final, Outbound, Status, Task, TaskEnv};
+use crate::protocol::{Final, Outbound, Status, Task};
 use crate::runs::{Spec, failed};
 
 /// Agent runs (VMs) one session may start, whatever the per-agent limits say.
@@ -790,6 +790,10 @@ impl Host for RealHost {
         };
         let run_id = crate::runs::new_run_id();
         let identity = crate::runs::identity(&[("session", &self.sid), ("step", &req.node)], &run_id);
+        let env = match crate::secrets::resolve_env(&profile.env) {
+            Ok(env) => env,
+            Err(e) => return failed(format!("the profile {}: {e}", req.profile)),
+        };
         let task = Task {
             prompt: req.prompt,
             model: profile.model.clone(),
@@ -798,7 +802,7 @@ impl Host for RealHost {
             resume: false,
             schema: req.schema,
             system_prompt: crate::workflow::combine_system_prompts(&self.instructions, &profile.system_prompt),
-            env: profile.env.iter().map(|v| TaskEnv { name: v.name.clone(), value: v.value.clone() }).collect(),
+            env,
             timeout_secs: u64::from(req.timeout_mins) * 60,
         };
         let spec = Spec { run_id, image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, allow_hosts: profile.allow_hosts.clone(), task };
