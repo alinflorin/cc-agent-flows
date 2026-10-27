@@ -14,6 +14,7 @@ import {
   DialogTitle,
   Field,
   Input,
+  Select,
   Switch,
   Textarea,
   Title2,
@@ -35,14 +36,20 @@ interface Profile {
   description: string;
   system_prompt: string;
   env: EnvVar[];
-  script: string;
+  image: string;
+}
+
+interface ImageInfo {
+  id: string;
+  name: string;
+  state: string;
 }
 
 interface Entry extends Profile {
   id: string;
 }
 
-const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], script: "" };
+const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], image: "base" };
 
 const useStyles = makeStyles({
   head: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: tokens.spacingVerticalL },
@@ -65,11 +72,13 @@ export function Profiles() {
   const desktop = inTauri();
 
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [images, setImages] = useState<ImageInfo[]>([]);
   const [editing, setEditing] = useState<{ id: string | null; profile: Profile } | null>(null);
 
   const load = useCallback(async () => {
     try {
       setEntries(await call<Entry[]>("profiles_list"));
+      setImages(await call<ImageInfo[]>("images_list"));
     } catch (e) {
       notify(String(e), "error");
     }
@@ -186,14 +195,14 @@ export function Profiles() {
                       </div>
                     </div>
                   </Field>
-                  <Field label={t("profiles.script")} hint={t("profiles.scriptHint")}>
-                    <Textarea
-                      rows={8}
-                      className={styles.mono}
-                      resize="vertical"
-                      value={editing.profile.script}
-                      onChange={(_, d) => set({ script: d.value })}
-                    />
+                  <Field label={t("profiles.image")} hint={t("profiles.imageHint")}>
+                    <Select value={editing.profile.image} onChange={(_, d) => set({ image: d.value })}>
+                      {images.map((i) => (
+                        <option key={i.id} value={i.id}>
+                          {i.name}
+                        </option>
+                      ))}
+                    </Select>
                   </Field>
                 </>
               )}

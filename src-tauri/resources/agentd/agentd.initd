@@ -8,6 +8,11 @@ pidfile=/run/agentd.pid
 export USE_BUILTIN_RIPGREP=0
 export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
+# Only with an agent channel: builder VMs (which boot this image to customize it) have none.
+start_pre() {
+	[ -e /dev/virtio-ports/agent ] || { eerror "no agent channel"; return 1; }
+}
+
 depend() {
 	need localmount
 	after mdev

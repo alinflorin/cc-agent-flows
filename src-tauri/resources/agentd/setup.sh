@@ -28,8 +28,4 @@ if apk info -e openssh openssh-server dropbear sudo doas >/dev/null; then
 	exit 1
 fi
 
-# Shrink: the app flattens and compresses the disk afterwards.
-apk cache clean || true
-rm -rf /var/cache/apk/* /home/agent/.cache /tmp/setup
-fstrim -v / || true
-sync
+rm -rf /home/agent/.cache

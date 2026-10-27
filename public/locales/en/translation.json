@@ -40,7 +40,7 @@
     "tabs": {
       "llm": "LLM",
       "general": "General",
-      "base": "Base image"
+      "images": "Images"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -61,8 +61,12 @@
       }
     },
     "saved": "Settings saved.",
-    "base": {
-      "intro": "The base image is the system every agent starts from: Alpine with agentd, Claude Code and ripgrep. The app builds it by itself the first time, and again after an update that changes it. It cannot be edited.",
+    "images": {
+      "intro": "The systems agents run on. The base image is built in; add your own with a script that runs on top of it. An agent profile picks the image.",
+      "new": "New image",
+      "edit": "Edit image",
+      "base": "Base",
+      "baseDescription": "Alpine with agentd, Claude Code and ripgrep. Built by the app, it cannot be edited. Rebuilt after an app update that changes it.",
       "state": {
         "missing": "Not built",
         "building": "Building…",
@@ -70,7 +74,10 @@
         "stale": "Out of date"
       },
       "builtAt": "Built {{date}}",
-      "rebuild": "Rebuild"
+      "build": "Build",
+      "rebuild": "Rebuild",
+      "script": "Script (sh)",
+      "scriptHint": "Runs once as root when the image is built, on top of the base image (Alpine; apk is available). Editing it makes the image out of date until you rebuild."
     }
   },
   "updates": {
@@ -95,11 +102,11 @@
     "systemPrompt": "System prompt",
     "systemPromptHint": "Added to Claude's system prompt for every task of this agent.",
     "env": "Environment variables",
-    "envHint": "A value is built into the image. A runtime variable gets its value from the app when a task starts.",
+    "envHint": "A variable with a value is sent as is. A runtime one gets its value from the app when a task starts.",
     "atRuntime": "set when the task starts",
     "runtime": "Runtime",
     "addVar": "Add variable",
-    "script": "Customization script (sh)",
-    "scriptHint": "Runs once as root when the image is built, on top of the base image (Alpine; apk is available). Changing it rebuilds the image."
+    "image": "Image",
+    "imageHint": "The system this agent runs on. Images are managed in Settings."
   }
 }

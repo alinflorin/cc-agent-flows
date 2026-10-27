@@ -1,6 +1,6 @@
 mod agent;
-mod base;
 mod builder;
+mod images;
 #[cfg(test)]
 mod agentd_e2e;
 mod profiles;
@@ -68,8 +68,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             can_self_update,
             qemu::qemu_version,
-            base::base_status,
-            base::base_build,
+            images::images_list,
+            images::images_save,
+            images::images_delete,
+            images::images_build,
             profiles::profiles_list,
             profiles::profiles_save,
             profiles::profiles_delete,
@@ -79,8 +81,8 @@ pub fn run() {
         ])
         .setup(|app| {
             use tauri::Manager;
-            app.manage(base::Base::default());
-            base::ensure(app.handle());
+            app.manage(images::Images::default());
+            images::ensure_base(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())
