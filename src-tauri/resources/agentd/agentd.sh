@@ -31,8 +31,6 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$OUT" ] || OUT=$IN
 
-# A workspace bigger than this (as base64) is not sent back; it would not fit in a message.
-MAX_WORKSPACE=716800
 # Events above this many bytes are replaced by a stub (messages are capped at 1 MiB).
 MAX_EVENT=400000
 
@@ -41,7 +39,6 @@ exec 3<>"$IN"
 if [ "$OUT" = "$IN" ]; then exec 4>&3; else exec 4<>"$OUT"; fi
 
 T=$(mktemp -d) || exit 1
-HB=
 FINISHED=0
 
 send() { printf '%s\n' "$1" >&4; }
@@ -58,7 +55,6 @@ readline() {
 }
 
 finish() {
-	[ -z "$HB" ] || kill "$HB" 2>/dev/null
 	FINISHED=1
 	rm -rf "$T"
 	if [ "$POWEROFF" = 1 ]; then
@@ -80,16 +76,6 @@ readline 300 || fail "no bootstrap from the app"
 TOKEN=$(printf '%s' "$line" | jq -r '.claude_token // empty') || fail "bad bootstrap"
 [ -n "$TOKEN" ] || fail "bootstrap without a token"
 
-(
-	seq=0
-	while :; do
-		seq=$((seq + 1))
-		send "{\"kind\":\"heartbeat\",\"body\":{\"seq\":$seq}}"
-		sleep 10
-	done
-) &
-HB=$!
-
 send '{"kind":"ready"}'
 readline 300 || fail "no task from the app"
 TASK=$line
@@ -104,13 +90,8 @@ TIMEOUT=$(field timeout_secs)
 [ -n "$PROMPT" ] && [ -n "$SID" ] && [ -n "$SCHEMA" ] || fail "bad task"
 case $TIMEOUT in '' | *[!0-9]*) TIMEOUT=1800 ;; esac
 
+# The task brings no code and none is collected afterwards: the workspace is a scratch folder.
 mkdir -p "$WS" || fail "workspace: cannot create $WS"
-printf '%s' "$TASK" | jq -r '.body.workspace // empty' >"$T/in.b64"
-if [ -s "$T/in.b64" ]; then
-	base64 -d "$T/in.b64" | tar -xzf - -C "$WS" || fail "workspace: bad archive"
-fi
-rm -f "$T/in.b64"
-
 HOME_DIR=${HOME:-/root}
 if [ -n "$RUN_AS" ]; then
 	HOME_DIR=$(awk -F: -v u="$RUN_AS" '$1 == u { print $6 }' /etc/passwd)
@@ -173,19 +154,6 @@ done
 CODE=$(cat "$T/code" 2>/dev/null)
 case $CODE in '' | *[!0-9]*) CODE=null ;; esac
 
-# The workspace goes back as a base64 tar.gz, unless it is too large.
-WSERR=
-: >"$T/out.b64"
-if tar -czf "$T/ws.tgz" -C "$WS" . 2>"$T/tar.err"; then
-	base64 -w 0 "$T/ws.tgz" >"$T/out.b64"
-	if [ "$(wc -c <"$T/out.b64")" -gt "$MAX_WORKSPACE" ]; then
-		WSERR="workspace too large ($(wc -c <"$T/out.b64") bytes)"
-		: >"$T/out.b64"
-	fi
-else
-	WSERR="workspace: $(head -c 500 "$T/tar.err")"
-fi
-
 RESULT=$(grep '^{"type":"result"' "$T/log" 2>/dev/null | tail -n 1)
 if [ "$TIMED_OUT" = 1 ]; then
 	REASON="timed out after ${TIMEOUT}s"
@@ -194,13 +162,11 @@ elif [ -z "$RESULT" ]; then
 fi
 
 if [ -n "${REASON:-}" ]; then
-	FINAL=$(jq -nc --arg r "$REASON" --arg sid "$SID" --argjson code "$CODE" --rawfile ws "$T/out.b64" --arg wserr "$WSERR" '
-		{kind: "final", body: {status: "failed", result: $r, session_id: $sid, exit_code: $code,
-			workspace: (if $ws == "" then null else $ws end),
-			workspace_error: (if $wserr == "" then null else $wserr end)}}')
+	FINAL=$(jq -nc --arg r "$REASON" --arg sid "$SID" --argjson code "$CODE" '
+		{kind: "final", body: {status: "failed", result: $r, session_id: $sid, exit_code: $code}}')
 else
 	# `claude` failing outranks what its answer claims.
-	FINAL=$(printf '%s' "$RESULT" | jq -c --arg sid "$SID" --argjson code "$CODE" --rawfile ws "$T/out.b64" --arg wserr "$WSERR" '
+	FINAL=$(printf '%s' "$RESULT" | jq -c --arg sid "$SID" --argjson code "$CODE" '
 		(.structured_output | if type == "object" then . else {} end) as $s |
 		{kind: "final", body: {
 			status: (if .is_error == true then "failed"
@@ -210,11 +176,8 @@ else
 			questions: [($s.questions // [])[]? | strings],
 			session_id: ((.session_id | strings) // $sid),
 			cost_usd: ((.total_cost_usd | numbers) // null),
-			exit_code: $code,
-			workspace: (if $ws == "" then null else $ws end),
-			workspace_error: (if $wserr == "" then null else $wserr end)}}')
+			exit_code: $code}}')
 fi
 [ -n "$FINAL" ] || fail "could not build the final message"
-kill "$HB" 2>/dev/null # so no heartbeat lands in the middle of the final
 send "$FINAL"
 finish

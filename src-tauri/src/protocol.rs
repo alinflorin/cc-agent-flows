@@ -3,7 +3,7 @@
 //!
 //! They travel over one virtio-serial port per VM (the guest sees `/dev/virtio-ports/agent`), one
 //! JSON message per line, in this order: the app sends `Bootstrap`, `agentd` answers `Ready`, the
-//! app sends the `Task`, then `agentd` streams `Heartbeat`, `Event` and finally one `Final`. The
+//! app sends the `Task`, then `agentd` streams `Event`s and finally one `Final`. The
 //! channel belongs to one VM, so there are no tokens or identities: the app knows who is talking
 //! because of the socket. Everything the agent sends is untrusted: the app validates it.
 
@@ -42,9 +42,6 @@ pub struct Task {
     pub session_id: String,
     #[serde(default)]
     pub resume: bool,
-    /// The code to start from as a base64 `tar.gz`; an empty workspace if absent.
-    #[serde(default)]
-    pub workspace: Option<String>,
     /// JSON schema of the final answer, as a string; `RESULT_SCHEMA` by default. Always sent, so
     /// the script needs no copy of it.
     #[serde(default = "default_schema")]
@@ -68,15 +65,8 @@ fn default_timeout() -> u64 {
 pub enum Outbound {
     /// `agentd` has read the bootstrap and asks for its task.
     Ready,
-    Heartbeat(Heartbeat),
     Event(Event),
     Final(Final),
-}
-
-/// Sent every few seconds once the task started.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Heartbeat {
-    pub seq: u64,
 }
 
 /// One line of `claude --output-format stream-json`, numbered. `event` is replaced by
@@ -107,11 +97,6 @@ pub struct Final {
     /// The Claude session, to resume it on the next run.
     #[serde(default)]
     pub session_id: Option<String>,
-    /// The workspace as a base64 `tar.gz`; absent when too large (see `workspace_error`).
-    #[serde(default)]
-    pub workspace: Option<String>,
-    #[serde(default)]
-    pub workspace_error: Option<String>,
     #[serde(default)]
     pub cost_usd: Option<f64>,
     #[serde(default)]
@@ -127,8 +112,8 @@ mod tests {
 
     #[test]
     fn wire_format_is_kind_and_body() {
-        let m = Outbound::Heartbeat(Heartbeat { seq: 3 });
-        assert_eq!(serde_json::to_value(&m).unwrap(), serde_json::json!({"kind":"heartbeat","body":{"seq":3}}));
+        let m = Outbound::Event(Event { seq: 3, event: serde_json::json!({"type": "x"}) });
+        assert_eq!(serde_json::to_value(&m).unwrap(), serde_json::json!({"kind":"event","body":{"seq":3,"event":{"type":"x"}}}));
         assert_eq!(serde_json::to_string(&Outbound::Ready).unwrap(), r#"{"kind":"ready"}"#);
     }
 

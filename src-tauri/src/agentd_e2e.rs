@@ -17,14 +17,13 @@ mod e2e {
         Bootstrap { id: "agent-1".into(), claude_token: "sk-test-token".into() }
     }
 
-    fn task(workspace: Option<String>, timeout_secs: u64) -> Task {
+    fn task(timeout_secs: u64) -> Task {
         Task {
             prompt: "do the thing".into(),
             model: Some("sonnet".into()),
             effort: Some("low".into()),
             session_id: "00000000-0000-4000-8000-000000000000".into(),
             resume: false,
-            workspace,
             schema: crate::protocol::RESULT_SCHEMA.into(),
             timeout_secs,
         }
@@ -34,7 +33,6 @@ mod e2e {
     const FAKE_CLAUDE: &str = r#"#!/bin/sh
 case "$*" in *--dangerously-skip-permissions*--session-id*|*--session-id*--dangerously-skip-permissions*) ;; *) echo "bad args: $*" >&2; exit 2;; esac
 [ "$CLAUDE_CODE_OAUTH_TOKEN" = "sk-test-token" ] || { echo "no token" >&2; exit 3; }
-[ "$(cat seed.txt)" = "seeded" ] || { echo "no workspace" >&2; exit 4; }
 echo '{"type":"system","subtype":"init"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"working \"quoted\" ünï"}]}}'
 echo 'not json at all'
@@ -113,15 +111,12 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
             eprintln!("needs jq, skipping");
             return;
         }
-        let seed = temp("seed");
-        std::fs::write(seed.join("seed.txt"), "seeded").unwrap();
-        let archive = shell(&format!("tar -czf - -C '{}' . | base64 -w 0", seed.display()));
-        let mut run = start("agentd", FAKE_CLAUDE, task(Some(archive), 40));
+        let mut run = start("agentd", FAKE_CLAUDE, task(40));
         let (seen, fin) = run.finish(30).await;
 
-        assert!(matches!(seen.first(), Some(Outbound::Heartbeat(_))), "heartbeats start before the task");
         let events: Vec<_> = seen.iter().filter_map(|m| if let Outbound::Event(e) = m { Some(e) } else { None }).collect();
         assert_eq!(events.len(), 4);
+        assert_eq!(seen.len(), 4, "events are all there is before the final");
         assert_eq!(events[1].seq, 2);
         assert_eq!(events[1].event["message"]["content"][0]["text"], "working \"quoted\" ünï");
         assert_eq!(events[2].event["type"], "raw", "a line that is not JSON is wrapped");
@@ -131,15 +126,9 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
         assert_eq!(fin.session_id.as_deref(), Some("sess-1"));
         assert_eq!(fin.cost_usd, Some(0.25));
         assert_eq!(fin.exit_code, Some(0));
-        assert!(fin.workspace_error.is_none());
-
-        let ws = run.dir.join("out.b64");
-        std::fs::write(&ws, fin.workspace.expect("work comes back as a tar.gz")).unwrap();
-        let listing = shell(&format!("base64 -d '{}' | tar -tz", ws.display()));
-        assert!(listing.contains("made-by-claude.txt") && listing.contains("seed.txt"), "{listing}");
+        assert!(run.dir.join("work/made-by-claude.txt").is_file(), "claude ran in the workspace");
 
         let _ = std::fs::remove_dir_all(run.dir);
-        let _ = std::fs::remove_dir_all(seed);
     }
 
     #[tokio::test]
@@ -148,7 +137,7 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
             eprintln!("needs jq, skipping");
             return;
         }
-        let mut run = start("agentd-timeout", HANGING_CLAUDE, task(None, 3));
+        let mut run = start("agentd-timeout", HANGING_CLAUDE, task(3));
         let (_, fin) = run.finish(30).await;
         assert_eq!(fin.status, Status::Failed);
         assert_eq!(fin.result, "timed out after 3s");
