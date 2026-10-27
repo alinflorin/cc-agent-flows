@@ -37,7 +37,8 @@
     "resources": {
       "resources/qemu/": "qemu/",
       "resources/images/": "images/",
-      "resources/profiles/": "profiles/"
+      "resources/profiles/": "profiles/",
+      "resources/agentd/": "agentd/"
     },
     "publisher": "Alin-Florin Ciu",
     "shortDescription": "CC Agent Flows desktop app"

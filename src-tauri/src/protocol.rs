@@ -1,4 +1,5 @@
-//! The messages between the app and `agentd`, the program inside each agent VM.
+//! The messages between the app and `agentd`, the script inside each agent VM
+//! (`resources/agentd/agentd.sh`, which builds and parses these by hand with `jq`: keep them in step).
 //!
 //! They travel over one virtio-serial port per VM (the guest sees `/dev/virtio-ports/agent`), one
 //! JSON message per line, in this order: the app sends `Bootstrap`, `agentd` answers `Ready`, the
@@ -41,15 +42,20 @@ pub struct Task {
     pub session_id: String,
     #[serde(default)]
     pub resume: bool,
-    /// A git bundle (base64) to start from; an empty workspace if absent.
+    /// The code to start from as a base64 `tar.gz`; an empty workspace if absent.
     #[serde(default)]
-    pub bundle: Option<String>,
-    /// JSON schema of the final answer; `RESULT_SCHEMA` if absent.
-    #[serde(default)]
-    pub schema: Option<String>,
+    pub workspace: Option<String>,
+    /// JSON schema of the final answer, as a string; `RESULT_SCHEMA` by default. Always sent, so
+    /// the script needs no copy of it.
+    #[serde(default = "default_schema")]
+    pub schema: String,
     /// Hard limit for the `claude` run.
     #[serde(default = "default_timeout")]
     pub timeout_secs: u64,
+}
+
+fn default_schema() -> String {
+    RESULT_SCHEMA.to_string()
 }
 
 fn default_timeout() -> u64 {
@@ -74,7 +80,8 @@ pub struct Heartbeat {
 }
 
 /// One line of `claude --output-format stream-json`, numbered. `event` is replaced by
-/// `{"truncated": true, ...}` when it would not fit in a message.
+/// `{"truncated": true, ...}` when it would not fit in a message, or `{"type": "raw", ...}` when
+/// it was not JSON.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Event {
     pub seq: u64,
@@ -100,7 +107,7 @@ pub struct Final {
     /// The Claude session, to resume it on the next run.
     #[serde(default)]
     pub session_id: Option<String>,
-    /// The workspace as a git bundle (base64); absent when empty, not a repository or too large.
+    /// The workspace as a base64 `tar.gz`; absent when too large (see `workspace_error`).
     #[serde(default)]
     pub workspace: Option<String>,
     #[serde(default)]

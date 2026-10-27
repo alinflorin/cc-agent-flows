@@ -1,4 +1,4 @@
-//! The app's end of an agent VM's channel (see the `protocol` crate): the VM's virtio-serial
+//! The app's end of an agent VM's channel (see `protocol.rs`): the VM's virtio-serial
 //! socket, one JSON message per line. `drive` plays the app's part of the exchange: bootstrap
 //! first, the task when the agent says it is ready, then everything the agent sends.
 //!
@@ -8,7 +8,7 @@
 // Called by the run engine once it exists.
 #![allow(dead_code)]
 
-use protocol::{Bootstrap, Inbound, MAX_MESSAGE, Outbound, Task};
+use crate::protocol::{Bootstrap, Inbound, MAX_MESSAGE, Outbound, Task};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
