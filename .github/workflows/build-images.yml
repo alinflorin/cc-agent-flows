@@ -33,7 +33,14 @@ jobs:
           sudo apt-get install -y qemu-utils rsync dosfstools fdisk e2fsprogs jq
 
       - name: Build image
-        run: scripts/images/build.sh "${{ matrix.arch }}" image-out "${{ matrix.profile }}"
+        # The bootstrap downloads apk-tools from gitlab.alpinelinux.org, which times out now and then
+        run: |
+          for attempt in 1 2 3; do
+            scripts/images/build.sh "${{ matrix.arch }}" image-out "${{ matrix.profile }}" && exit 0
+            echo "build attempt $attempt failed" >&2
+            sleep 20
+          done
+          exit 1
 
       - uses: actions/upload-artifact@v4
         with:
