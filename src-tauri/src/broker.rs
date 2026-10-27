@@ -7,33 +7,34 @@
 //! Agents never talk to each other. Every message an agent sends goes to the app (`Broker::inbox`),
 //! and the app alone decides the flow by sending messages to agents (`Broker::send`).
 //!
-//! An agent's identity is allocated by `Broker::allocate`: a guid, its place in a project and session, its profile and an expiry. NATS credentials and signed assertions (for other services of the app to verify) both
-//! derive from it, and `release` withdraws it everywhere at once.
+//! An agent's identity is allocated by `Broker::allocate`: a guid, its place in a project and
+//! session, its profile and an expiry. It is registered with the OIDC provider (`idp`), where the
+//! agent gets tokens for any service, and gets NATS credentials here. `release` withdraws it from
+//! both at once.
 
 // Nothing drives runs yet; the pieces below are exercised by the tests only.
 #![allow(dead_code)]
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::Duration;
 
 use async_nats::jetstream::{self, consumer, stream};
 use async_nats::{AuthError, ConnectOptions};
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as B64};
 use nkeys::KeyPair;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tauri::Manager;
 
+use crate::idp::{self, Identity, Idp, TRUST_DOMAIN, now};
+
 const STREAM: &str = "AGENTS";
 /// Default lifetime of an identity. A run is shorter; this bounds a leaked credential.
 pub const DEFAULT_TTL: Duration = Duration::from_secs(3600);
 /// Largest message the router will forward.
 const MAX_MESSAGE: usize = 1 << 20;
-const TRUST_DOMAIN: &str = "ccagentflows.local";
 
 /// What an agent needs to connect, besides the broker address.
 #[derive(Serialize)]
@@ -52,20 +53,6 @@ impl Drop for ServerProcess {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
-}
-
-/// Who an agent is. Lives in memory only, for as long as the identity is valid.
-#[derive(Clone, Serialize)]
-pub struct Identity {
-    pub id: String,
-    /// `spiffe://<trust domain>/<project>/<session>/<profile>/agent-<id>`, used as the JWT subject
-    /// and in logs.
-    pub name: String,
-    pub project_id: String,
-    pub session_id: String,
-    /// The image profile the agent runs on, e.g. `developer`.
-    pub profile: String,
-    pub expires_at: u64,
 }
 
 /// A newly allocated identity with everything the agent needs to prove it.
@@ -93,16 +80,14 @@ pub struct Message {
     pub body: Value,
 }
 
-type Registry = Arc<Mutex<HashMap<String, Identity>>>;
-
 pub struct Broker {
     _server: ServerProcess,
     _router: AbortOnDrop,
     pub port: u16,
     account: KeyPair,
-    /// Signs the assertions agents present to other services.
-    authority: KeyPair,
-    identities: Registry,
+    /// The OIDC provider the agents' identities live in.
+    pub idp: Arc<Idp>,
+    _oidc: AbortOnDrop,
     /// Everything agents send. The orchestrator subscribes and decides what happens next.
     pub inbox: tokio::sync::broadcast::Sender<Message>,
     pub client: async_nats::Client,
@@ -117,18 +102,6 @@ impl Drop for AbortOnDrop {
     }
 }
 
-fn now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
-}
-
-fn sign_jwt(issuer: &KeyPair, alg: &str, claims: &Value) -> Result<String, String> {
-    let header = B64.encode(json!({ "typ": "JWT", "alg": alg }).to_string());
-    let payload = B64.encode(serde_json::to_vec(claims).map_err(|e| e.to_string())?);
-    let input = format!("{header}.{payload}");
-    let sig = issuer.sign(input.as_bytes()).map_err(|e| e.to_string())?;
-    Ok(format!("{input}.{}", B64.encode(sig)))
-}
-
 /// A NATS JWT (operator, account or user).
 fn encode_jwt(issuer: &KeyPair, subject: &str, name: &str, nats: Value, ttl: Option<Duration>) -> Result<String, String> {
     let iat = now();
@@ -136,7 +109,7 @@ fn encode_jwt(issuer: &KeyPair, subject: &str, name: &str, nats: Value, ttl: Opt
     if let Some(ttl) = ttl {
         claims["exp"] = json!(iat + ttl.as_secs());
     }
-    sign_jwt(issuer, "ed25519-nkey", &claims)
+    idp::sign_jwt(issuer, "ed25519-nkey", None, &claims)
 }
 
 fn user_jwt(account: &KeyPair, user: &KeyPair, name: &str, publish: &[String], subscribe: &[String], ttl: Duration) -> Result<String, String> {
@@ -256,9 +229,10 @@ impl Broker {
                         })
                         .await
                         .map_err(|e| format!("could not create stream: {e}"))?;
-                    let identities = Registry::default();
+                    let idp = Idp::new();
+                    let oidc = idp::serve(idp.clone()).await?;
                     let (inbox, _) = tokio::sync::broadcast::channel(256);
-                    let router = tokio::spawn(route(client.clone(), js.clone(), identities.clone(), inbox.clone()));
+                    let router = tokio::spawn(route(client.clone(), js.clone(), idp.clone(), inbox.clone()));
                     // Make sure the router is subscribed before anyone can publish.
                     client.flush().await.map_err(|e| e.to_string())?;
                     return Ok(Broker {
@@ -266,8 +240,8 @@ impl Broker {
                         _router: AbortOnDrop(router),
                         port,
                         account,
-                        authority: KeyPair::new_server(),
-                        identities,
+                        idp,
+                        _oidc: AbortOnDrop(oidc),
                         inbox,
                         client,
                         jetstream: js,
@@ -302,6 +276,7 @@ impl Broker {
             session_id: session_id.into(),
             profile: profile.into(),
             expires_at: now() + ttl.as_secs(),
+            public_key: user.public_key(),
         };
 
         let consumer = format!("in-{id}");
@@ -327,60 +302,19 @@ impl Broker {
         let jwt = user_jwt(&self.account, &user, &identity.name, &publish, &["_INBOX.>".to_string()], ttl)?;
         let nats = AgentCreds { jwt, seed: user.seed().map_err(|e| e.to_string())?, consumer };
 
-        let mut registry = self.identities.lock().unwrap();
-        registry.retain(|_, i| i.expires_at > now());
-        registry.insert(id, identity.clone());
+        self.idp.register(identity.clone());
         Ok(Issued { identity, nats })
     }
 
-    /// Withdraws an identity: the router stops forwarding for it, its assertions stop verifying
-    /// and its queue is deleted. NATS credentials already handed out cannot be revoked from the
-    /// server (the resolver is in memory) and lapse at their expiry, but they reach nothing useful.
+    /// Withdraws an identity: the router stops forwarding for it, its tokens stop verifying and its
+    /// queue is deleted. NATS credentials already handed out cannot be revoked from the server
+    /// (the resolver is in memory) and lapse at their expiry, but they reach nothing useful.
     pub async fn release(&self, id: &str) -> Result<(), String> {
         check_id(id)?;
-        self.identities.lock().unwrap().remove(id);
+        self.idp.remove(id);
         let stream = self.jetstream.get_stream(STREAM).await.map_err(|e| e.to_string())?;
         let _ = stream.delete_consumer(&format!("in-{id}")).await;
         Ok(())
-    }
-
-    fn live(&self, id: &str) -> Option<Identity> {
-        self.identities.lock().unwrap().get(id).filter(|i| i.expires_at > now()).cloned()
-    }
-
-    /// A short-lived token proving to another service of the app that the holder is this agent.
-    /// Mint it with the audience of that service; it verifies with `verify_assertion`.
-    pub fn assertion(&self, id: &str, audience: &str, ttl: Duration) -> Result<String, String> {
-        let identity = self.live(id).ok_or("unknown or expired identity")?;
-        let iat = now();
-        let exp = (iat + ttl.as_secs()).min(identity.expires_at);
-        let claims = json!({
-            "iss": format!("spiffe://{TRUST_DOMAIN}"), "sub": identity.name, "aud": audience,
-            "iat": iat, "exp": exp, "agent": identity.id,
-            "project": identity.project_id, "session": identity.session_id, "profile": identity.profile,
-        });
-        sign_jwt(&self.authority, "EdDSA", &claims)
-    }
-
-    /// Checks an assertion minted for `audience` and that the identity is still live.
-    pub fn verify_assertion(&self, token: &str, audience: &str) -> Result<Identity, String> {
-        let mut parts = token.split('.');
-        let (Some(h), Some(p), Some(sig), None) = (parts.next(), parts.next(), parts.next(), parts.next()) else {
-            return Err("malformed token".into());
-        };
-        let sig = B64.decode(sig).map_err(|e| e.to_string())?;
-        KeyPair::from_public_key(&self.authority.public_key())
-            .and_then(|k| k.verify(format!("{h}.{p}").as_bytes(), &sig))
-            .map_err(|_| "bad signature".to_string())?;
-        let claims: Value = serde_json::from_slice(&B64.decode(p).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        if claims["aud"] != audience {
-            return Err("wrong audience".into());
-        }
-        if claims["exp"].as_u64().is_none_or(|e| e <= now()) {
-            return Err("expired".into());
-        }
-        let id = claims["agent"].as_str().ok_or("no agent")?;
-        self.live(id).ok_or_else(|| "identity released or expired".to_string())
     }
 
     /// Queues a message for an agent; it waits in the stream until the agent consumes it.
@@ -403,11 +337,11 @@ async fn deliver(js: &jetstream::Context, id: &str, msg: &Message) -> Result<(),
 /// Collects everything agents publish into `inbox`, stamping each message with its sender. The
 /// sender comes from the subject, which NATS only lets that agent publish on, so it cannot be
 /// forged. Agents can publish nowhere else, so they cannot reach each other.
-async fn route(client: async_nats::Client, js: jetstream::Context, identities: Registry, inbox: tokio::sync::broadcast::Sender<Message>) {
+async fn route(client: async_nats::Client, js: jetstream::Context, idp: Arc<Idp>, inbox: tokio::sync::broadcast::Sender<Message>) {
     let Ok(mut sub) = client.subscribe("agent.*.out").await else { return };
     while let Some(raw) = sub.next().await {
         let Some(from) = raw.subject.split('.').nth(1).map(str::to_string) else { continue };
-        let live = identities.lock().unwrap().get(&from).is_some_and(|i| i.expires_at > now());
+        let live = idp.live(&from).is_some();
         if !live {
             continue;
         }
@@ -623,21 +557,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assertions_follow_the_identity() {
-        let Some((broker, dir)) = start("assert").await else { return };
+    async fn release_withdraws_the_identity_everywhere() {
+        let Some((broker, dir)) = start("release").await else { return };
         let a = broker.allocate("proj", "sess", "developer", TTL).await.unwrap();
-        let token = broker.assertion(&a.identity.id, "proxy", TTL).unwrap();
-
-        let who = broker.verify_assertion(&token, "proxy").unwrap();
-        assert_eq!(who.id, a.identity.id);
-        assert!(broker.verify_assertion(&token, "git").is_err(), "audience");
-        let mut forged = token.clone();
-        forged.push('x');
-        assert!(broker.verify_assertion(&forged, "proxy").is_err(), "signature");
+        let token = broker.idp.mint(&a.identity.id, "proxy").unwrap().access_token;
+        assert_eq!(broker.idp.verify(&token, "proxy").unwrap().id, a.identity.id);
 
         broker.release(&a.identity.id).await.unwrap();
-        assert!(broker.verify_assertion(&token, "proxy").is_err(), "released");
-        assert!(broker.assertion(&a.identity.id, "proxy", TTL).is_err());
+        assert!(broker.idp.verify(&token, "proxy").is_err(), "released");
+        assert!(broker.idp.mint(&a.identity.id, "proxy").is_err());
 
         drop(broker);
         let _ = std::fs::remove_dir_all(dir);

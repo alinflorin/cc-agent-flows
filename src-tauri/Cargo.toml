@@ -29,6 +29,7 @@ serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 uuid = { version = "1.29.0", features = ["v4"] }
+axum = { version = "0.8.9", default-features = false, features = ["http1", "tokio", "json", "form"] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
@@ -49,4 +50,8 @@ keyring = { version = "3", features = ["apple-native"] }
 keyring = { version = "3", features = ["windows-native"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
+
+[dev-dependencies]
+jsonwebtoken = { version = "11.1.0", features = ["rust_crypto"] }
+serde_urlencoded = "0.7.1"
 
