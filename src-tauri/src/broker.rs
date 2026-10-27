@@ -7,7 +7,7 @@
 //! Agents never talk to each other. Every message an agent sends goes to the app (`Broker::inbox`),
 //! and the app alone decides the flow by sending messages to agents (`Broker::send`).
 //!
-//! An agent's identity is allocated by `Broker::allocate`: an id, a role and an expiry. NATS credentials and signed assertions (for other services of the app to verify) both
+//! An agent's identity is allocated by `Broker::allocate`: a guid, its place in a project and session, its profile and an expiry. NATS credentials and signed assertions (for other services of the app to verify) both
 //! derive from it, and `release` withdraws it everywhere at once.
 
 // Nothing drives runs yet; the pieces below are exercised by the tests only.
@@ -58,9 +58,13 @@ impl Drop for ServerProcess {
 #[derive(Clone, Serialize)]
 pub struct Identity {
     pub id: String,
-    /// SPIFFE-style name, used as the JWT subject and in logs.
+    /// `spiffe://<trust domain>/<project>/<session>/<profile>/agent-<id>`, used as the JWT subject
+    /// and in logs.
     pub name: String,
-    pub role: String,
+    pub project_id: String,
+    pub session_id: String,
+    /// The image profile the agent runs on, e.g. `developer`.
+    pub profile: String,
     pub expires_at: u64,
 }
 
@@ -283,12 +287,22 @@ impl Broker {
     /// Allocates an identity for a new agent: an id, its task queue and NATS credentials that can
     /// touch nothing else. It reads `agent.<id>.in` through its own consumer and writes
     /// `agent.<id>.out`, which only the app reads.
-    pub async fn allocate(&self, role: &str, ttl: Duration) -> Result<Issued, String> {
-        check_id(role)?;
+    pub async fn allocate(&self, project_id: &str, session_id: &str, profile: &str, ttl: Duration) -> Result<Issued, String> {
+        // These become path segments of the SPIFFE name, so they must not smuggle in a `/`.
+        for segment in [project_id, session_id, profile] {
+            check_id(segment)?;
+        }
         let user = KeyPair::new_user();
-        let id: String = user.public_key().to_lowercase().chars().skip(1).take(12).collect();
-        let name = format!("spiffe://{TRUST_DOMAIN}/agent/{id}");
-        let identity = Identity { id: id.clone(), name, role: role.into(), expires_at: now() + ttl.as_secs() };
+        let id = uuid::Uuid::new_v4().to_string();
+        let name = format!("spiffe://{TRUST_DOMAIN}/{project_id}/{session_id}/{profile}/agent-{id}");
+        let identity = Identity {
+            id: id.clone(),
+            name,
+            project_id: project_id.into(),
+            session_id: session_id.into(),
+            profile: profile.into(),
+            expires_at: now() + ttl.as_secs(),
+        };
 
         let consumer = format!("in-{id}");
         self.jetstream
@@ -342,7 +356,8 @@ impl Broker {
         let exp = (iat + ttl.as_secs()).min(identity.expires_at);
         let claims = json!({
             "iss": format!("spiffe://{TRUST_DOMAIN}"), "sub": identity.name, "aud": audience,
-            "iat": iat, "exp": exp, "role": identity.role, "agent": identity.id,
+            "iat": iat, "exp": exp, "agent": identity.id,
+            "project": identity.project_id, "session": identity.session_id, "profile": identity.profile,
         });
         sign_jwt(&self.authority, "EdDSA", &claims)
     }
@@ -544,8 +559,8 @@ mod tests {
     #[tokio::test]
     async fn agent_is_confined_to_its_own_queue() {
         let Some((broker, dir)) = start("confined").await else { return };
-        let a = broker.allocate("worker", TTL).await.unwrap();
-        let b = broker.allocate("worker", TTL).await.unwrap();
+        let a = broker.allocate("proj", "sess", "developer", TTL).await.unwrap();
+        let b = broker.allocate("proj", "sess", "developer", TTL).await.unwrap();
 
         // Queued before the agent connects, as when the VM is still booting.
         let task = Message { from: "app".into(), kind: "task".into(), body: json!("do it") };
@@ -553,6 +568,11 @@ mod tests {
         broker.send(&b.identity.id, &task).await.unwrap();
 
         let client = connect(broker.port, &a).await;
+        assert_eq!(
+            a.identity.name,
+            format!("spiffe://ccagentflows.local/proj/sess/developer/agent-{}", a.identity.id)
+        );
+        assert!(broker.allocate("a/b", "sess", "developer", TTL).await.is_err(), "no path injection");
         let got = next(&client, &a).await.unwrap();
         assert_eq!((got.from.as_str(), got.kind.as_str()), ("app", "task"));
         assert!(next(&client, &a).await.is_none(), "must only see its own queue");
@@ -569,8 +589,8 @@ mod tests {
     #[tokio::test]
     async fn agents_only_reach_the_app() {
         let Some((broker, dir)) = start("inbox").await else { return };
-        let a = broker.allocate("worker", TTL).await.unwrap();
-        let b = broker.allocate("worker", TTL).await.unwrap();
+        let a = broker.allocate("proj", "sess", "developer", TTL).await.unwrap();
+        let b = broker.allocate("proj", "sess", "developer", TTL).await.unwrap();
         let a_c = connect(broker.port, &a).await;
         let b_c = connect(broker.port, &b).await;
         let mut inbox = broker.inbox.subscribe();
@@ -605,7 +625,7 @@ mod tests {
     #[tokio::test]
     async fn assertions_follow_the_identity() {
         let Some((broker, dir)) = start("assert").await else { return };
-        let a = broker.allocate("worker", TTL).await.unwrap();
+        let a = broker.allocate("proj", "sess", "developer", TTL).await.unwrap();
         let token = broker.assertion(&a.identity.id, "proxy", TTL).unwrap();
 
         let who = broker.verify_assertion(&token, "proxy").unwrap();
