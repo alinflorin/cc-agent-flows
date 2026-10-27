@@ -24,13 +24,17 @@ jobs:
           - { profile: developer, platform: ubuntu-22.04, arch: x86_64 }
           - { profile: developer, platform: ubuntu-24.04-arm, arch: aarch64 }
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
+      # Restores the .debs from the Actions cache and skips apt-get update on a hit, which is where
+      # the job used to hang
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-utils rsync dosfstools fdisk e2fsprogs jq
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: qemu-utils rsync dosfstools fdisk e2fsprogs jq
+          version: 1
 
       - name: Build image
         # The bootstrap downloads apk-tools from gitlab.alpinelinux.org, which times out now and then
