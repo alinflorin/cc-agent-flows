@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 use tokio::process::Command;
 
-use crate::builder::{Console, Serial, within};
+use crate::builder::{Console, Serial, script_cmd, within};
 
 const LOG_LINES: usize = 1000;
 pub const BASE: &str = "base";
@@ -74,6 +74,8 @@ pub struct Info {
     script: String,
     /// `missing`, `building`, `ready` or `stale`.
     state: &'static str,
+    /// Whether it can be built now (a custom image needs the base to exist).
+    can_build: bool,
     built_at: Option<u64>,
     size: Option<u64>,
     error: Option<String>,
@@ -194,6 +196,7 @@ fn info(app: &AppHandle, id: &str, spec: Option<&Spec>) -> Info {
         None => ("Base".into(), "Alpine with agentd, Claude Code and ripgrep".into(), String::new()),
     };
     Info {
+        can_build: spec.is_none() || path(app, BASE).is_some(),
         id: id.to_string(),
         builtin: spec.is_none(),
         name,
@@ -264,6 +267,9 @@ pub fn images_delete(app: AppHandle, id: String) -> Result<(), String> {
 /// Starts a build in the background; progress is in `images_list`.
 #[tauri::command]
 pub fn images_build(app: AppHandle, id: String) -> Result<(), String> {
+    if id != BASE && path(&app, BASE).is_none() {
+        return Err("build the base image first".into());
+    }
     start(&app, &id)
 }
 
@@ -368,7 +374,7 @@ async fn build_in(app: &AppHandle, id: &str, spec: Option<&Spec>, source: &Path,
             "/tmp/setup/image.sh"
         }
     };
-    let code = within(1500, "the setup script", con.run(&format!("sh {script} 2>&1"), |l| say(l))).await?;
+    let code = within(1500, "the setup script", con.run(&script_cmd(script), |l| say(l))).await?;
     if code != 0 {
         return Err(format!("the script failed (exit {code}), see the log"));
     }

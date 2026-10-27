@@ -28,6 +28,7 @@ interface Image {
   description: string;
   script: string;
   state: "missing" | "building" | "ready" | "stale";
+  can_build: boolean;
   built_at: number | null;
   size: number | null;
   error: string | null;
@@ -126,7 +127,7 @@ export function ImagesSettings() {
               <Badge appearance="filled" color={COLORS[i.state]}>
                 {t(`settings.images.state.${i.state}`)}
               </Badge>
-              <Button size="small" disabled={busy} onClick={() => run("images_build", { id: i.id })}>
+              <Button size="small" disabled={busy || !i.can_build} title={i.can_build ? undefined : t("settings.images.needBase")} onClick={() => run("images_build", { id: i.id })}>
                 {i.state === "missing" ? t("settings.images.build") : t("settings.images.rebuild")}
               </Button>
               {!i.builtin && (

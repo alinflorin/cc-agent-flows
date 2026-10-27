@@ -77,7 +77,8 @@
       "build": "Build",
       "rebuild": "Rebuild",
       "script": "Script (sh)",
-      "scriptHint": "Runs once as root when the image is built, on top of the base image (Alpine; apk is available). Editing it makes the image out of date until you rebuild."
+      "scriptHint": "Runs once as root when the image is built, on top of the base image (Alpine; apk is available). Editing it makes the image out of date until you rebuild.",
+      "needBase": "Build the base image first."
     }
   },
   "updates": {

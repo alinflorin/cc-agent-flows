@@ -77,7 +77,8 @@
       "build": "Construiește",
       "rebuild": "Reconstruiește",
       "script": "Script (sh)",
-      "scriptHint": "Rulează o dată ca root la construirea imaginii, peste imaginea de bază (Alpine; apk este disponibil). Modificarea lui face imaginea depășită până o reconstruiești."
+      "scriptHint": "Rulează o dată ca root la construirea imaginii, peste imaginea de bază (Alpine; apk este disponibil). Modificarea lui face imaginea depășită până o reconstruiești.",
+      "needBase": "Construiește întâi imaginea de bază."
     }
   },
   "updates": {
