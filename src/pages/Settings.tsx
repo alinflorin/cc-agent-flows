@@ -7,6 +7,7 @@ import { Button, Field, Input, Subtitle1, Switch, Tab, TabList, Title2, makeStyl
 import { getPref, setPref } from "../prefs";
 import { useNotify } from "../notifications";
 import { useUpdates } from "../updates";
+import { BaseSettings } from "./SettingsBase";
 import { LlmSettings } from "./SettingsLlm";
 
 const NAME_MAX = 40;
@@ -124,8 +125,9 @@ export function Settings() {
       <TabList className={styles.tabs} selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as string)}>
         <Tab value="general">{t("settings.tabs.general")}</Tab>
         <Tab value="llm">{t("settings.tabs.llm")}</Tab>
+        <Tab value="base">{t("settings.tabs.base")}</Tab>
       </TabList>
-      {tab === "general" ? <GeneralSettings /> : <LlmSettings />}
+      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : <BaseSettings />}
     </>
   );
 }

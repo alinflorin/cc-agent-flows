@@ -478,6 +478,7 @@ dependencies = [
 name = "cc-agent-flows"
 version = "0.3.0"
 dependencies = [
+ "base64 0.23.1",
  "keyring",
  "serde",
  "serde_json",

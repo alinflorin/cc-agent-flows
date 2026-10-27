@@ -39,7 +39,8 @@
     "autoUpdate": "Check for updates on startup",
     "tabs": {
       "llm": "LLM",
-      "general": "General"
+      "general": "General",
+      "base": "Base image"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -59,7 +60,18 @@
         "max": "Max"
       }
     },
-    "saved": "Settings saved."
+    "saved": "Settings saved.",
+    "base": {
+      "intro": "The base image is the system every agent starts from: Alpine with agentd, Claude Code and ripgrep. The app builds it by itself the first time, and again after an update that changes it. It cannot be edited.",
+      "state": {
+        "missing": "Not built",
+        "building": "Building…",
+        "ready": "Ready",
+        "stale": "Out of date"
+      },
+      "builtAt": "Built {{date}}",
+      "rebuild": "Rebuild"
+    }
   },
   "updates": {
     "title": "Updates",
