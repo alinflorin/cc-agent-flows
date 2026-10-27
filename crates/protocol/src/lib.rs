@@ -3,14 +3,9 @@
 //! On the wire every message is `{"kind": ..., "body": ...}`. The app sends `Inbound` on
 //! `agent.<id>.in` (the router adds `from`, which is ignored here) and `agentd` sends `Outbound`
 //! on `agent.<id>.out`. Everything an agent sends is untrusted: the app validates it.
-//!
-//! `PROTOCOL` must equal `protocol` in `scripts/images/version.json` (the app has a test for it).
-//! Bump both on every change that breaks old messages.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-pub const PROTOCOL: u32 = 1;
 
 /// Largest message either side sends. The broker router refuses more than 1 MiB.
 pub const MAX_MESSAGE: usize = 1 << 20;
@@ -19,7 +14,6 @@ pub const MAX_MESSAGE: usize = 1 << 20;
 /// secret that travels outside NATS.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Bootstrap {
-    pub protocol: u32,
     pub id: String,
     /// The agent's SPIFFE name: `iss` and `sub` of its proofs.
     pub name: String,
@@ -46,7 +40,6 @@ pub enum Inbound {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Task {
-    pub protocol: u32,
     pub prompt: String,
     #[serde(default)]
     pub model: Option<String>,
@@ -83,11 +76,9 @@ pub enum Outbound {
     Final(Final),
 }
 
-/// Sent every few seconds, the first one right at start. The first tells the app which protocol
-/// this `agentd` speaks; on a mismatch the app refuses the run.
+/// Sent every few seconds, the first one right at start.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Heartbeat {
-    pub protocol: u32,
     pub seq: u64,
 }
 
@@ -138,8 +129,8 @@ mod tests {
 
     #[test]
     fn wire_format_is_kind_and_body() {
-        let m = Outbound::Heartbeat(Heartbeat { protocol: PROTOCOL, seq: 3 });
-        assert_eq!(serde_json::to_value(&m).unwrap(), serde_json::json!({"kind":"heartbeat","body":{"protocol":PROTOCOL,"seq":3}}));
+        let m = Outbound::Heartbeat(Heartbeat { seq: 3 });
+        assert_eq!(serde_json::to_value(&m).unwrap(), serde_json::json!({"kind":"heartbeat","body":{"seq":3}}));
     }
 
     #[test]
