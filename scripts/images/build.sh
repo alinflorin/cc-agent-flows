@@ -36,6 +36,7 @@ script="$work/provision.sh"
   printf '\n'
   cat "$here/finalize.sh"
 } >"$script"
+chmod +x "$script"
 
 # alpine-make-vm-image downloads a static apk-tools from gitlab.alpinelinux.org when the host has no
 # apk, and that host is often unreachable from CI. Take it from the Alpine CDN instead. It must be
@@ -59,6 +60,10 @@ sudo env "${apk_env[@]}" "$here/vendor/alpine-make-vm-image" \
   --packages "alpine-base" \
   --script-chroot \
   "$work/raw.qcow2" -- "$script" "${packages[@]}"
+
+# alpine-make-vm-image exits 0 even when the script fails; finalize.sh drops this marker only at
+# the end of a complete run (the script's directory is bind-mounted at /mnt in the chroot)
+[ -e "$work/.provisioned" ] || { echo "provisioning failed, see the log above" >&2; exit 1; }
 
 # compress; zeroed free space (see provision.sh) is dropped
 sudo qemu-img convert -O qcow2 -c "$work/raw.qcow2" "$out/$image"
