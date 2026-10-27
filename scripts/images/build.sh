@@ -25,7 +25,7 @@ sudo "$here/vendor/alpine-make-vm-image" \
   --image-format qcow2 \
   --image-size 4G \
   --serial-console \
-  --packages "alpine-base bash git curl ca-certificates ripgrep libgcc libstdc++" \
+  --packages "alpine-base bash curl ca-certificates libgcc libstdc++" \
   --script-chroot \
   "$work/raw.qcow2" -- "$here/provision.sh"
 
