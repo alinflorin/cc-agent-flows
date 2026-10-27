@@ -90,9 +90,9 @@
       "envHint": "Incluse în imagine, pentru fiecare agent care rulează pe ea (și pe imaginile construite peste ea). Sunt salvate în clar în imagine, deci nu pune secrete aici."
     },
     "network": {
-      "intro": "Gazdele de internet la care toți agenții pot ajunge prin HTTPS. Un profil poate permite și altele, peste acestea. Încă nu este aplicat: agenții au în continuare acces complet la rețea.",
+      "intro": "Gazdele de internet la care toți agenții pot ajunge prin HTTPS. Un profil poate permite și altele, peste acestea. Agenții nu au alt acces la rețea.",
       "allowHosts": "Gazde permise",
-      "allowHostsHint": "Câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Tot ce nu e listat aici sau în profilul agentului va fi blocat. Valorile implicite sunt ce îi trebuie lui Claude Code ca să funcționeze.",
+      "allowHostsHint": "Câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Tot ce nu e listat aici sau în profilul agentului este blocat. Valorile implicite sunt ce îi trebuie lui Claude Code ca să funcționeze; o listă goală taie agenții de la API-ul Claude.",
       "defaults": "Restaurează valorile implicite"
     }
   },
@@ -134,7 +134,7 @@
     "memory": "Memorie (MB)",
     "memoryHint": "RAM-ul VM-ului, minimum 1024. Implicit 2048.",
     "allowHosts": "Gazde permise",
-    "allowHostsHint": "Gazdele de internet la care agentul poate ajunge prin HTTPS, câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). API-ul Claude este mereu permis; restul este blocat. Încă nu este aplicat."
+    "allowHostsHint": "Gazdele de internet la care agentul poate ajunge prin HTTPS, câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Gazdele din Setări > Rețea sunt mereu permise; restul sunt blocate."
   },
   "welcome": {
     "title": "Bun venit",

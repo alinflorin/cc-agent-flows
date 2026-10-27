@@ -5,7 +5,7 @@
 # (src/protocol.rs). Needs busybox ash, jq, setpriv (util-linux) and setsid.
 #
 #   agentd.sh [--channel <path>] [--out <path>] [--workspace <dir>] [--claude <path>]
-#             [--run-as <user>] [--poweroff]
+#             [--ssh <path>] [--run-as <user>] [--poweroff]
 #
 # --out is only for tests: with it the channel is split into two files (fifos). Everything
 # `claude` prints is untrusted data: wrapped by jq, truncated, never run.
@@ -15,6 +15,7 @@ IN=/dev/virtio-ports/agent
 OUT=
 WS=/home/agent/work
 CLAUDE=claude
+SSH=ssh
 RUN_AS=
 POWEROFF=0
 while [ $# -gt 0 ]; do
@@ -23,6 +24,7 @@ while [ $# -gt 0 ]; do
 	--out) OUT=$2; shift ;;
 	--workspace) WS=$2; shift ;;
 	--claude) CLAUDE=$2; shift ;;
+	--ssh) SSH=$2; shift ;;
 	--run-as) RUN_AS=$2; shift ;;
 	--poweroff) POWEROFF=1 ;;
 	*) echo "agentd: unknown argument $1" >&2; exit 2 ;;
@@ -76,6 +78,9 @@ readline 300 || fail "no bootstrap from the app"
 TOKEN=$(printf '%s' "$line" | jq -r '.claude_token // empty') || fail "bad bootstrap"
 AGENT_ID=$(printf '%s' "$line" | jq -r '.id // empty')
 [ -n "$TOKEN" ] || fail "bootstrap without a token"
+# With a sealed network the app sends the keys of the tunnel to its egress proxy.
+TUNNEL_KEY=$(printf '%s' "$line" | jq -r '.tunnel.key // empty')
+TUNNEL_HOST=$(printf '%s' "$line" | jq -r '.tunnel.host_key // empty')
 
 send '{"kind":"ready"}'
 readline 300 || fail "no task from the app"
@@ -98,6 +103,26 @@ ENVSET=$(printf '%s' "$TASK" | jq -r '
 		and (.name | startswith("LD_") | not)) |
 	"export \(.name)=\(.value // "" | tostring | @sh)"') || fail "bad task environment"
 case $TIMEOUT in '' | *[!0-9]*) TIMEOUT=1800 ;; esac
+
+# The only way out of the VM is one connection to the app (QEMU forwards 10.0.2.100:22 to it).
+# ssh carries the traffic of `claude` to the app's proxy as channels: HTTPS_PROXY points at the
+# local end. The key is read by ssh as root and deleted at once; `claude` never sees it.
+if [ -n "$TUNNEL_KEY" ]; then
+	[ -n "$TUNNEL_HOST" ] || fail "tunnel: no host key"
+	(
+		umask 077
+		printf '%s\n' "$TUNNEL_KEY" >"$T/tunnel.key"
+		printf '10.0.2.100 %s\n' "$TUNNEL_HOST" >"$T/tunnel.hosts"
+	) || fail "tunnel: cannot write the key"
+	# -f returns once the tunnel is up (or ssh failed), in the background it keeps running
+	timeout 90 "$SSH" -F /dev/null -f -N -T -i "$T/tunnel.key" -o IdentitiesOnly=yes -o BatchMode=yes \
+		-o UserKnownHostsFile="$T/tunnel.hosts" -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes \
+		-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
+		-L 127.0.0.1:3128:egress:3128 -p 22 agent@10.0.2.100 2>"$T/ssh.err"
+	_rc=$?
+	rm -f "$T/tunnel.key"
+	[ "$_rc" = 0 ] || fail "tunnel: cannot reach the network proxy (ssh exit $_rc): $(tail -c 500 "$T/ssh.err" 2>/dev/null)"
+fi
 
 # The task brings no code and none is collected afterwards: the workspace is a scratch folder.
 mkdir -p "$WS" || fail "workspace: cannot create $WS"
@@ -126,6 +151,10 @@ run_claude() {
 	# the profile's variables first, so they cannot override what follows
 	eval "$ENVSET"
 	export CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" HOME="$HOME_DIR" CCAF_AGENT_ID="$AGENT_ID"
+	if [ -n "$TUNNEL_KEY" ]; then
+		export HTTPS_PROXY=http://127.0.0.1:3128 HTTP_PROXY=http://127.0.0.1:3128 NO_PROXY=localhost,127.0.0.1,::1
+		export https_proxy=$HTTPS_PROXY http_proxy=$HTTP_PROXY no_proxy=$NO_PROXY
+	fi
 	if [ -n "$RUN_AS" ]; then
 		export USER="$RUN_AS" LOGNAME="$RUN_AS"
 		exec setsid setpriv --reuid "$RUN_AS" --regid "$RUN_AS" --init-groups --no-new-privs "$CLAUDE" "$@"

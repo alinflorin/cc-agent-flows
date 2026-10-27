@@ -1,6 +1,6 @@
 //! Network settings that apply to every agent VM: the global host allowlist, stored as
 //! `<app data>/network.json`. A profile can allow more hosts (`Profile::allow_hosts`); the
-//! hosts here are allowed for all agents. Nothing enforces the lists yet.
+//! hosts here are allowed for all agents. `runs.rs` enforces them (with the profile's) through the egress proxy.
 
 use std::path::{Path, PathBuf};
 
@@ -50,6 +50,11 @@ fn file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 /// The saved settings, or the defaults when there are none (or the file is unreadable).
 pub fn load(path: &Path) -> Network {
     std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str::<Network>(&t).ok()).and_then(|n| n.cleaned().ok()).unwrap_or_default()
+}
+
+/// The saved settings of this installation.
+pub fn current(app: &tauri::AppHandle) -> Network {
+    file(app).map(|p| load(&p)).unwrap_or_default()
 }
 
 pub fn save(path: &Path, network: &Network) -> Result<Network, String> {

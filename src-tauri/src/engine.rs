@@ -801,7 +801,7 @@ impl Host for RealHost {
             env: profile.env.iter().map(|v| TaskEnv { name: v.name.clone(), value: v.value.clone() }).collect(),
             timeout_secs: u64::from(req.timeout_mins) * 60,
         };
-        let spec = Spec { run_id, image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, task };
+        let spec = Spec { run_id, image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, allow_hosts: profile.allow_hosts.clone(), task };
         // Cancelling the session cancels this VM.
         let (tx, rx) = oneshot::channel();
         let mut c = self.cancel.clone();

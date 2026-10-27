@@ -90,9 +90,9 @@
       "envHint": "Built into the image, for every agent that runs on it (and on images built on this one). Saved in plain text in the image, so do not put secrets here."
     },
     "network": {
-      "intro": "Internet hosts every agent may reach over HTTPS. A profile can allow more on top of these. Not enforced yet: agents still have full network access.",
+      "intro": "Internet hosts every agent may reach over HTTPS. A profile can allow more on top of these. Agents have no other network access.",
       "allowHosts": "Allowed hosts",
-      "allowHostsHint": "One per line: a name (github.com) or all the subdomains of one (*.github.com). Everything not listed here or in the agent's profile will be blocked. The defaults are what Claude Code needs to work.",
+      "allowHostsHint": "One per line: a name (github.com) or all the subdomains of one (*.github.com). Everything not listed here or in the agent's profile is blocked. The defaults are what Claude Code needs to work; an empty list cuts the agents off from the Claude API.",
       "defaults": "Restore defaults"
     }
   },
@@ -134,7 +134,7 @@
     "memory": "Memory (MB)",
     "memoryHint": "RAM of the VM, at least 1024. Default 2048.",
     "allowHosts": "Allowed hosts",
-    "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). The Claude API is always allowed; everything else is blocked. Not enforced yet."
+    "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). The hosts in Settings > Network are always allowed; everything else is blocked."
   },
   "welcome": {
     "title": "Welcome",
