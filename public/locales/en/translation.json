@@ -113,5 +113,12 @@
     "addVar": "Add variable",
     "image": "Image",
     "imageHint": "The system this agent runs on. Images are managed in Settings."
+  },
+  "welcome": {
+    "title": "Welcome",
+    "text": "Set up a starting point? This creates two images, Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with playwright-cli), built on the base image in the background, and an agent profile for each. You can edit or delete all of it later.",
+    "yes": "Yes, set it up",
+    "no": "No, thanks",
+    "done": "Starter images and profiles created. The images are building."
   }
 }

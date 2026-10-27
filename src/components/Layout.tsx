@@ -4,6 +4,7 @@ import { makeStyles, tokens } from "@fluentui/react-components";
 import { useIsMobile } from "../useIsMobile";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { Welcome } from "./Welcome";
 
 const useStyles = makeStyles({
   root: {
@@ -29,6 +30,7 @@ export function Layout() {
 
   return (
     <div className={styles.root}>
+      <Welcome />
       <TopBar showMenuButton={mobile} onMenu={() => setMenuOpen(true)} />
       <div className={styles.body}>
         {/* Hidden on mobile; the overlay version only exists while open. */}

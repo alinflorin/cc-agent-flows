@@ -359,6 +359,60 @@ pub fn ensure_base(app: &AppHandle) {
     }
 }
 
+/// The images offered on first start (`developer`, `qa`): id and spec, scripts in `default-images/`.
+fn defaults() -> Vec<(&'static str, Spec)> {
+    let spec = |name: &str, description: &str, env: &[(&str, &str)], script: &str| Spec {
+        name: name.into(),
+        description: description.into(),
+        parent: base_id(),
+        env: env.iter().map(|(n, v)| EnvVar { name: n.to_string(), value: v.to_string() }).collect(),
+        script: script.into(),
+    };
+    vec![
+        (
+            "developer",
+            spec(
+                "Developer",
+                "Git, GitHub CLI, Python and Node.js, for agents that write code.",
+                &[],
+                include_str!("../default-images/developer.sh"),
+            ),
+        ),
+        (
+            "qa",
+            spec(
+                "Manual QA",
+                "Headless Chromium and playwright-cli, for agents that test an app by hand in a browser.",
+                &[("PLAYWRIGHT_MCP_CONFIG", "/etc/playwright-cli.json")],
+                include_str!("../default-images/qa.sh"),
+            ),
+        ),
+    ]
+}
+
+/// Creates the default images (the ones that do not exist yet) and builds them: now if the base is
+/// built, else after it (while the base builds they follow it as the images built on it).
+pub fn provision_defaults(app: &AppHandle) -> Result<(), String> {
+    let dir = spec_dir(app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut created = vec![];
+    for (id, spec) in defaults() {
+        let file = dir.join(format!("{id}.json"));
+        if !file.exists() {
+            let text = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
+            std::fs::write(&file, text).map_err(|e| e.to_string())?;
+            created.push(id.to_string());
+        }
+    }
+    if info(app, BASE, None).state == "ready"
+        && let Some((first, rest)) = created.split_first()
+    {
+        app.state::<Images>().0.lock().unwrap().queue.extend(rest.iter().cloned());
+        let _ = start(app, first);
+    }
+    Ok(())
+}
+
 fn start(app: &AppHandle, id: &str) -> Result<(), String> {
     let spec = if id == BASE {
         None
@@ -556,6 +610,14 @@ mod tests {
     fn env_lines_are_shell_quoted() {
         let env = vec![EnvVar { name: "A".into(), value: "it's a \"b\" $c".into() }];
         assert_eq!(env_lines(&env), "export A='it'\\''s a \"b\" $c'\n");
+    }
+
+    #[test]
+    fn default_images_are_valid() {
+        for (id, spec) in defaults() {
+            assert!(valid_id(id));
+            assert!(spec.validate().is_ok(), "{id}");
+        }
     }
 
     #[test]
