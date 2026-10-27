@@ -188,15 +188,36 @@
     "timeoutHint": "How long one run of this agent may take before it is killed. Default 30.",
     "remove": "Remove agent",
     "root": "root",
-    "approval": "Needs your approval",
-    "approvalHint": "Each time the first agent wants to hand work to the second, you approve or reject it. Asked even when the session never lets agents ask you questions.",
-    "approvalLabel": "approval",
     "problem": {
       "empty": "The workflow has no agents.",
       "no_root": "No agent is the root: every agent is called by another (a cycle).",
       "many_roots": "More than one agent is not called by anyone; exactly one root is needed.",
       "unreachable": "\"{{node}}\" cannot be reached from the root.",
-      "unknown_profile": "\"{{node}}\" uses an agent profile that does not exist."
+      "unknown_profile": "\"{{node}}\" uses an agent profile that does not exist.",
+      "human_unused": "\"{{node}}\" has no arrow pointing to it.",
+      "gate_no_target": "The approval gate \"{{node}}\" leads nowhere: draw an arrow from it to an agent."
+    },
+    "addAsk": "Add user (asks)",
+    "addApprove": "Add approval gate",
+    "removeNode": "Remove",
+    "orderLabel": "first",
+    "kind": {
+      "you": "You",
+      "ask": "The user answers questions",
+      "approve": "The user approves handovers"
+    },
+    "kindHint": {
+      "ask": "An agent with an arrow to this node may put its questions to the user directly, instead of passing them up to whoever called it.",
+      "approve": "Put it on the way between two agents (A to gate to B): each time A wants to hand work to B, the user approves or rejects. Asked even when the session never lets agents ask questions."
+    },
+    "edgeKind": "Arrow",
+    "edgeKinds": {
+      "delegate": "Hands work to",
+      "before": "Must finish first (order)"
+    },
+    "edgeKindHint": {
+      "delegate": "The first may hand work to the second (or ask the user, if the second is the user).",
+      "before": "Between two agents called by the same coordinator: the second can be called only after the first has finished. The coordinator is held to it; it may still call them again later (loops)."
     }
   },
   "runs": {
@@ -224,7 +245,6 @@
       "approve": "Your approval is needed",
       "questions": "{{label}} has questions"
     },
-    "waiting": "Waiting for you: {{label}}",
     "rename": "Rename session",
     "firstMessage": "Tell the agents what you want done.",
     "placeholder": "What do you want to do? Enter sends, Shift+Enter adds a line.",
@@ -235,11 +255,32 @@
       "askHint": "Questions the agents cannot answer among themselves reach you.",
       "neverHint": "Agents decide on their own and list their assumptions."
     },
-    "turn": "turn {{n}}",
     "notes": "notes",
-    "rejected": "{{label}}'s answer was refused: {{reason}}",
     "result": "Result",
-    "assumptions": "Assumptions made",
-    "assumptionsHint": "What the agents assumed instead of asking. Check them."
+    "tabs": {
+      "chat": "Conversation",
+      "timeline": "Timeline",
+      "agent": "Agent"
+    },
+    "node": {
+      "idle": "idle",
+      "running": "working",
+      "busy": "waiting for the agents it called",
+      "waiting": "waiting for you",
+      "done": "done",
+      "failed": "failed"
+    },
+    "callsCount_one": "{{count}} call",
+    "callsCount_other": "{{count}} calls",
+    "run": "Run",
+    "activity_one": "{{count}} step",
+    "activity_other": "{{count}} steps",
+    "assumed": "assumed",
+    "thisIsTheRequest": "The request",
+    "refused": "Refused: {{reason}}",
+    "pickAgent": "Click an agent in the graph to see its calls.",
+    "noCalls": "This agent has not been called yet.",
+    "noEvents": "Nothing has happened yet.",
+    "noWorkflow": "This project has no workflow yet."
   }
 }
