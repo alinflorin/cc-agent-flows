@@ -22,12 +22,18 @@ import { Add16Regular, Delete16Regular, Edit16Regular } from "@fluentui/react-ic
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
+interface EnvVar {
+  name: string;
+  value: string;
+}
+
 interface Image {
   id: string;
   builtin: boolean;
   name: string;
   description: string;
   script: string;
+  env: EnvVar[];
   state: "missing" | "building" | "ready" | "stale";
   can_build: boolean;
   parent: string | null;
@@ -41,6 +47,7 @@ interface Spec {
   name: string;
   description: string;
   parent: string;
+  env: EnvVar[];
   script: string;
 }
 
@@ -57,6 +64,7 @@ const useStyles = makeStyles({
   },
   row: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "center" },
   grow: { flex: 1 },
+  envRow: { display: "flex", gap: tokens.spacingHorizontalS },
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM },
   mono: { fontFamily: tokens.fontFamilyMonospace },
   log: {
@@ -111,13 +119,15 @@ export function ImagesSettings() {
   if (!desktop) return <Body1>{t("profiles.desktopOnly")}</Body1>;
   if (!images) return null;
   const nameOf = (id: string) => (id === "base" ? t("settings.images.base") : (images.find((x) => x.id === id)?.name ?? id));
+  const setEnv = (n: number, patch: Partial<EnvVar>) =>
+    setEditing((e) => e && { ...e, spec: { ...e.spec, env: e.spec.env.map((v, j) => (j === n ? { ...v, ...patch } : v)) } });
   const busy = images.some((i) => i.state === "building");
 
   return (
     <>
       <div className={styles.head}>
         <Body1>{t("settings.images.intro")}</Body1>
-        <Button icon={<Add16Regular />} onClick={() => setEditing({ id: null, spec: { name: "", description: "", parent: "base", script: "" } })}>
+        <Button icon={<Add16Regular />} onClick={() => setEditing({ id: null, spec: { name: "", description: "", parent: "base", env: [], script: "" } })}>
           {t("settings.images.new")}
         </Button>
       </div>
@@ -141,7 +151,7 @@ export function ImagesSettings() {
                     appearance="subtle"
                     icon={<Edit16Regular />}
                     aria-label={t("profiles.edit")}
-                    onClick={() => setEditing({ id: i.id, spec: { name: i.name, description: i.description, parent: i.parent ?? "base", script: i.script } })}
+                    onClick={() => setEditing({ id: i.id, spec: { name: i.name, description: i.description, parent: i.parent ?? "base", env: i.env, script: i.script } })}
                   />
                   <Button
                     size="small"
@@ -191,6 +201,36 @@ export function ImagesSettings() {
                           </option>
                         ))}
                     </Select>
+                  </Field>
+                  <Field label={t("settings.images.env")} hint={t("settings.images.envHint")}>
+                    <div className={styles.form}>
+                      {editing.spec.env.map((v, n) => (
+                        <div key={n} className={styles.envRow}>
+                          <Input
+                            className={styles.mono}
+                            placeholder="NAME"
+                            value={v.name}
+                            onChange={(_, d) => setEnv(n, { name: d.value })}
+                          />
+                          <Input className={`${styles.grow} ${styles.mono}`} value={v.value} onChange={(_, d) => setEnv(n, { value: d.value })} />
+                          <Button
+                            appearance="subtle"
+                            icon={<Delete16Regular />}
+                            aria-label={t("profiles.delete")}
+                            onClick={() => setEditing({ ...editing, spec: { ...editing.spec, env: editing.spec.env.filter((_, j) => j !== n) } })}
+                          />
+                        </div>
+                      ))}
+                      <div>
+                        <Button
+                          size="small"
+                          icon={<Add16Regular />}
+                          onClick={() => setEditing({ ...editing, spec: { ...editing.spec, env: [...editing.spec.env, { name: "", value: "" }] } })}
+                        >
+                          {t("profiles.addVar")}
+                        </Button>
+                      </div>
+                    </div>
                   </Field>
                   <Field label={t("settings.images.script")} hint={t("settings.images.scriptHint")}>
                     <Textarea

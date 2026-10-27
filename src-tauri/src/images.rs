@@ -24,6 +24,20 @@ use crate::builder::{Console, Serial, script_cmd, within};
 const LOG_LINES: usize = 1000;
 pub const BASE: &str = "base";
 
+/// A variable baked into the image.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EnvVar {
+    pub name: String,
+    pub value: String,
+}
+
+/// `export` lines for `/etc/conf.d/agentd`: OpenRC sources that file when it starts the service,
+/// so agentd and the `claude` it runs inherit the variables. Appended to what the parent image
+/// has, so a later definition wins.
+fn env_lines(env: &[EnvVar]) -> String {
+    env.iter().map(|v| format!("export {}='{}'\n", v.name, v.value.replace('\'', "'\\''"))).collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Spec {
     pub name: String,
@@ -32,6 +46,9 @@ pub struct Spec {
     /// The image this one is built on top of: `base` or another custom image.
     #[serde(default = "base_id")]
     pub parent: String,
+    /// Environment variables baked into the image, on top of the parent's.
+    #[serde(default)]
+    pub env: Vec<EnvVar>,
     /// Shell script (busybox ash) run as root in the builder VM, on top of the parent.
     #[serde(default)]
     pub script: String,
@@ -67,6 +84,7 @@ impl Spec {
         if self.script.len() > 256 * 1024 {
             return Err("the script is too large".into());
         }
+        crate::profiles::validate_env(self.env.iter().map(|v| (v.name.as_str(), Some(v.value.as_str()))))?;
         if self.parent.is_empty() {
             return Err("pick the image to build on".into());
         }
@@ -100,6 +118,7 @@ pub struct Info {
     name: String,
     description: String,
     script: String,
+    env: Vec<EnvVar>,
     /// `missing`, `building`, `ready` or `stale`.
     state: &'static str,
     /// Whether it can be built now (its parent must be built).
@@ -171,6 +190,8 @@ fn wanted_stamp(app: &AppHandle, spec: Option<&Spec>) -> Result<String, String> 
             let parent: Meta = read_meta(app, &spec.parent).ok_or("the parent image is not built")?;
             let mut h = Sha256::new();
             h.update(&parent.stamp);
+            h.update(env_lines(&spec.env).as_bytes());
+            h.update([0]);
             h.update(spec.script.as_bytes());
             Ok(hex(&h.finalize()))
         }
@@ -221,9 +242,9 @@ fn info(app: &AppHandle, id: &str, spec: Option<&Spec>) -> Info {
     if g.building.as_deref() == Some(id) {
         state = "building";
     }
-    let (name, description, script) = match spec {
-        Some(s) => (s.name.clone(), s.description.clone(), s.script.clone()),
-        None => ("Base".into(), "Alpine with agentd, Claude Code and ripgrep".into(), String::new()),
+    let (name, description, script, env) = match spec {
+        Some(s) => (s.name.clone(), s.description.clone(), s.script.clone(), s.env.clone()),
+        None => ("Base".into(), "Alpine with agentd, Claude Code and ripgrep".into(), String::new(), vec![]),
     };
     Info {
         can_build: spec.is_none_or(|s| path(app, &s.parent).is_some()),
@@ -233,6 +254,7 @@ fn info(app: &AppHandle, id: &str, spec: Option<&Spec>) -> Info {
         name,
         description,
         script,
+        env,
         state,
         built_at,
         size,
@@ -283,6 +305,9 @@ pub fn images_save(app: AppHandle, id: Option<String>, spec: Spec) -> Result<Str
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let text = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
     std::fs::write(dir.join(format!("{id}.json")), text).map_err(|e| e.to_string())?;
+    // Build it now. If it cannot start (the parent is not built, another build is running) it
+    // stays missing or out of date, with its build button.
+    let _ = start(&app, &id);
     Ok(id)
 }
 
@@ -408,6 +433,10 @@ async fn build_in(app: &AppHandle, id: &str, spec: Option<&Spec>, source: &Path,
             "/tmp/setup/setup.sh"
         }
         Some(spec) => {
+            if !spec.env.is_empty() {
+                con.put("/tmp/setup/env.sh", env_lines(&spec.env).as_bytes()).await?;
+                con.run("cat /tmp/setup/env.sh >>/etc/conf.d/agentd", |_| {}).await?;
+            }
             con.put("/tmp/setup/image.sh", spec.script.as_bytes()).await?;
             say("running the image script");
             "/tmp/setup/image.sh"
@@ -479,7 +508,13 @@ mod tests {
     use super::*;
 
     fn spec(parent: &str) -> Spec {
-        Spec { name: "x".into(), description: String::new(), parent: parent.into(), script: String::new() }
+        Spec { name: "x".into(), description: String::new(), parent: parent.into(), env: vec![], script: String::new() }
+    }
+
+    #[test]
+    fn env_lines_are_shell_quoted() {
+        let env = vec![EnvVar { name: "A".into(), value: "it's a \"b\" $c".into() }];
+        assert_eq!(env_lines(&env), "export A='it'\\''s a \"b\" $c'\n");
     }
 
     #[test]

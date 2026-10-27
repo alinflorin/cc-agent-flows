@@ -48,28 +48,34 @@ pub struct Entry {
     pub profile: Profile,
 }
 
+/// Checks environment variable names (and values, where given) for a profile or an image.
+pub fn validate_env<'a>(vars: impl Iterator<Item = (&'a str, Option<&'a str>)>) -> Result<(), String> {
+    let mut seen = std::collections::HashSet::new();
+    for (name, value) in vars {
+        let ok = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !ok {
+            return Err(format!("{name:?} is not a valid variable name"));
+        }
+        if RESERVED.contains(&name) || name.starts_with("LD_") {
+            return Err(format!("{name} is reserved"));
+        }
+        if !seen.insert(name) {
+            return Err(format!("{name} is set twice"));
+        }
+        if value.is_some_and(|s| s.contains('\0')) {
+            return Err(format!("{name} has a NUL in its value"));
+        }
+    }
+    Ok(())
+}
+
 impl Profile {
     pub fn validate(&self) -> Result<(), String> {
         if self.name.trim().is_empty() || self.name.len() > 80 {
             return Err("the name must be 1 to 80 characters".into());
         }
-        let mut seen = std::collections::HashSet::new();
-        for v in &self.env {
-            let ok = v.name.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-                && v.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            if !ok {
-                return Err(format!("{:?} is not a valid variable name", v.name));
-            }
-            if RESERVED.contains(&v.name.as_str()) || v.name.starts_with("LD_") {
-                return Err(format!("{} is reserved", v.name));
-            }
-            if !seen.insert(&v.name) {
-                return Err(format!("{} is set twice", v.name));
-            }
-            if v.value.as_deref().is_some_and(|s| s.contains('\0')) {
-                return Err(format!("{} has a NUL in its value", v.name));
-            }
-        }
+        validate_env(self.env.iter().map(|v| (v.name.as_str(), v.value.as_deref())))?;
         if self.system_prompt.len() > 64 * 1024 {
             return Err("the system prompt is too large".into());
         }
