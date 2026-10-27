@@ -42,7 +42,8 @@
     "tabs": {
       "llm": "LLM",
       "general": "General",
-      "images": "Images"
+      "images": "Images",
+      "network": "Network"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -87,6 +88,12 @@
       "parentHint": "The image the script runs on. Rebuilding it makes this one out of date.",
       "env": "Environment variables",
       "envHint": "Built into the image, for every agent that runs on it (and on images built on this one). Saved in plain text in the image, so do not put secrets here."
+    },
+    "network": {
+      "intro": "Internet hosts every agent may reach over HTTPS. A profile can allow more on top of these. Not enforced yet: agents still have full network access.",
+      "allowHosts": "Allowed hosts",
+      "allowHostsHint": "One per line: a name (github.com) or all the subdomains of one (*.github.com). Everything not listed here or in the agent's profile will be blocked. The defaults are what Claude Code needs to work.",
+      "defaults": "Restore defaults"
     }
   },
   "updates": {
