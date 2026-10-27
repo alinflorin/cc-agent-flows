@@ -230,7 +230,9 @@ mod e2e {
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
-        std::io::Write::write_all(&mut conn.expect("bootstrap socket"), line.as_bytes()).unwrap();
+        // Keep this end open: QEMU drops what the guest has not read yet when the host disconnects.
+        let mut conn = conn.expect("bootstrap socket");
+        std::io::Write::write_all(&mut conn, line.as_bytes()).unwrap();
 
         let outcome = async {
             let mut kinds = vec![];
