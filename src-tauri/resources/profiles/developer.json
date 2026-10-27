@@ -1,5 +1,5 @@
 {
   "description": "Software development: git and the GitHub CLI, a C toolchain, Node.js, Python, uv, jq and yq",
   "packages": ["git", "github-cli", "build-base", "nodejs", "npm", "python3", "uv", "jq", "yq-go"],
-  "image_size": "8G"
+  "disk_size": "8G"
 }

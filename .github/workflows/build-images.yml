@@ -1,13 +1,12 @@
 name: Build agent images
 
-# Builds the Alpine images (Claude Code preinstalled) the app boots agents from, one per profile in
-# scripts/images/profiles/, natively on x86_64 and arm64 runners. Each profile is published to its
-# own rolling prerelease, image-<profile>-p<protocol>, replacing the previous assets. <protocol> is
-# the agent protocol number in scripts/images/version.json: the app downloads the image for the
-# protocol it speaks, so an older or newer app never gets an agentd it cannot talk to. Bump it on
-# every protocol change that breaks old messages. Only the latest image per profile and protocol is
-# kept. Add a profile: create its JSON file and add it to the matrix below. Push to
-# main (or run manually) to rebuild.
+# Builds the base Alpine image (Claude Code and agentd preinstalled) natively on x86_64 and arm64
+# runners and publishes it to a rolling prerelease, image-base-p<protocol>, replacing the previous
+# assets. <protocol> is the agent protocol number in scripts/images/version.json: the app downloads
+# the image for the protocol it speaks, so an older or newer app never gets an agentd it cannot
+# talk to. Bump it on every protocol change that breaks old messages. Profiles (developer and the
+# like) are not built here: the app applies them on top of this image on the user's machine.
+# Push to main (or run manually) to rebuild.
 on:
   push:
     branches: [main]
@@ -57,10 +56,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { profile: base, platform: ubuntu-22.04, arch: x86_64 }
-          - { profile: base, platform: ubuntu-24.04-arm, arch: aarch64 }
-          - { profile: developer, platform: ubuntu-22.04, arch: x86_64 }
-          - { profile: developer, platform: ubuntu-24.04-arm, arch: aarch64 }
+          - { platform: ubuntu-22.04, arch: x86_64 }
+          - { platform: ubuntu-24.04-arm, arch: aarch64 }
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 30
     steps:
@@ -84,7 +81,7 @@ jobs:
         run: |
           chmod +x agentd-in/agentd
           for attempt in 1 2 3; do
-            scripts/images/build.sh "${{ matrix.arch }}" image-out agentd-in/agentd "${{ matrix.profile }}" && exit 0
+            scripts/images/build.sh "${{ matrix.arch }}" image-out agentd-in/agentd && exit 0
             echo "build attempt $attempt failed" >&2
             sleep 20
           done
@@ -92,8 +89,8 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: agent-${{ matrix.profile }}-${{ matrix.arch }}
-          path: image-out/agent-${{ matrix.profile }}-${{ matrix.arch }}.qcow2
+          name: agent-base-${{ matrix.arch }}
+          path: image-out/agent-base-${{ matrix.arch }}.qcow2
 
   publish:
     needs: build
@@ -114,11 +111,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           protocol=$(jq -r .protocol scripts/images/version.json)
-          for cfg in scripts/images/profiles/*.json; do
-            profile=$(basename "$cfg" .json)
-            tag="image-$profile-p$protocol"
-            gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
-              --prerelease --latest=false --title "Agent image: $profile (protocol $protocol)" \
-              --notes "Latest Alpine $profile image with Claude Code for agent protocol $protocol, for x86_64 and aarch64; replaced on every build. Used by the app; not an app release."
-            gh release upload "$tag" dist/agent-"$profile"-*.qcow2 --clobber
-          done
+          tag="image-base-p$protocol"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" \
+            --prerelease --latest=false --title "Base agent image (protocol $protocol)" \
+            --notes "Latest Alpine base image with Claude Code and agentd for agent protocol $protocol, for x86_64 and aarch64; replaced on every build. The app downloads it and builds profiles on top of it. Not an app release."
+          gh release upload "$tag" dist/agent-base-*.qcow2 --clobber

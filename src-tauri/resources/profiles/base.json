@@ -1,5 +1,5 @@
 {
   "description": "Claude Code only",
   "packages": [],
-  "image_size": "4G"
+  "disk_size": "4G"
 }

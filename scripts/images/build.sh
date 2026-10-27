@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Builds the Alpine image for an agent profile: a compressed qcow2 with Claude Code installed plus
-# the profile's extra packages (profiles/<profile>.json).
+# Builds the base Alpine image: a compressed qcow2 with Claude Code and agentd installed. Profiles
+# (src-tauri/resources/profiles/, user-made ones too) are applied on top of it by the app, in a VM.
 # Linux only; needs root (loop/nbd mounts) plus qemu-img, qemu-nbd, rsync, sfdisk, dosfstools, jq.
 #
-#   build.sh <x86_64|aarch64> <out-dir> <agentd-binary> [profile]   (profile defaults to base)
+#   build.sh <x86_64|aarch64> <out-dir> <agentd-binary>
 #
 # <agentd-binary> is the static musl build of crates/agentd for that arch.
 #
@@ -13,35 +13,25 @@ set -euo pipefail
 arch=$1
 out=$2
 agentd=$3
-profile=${4:-base}
 [ -x "$agentd" ] || { echo "agentd binary $agentd not found or not executable" >&2; exit 1; }
 here=$(cd "$(dirname "$0")" && pwd)
 cfg="$here/version.json"
-pcfg="$here/profiles/$profile.json"
-[ -f "$pcfg" ] || { echo "unknown profile '$profile' (no $pcfg)" >&2; exit 1; }
 
 branch=$(jq -r .alpine "$cfg")
-size=$(jq -r '.image_size // "4G"' "$pcfg")
-# word-split on purpose: one argument per package
-read -ra packages <<<"$(jq -r '.packages | join(" ")' "$pcfg")"
-image="agent-$profile-$arch.qcow2"
+size=4G
+image="agent-base-$arch.qcow2"
 
 work=$(mktemp -d)
 trap 'sudo rm -rf "$work"' EXIT
 mkdir -p "$out"
 
-# alpine-make-vm-image copies a single script into the chroot, so splice the common provisioning,
-# the profile's optional hook and the cleanup into one
+# alpine-make-vm-image copies a single script into the chroot, so splice provisioning and cleanup
+# into one. Its directory is /mnt in the chroot: agentd and the protocol it must speak go in there.
 script="$work/provision.sh"
-{
-  cat "$here/provision.sh"
-  hook="$here/profiles/$profile.sh"
-  if [ -f "$hook" ]; then printf '\n'; cat "$hook"; fi
-  printf '\n'
-  cat "$here/finalize.sh"
-} >"$script"
+cat "$here/provision.sh" >"$script"
+printf '\n' >>"$script"
+cat "$here/finalize.sh" >>"$script"
 chmod +x "$script"
-# the script directory is /mnt in the chroot: agentd and the protocol it must speak go in there
 cp "$agentd" "$work/agentd"
 jq -r .protocol "$cfg" >"$work/protocol"
 
@@ -66,7 +56,7 @@ sudo env "${apk_env[@]}" "$here/vendor/alpine-make-vm-image" \
   --serial-console \
   --packages "alpine-base" \
   --script-chroot \
-  "$work/raw.qcow2" -- "$script" "${packages[@]}"
+  "$work/raw.qcow2" -- "$script"
 
 # alpine-make-vm-image exits 0 even when the script fails; finalize.sh drops this marker only at
 # the end of a complete run (the script's directory is bind-mounted at /mnt in the chroot)
