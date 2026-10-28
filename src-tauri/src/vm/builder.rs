@@ -182,8 +182,9 @@ impl Serial {
     #[cfg(windows)]
     pub fn named(_dir: &Path, name: &str) -> Self {
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
-        let name = format!(r"\\.\pipe\ccaf-{name}-{}-{nanos:08x}", std::process::id());
-        Serial { qemu_arg: format!("pipe:{name}"), chardev: format!("pipe,path={name}"), name }
+        // QEMU adds `\\.\pipe\` itself (char-pipe.c), so it gets the bare name; we open the full path.
+        let short = format!("ccaf-{name}-{}-{nanos:08x}", std::process::id());
+        Serial { qemu_arg: format!("pipe:{short}"), chardev: format!("pipe,path={short}"), name: format!(r"\\.\pipe\{short}") }
     }
 
     /// Connects once QEMU has created the socket or pipe.

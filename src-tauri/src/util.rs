@@ -37,3 +37,15 @@ pub fn data_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
 
 /// The service name of every entry the app keeps in the OS credential store.
 pub const KEYRING_SERVICE: &str = "cc-agent-flows";
+
+/// Removes a directory, trying again for a few seconds: on Windows a file stays locked for a moment
+/// after the process that had it open (QEMU, an antivirus scan) has gone. Errors are ignored.
+pub async fn remove_dir_retry(path: &Path) {
+    for _ in 0..20 {
+        match std::fs::remove_dir_all(path) {
+            Ok(()) => return,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(250)).await,
+        }
+    }
+}

@@ -1,1 +1,5 @@
 *.sh eol=lf
+*.initd eol=lf
+*.yaml eol=lf
+*.json eol=lf
+*.md eol=lf

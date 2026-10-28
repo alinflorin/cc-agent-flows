@@ -142,7 +142,7 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
         let work = crate::util::data_dir(app)?.join("runs").join("tmp").join(format!("{run_id}-{}", tried.len()));
         std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
         let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), &identity, &token, (rules.clone(), injections.clone()), task.clone(), &mut cancel, &mut on_msg).await;
-        let _ = std::fs::remove_dir_all(&work);
+        crate::util::remove_dir_retry(&work).await;
         let fin = result?;
         if let Some(why) = crate::config::accounts::classify(&fin) {
             crate::config::accounts::rest(&account, why);
@@ -151,6 +151,9 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
                 on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "account", "account": account_name, "refused": true}) }));
                 continue;
             }
+        }
+        if fin.status == Status::Failed {
+            log::warn!("run {run_id} failed: {}", fin.result);
         }
         on_msg(&Outbound::Final(fin.clone()));
         return Ok(fin);
@@ -212,7 +215,7 @@ async fn boot_and_drive(
     let mut cmd = Command::from(cmd);
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).kill_on_drop(true);
     cmd.stderr(std::fs::File::create(&errlog).map(Stdio::from).unwrap_or_else(|_| Stdio::null()));
-    let mut child = cmd.spawn().map_err(|e| format!("cannot start QEMU: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| super::qemu::spawn_error(app, &format!("qemu-system-{}", crate::vm::machine::arch().unwrap_or("?")), &e))?;
     vm_state(on_msg, "starting");
 
     let stream = match crate::vm::builder::within(30, "the agent channel", channel.connect()).await {

@@ -34,6 +34,18 @@ pub fn command(app: &AppHandle, program: &str) -> Command {
     cmd
 }
 
+/// Why a QEMU program could not start. "File not found" usually means the app has no bundled QEMU
+/// (the `qemu` folder is missing from its resources) and none is on PATH either.
+pub fn spawn_error(app: &AppHandle, program: &str, e: &std::io::Error) -> String {
+    if e.kind() != std::io::ErrorKind::NotFound {
+        return format!("cannot start {program}: {e}");
+    }
+    match bundled_root(app) {
+        Some(root) => format!("cannot start {program}: {e} (looked in {})", root.join("bin").display()),
+        None => format!("cannot start {program}: {e} (this app has no bundled QEMU and none is on PATH)"),
+    }
+}
+
 /// First line of `qemu-system-<arch> --version`, to check the bundled QEMU runs.
 #[tauri::command]
 pub async fn qemu_version(app: AppHandle, arch: String) -> Result<String, String> {

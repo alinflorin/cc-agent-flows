@@ -28,6 +28,7 @@
   "about": {
     "version": "Versiunea {{version}}",
     "tagline": "Aplicație desktop construită cu Tauri și Fluent UI.",
+    "viewLog": "Vezi jurnalul aplicației",
     "readiness": "Starea sistemului",
     "refresh": "Verifică din nou",
     "checking": "Se verifică…",

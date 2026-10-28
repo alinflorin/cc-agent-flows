@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
-import { Badge, Body1, Button, Caption1, Spinner, Subtitle2, makeStyles, tokens } from "@fluentui/react-components";
+import { Badge, Body1, Button, Caption1, Link, Spinner, Subtitle2, makeStyles, tokens } from "@fluentui/react-components";
 import { ArrowClockwise20Regular, CheckmarkCircle20Filled, DismissCircle20Filled, Info20Filled, Warning20Filled } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { inTauri } from "../prefs";
@@ -32,6 +32,7 @@ export function About() {
   const styles = useStyles();
   const [version, setVersion] = useState("");
   const [checks, setChecks] = useState<Check[] | null>(null);
+  const [logError, setLogError] = useState("");
   const desktop = inTauri();
 
   const run = useCallback(async () => {
@@ -49,6 +50,10 @@ export function About() {
     void run();
   }, [desktop, run]);
 
+  const openLog = () => {
+    call("app_log_open").catch((e) => setLogError(String(e)));
+  };
+
   const ready = checks?.every((c) => c.level !== "error" && c.level !== "warn");
   return (
     <>
@@ -62,6 +67,10 @@ export function About() {
 
       {desktop && (
         <>
+          <Body1 block>
+            <Link onClick={openLog}>{t("about.viewLog")}</Link>
+            {logError && <Caption1 className={styles.error}> {logError}</Caption1>}
+          </Body1>
           <div className={styles.head}>
             <Subtitle2>{t("about.readiness")}</Subtitle2>
             {checks && (

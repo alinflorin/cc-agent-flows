@@ -585,6 +585,7 @@ fn start(app: &AppHandle, r: &Ref) -> Result<(), String> {
                     }
                 }
                 Err(e) => {
+                    log::error!("image {}: build failed: {e}", r.key());
                     g.logs.entry(r.key()).or_default().push(format!("build failed: {e}"));
                     g.errors.insert(r.key(), e);
                 }
@@ -616,6 +617,7 @@ fn start(app: &AppHandle, r: &Ref) -> Result<(), String> {
 fn log(app: &AppHandle, r: &Ref, line: &str) {
     let images = app.state::<Images>();
     let mut g = images.0.lock().unwrap();
+    log::info!("image {}: {line}", r.key());
     let log = g.logs.entry(r.key()).or_default();
     log.push(line.to_string());
     if log.len() > LOG_LINES {
@@ -632,10 +634,10 @@ async fn build(app: &AppHandle, r: &Ref, spec: Option<&Spec>) -> Result<(), Stri
     };
     let out = root(app, &r.scope)?.join("built");
     let work = root(app, &r.scope)?.join("work");
-    let _ = std::fs::remove_dir_all(&work);
+    crate::util::remove_dir_retry(&work).await;
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let result = build_in(app, r, spec, &source, &out, &work, &stamp).await;
-    let _ = std::fs::remove_dir_all(&work);
+    crate::util::remove_dir_retry(&work).await;
     result
 }
 
@@ -716,7 +718,7 @@ fn launch(app: &AppHandle, disk: &Path, serial: &Serial) -> Result<tokio::proces
         .arg(&serial.qemu_arg);
     let mut cmd = Command::from(cmd);
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
-    cmd.spawn().map_err(|e| format!("cannot start QEMU: {e}"))
+    cmd.spawn().map_err(|e| super::qemu::spawn_error(app, &format!("qemu-system-{}", arch().unwrap_or("?")), &e))
 }
 
 #[cfg(test)]

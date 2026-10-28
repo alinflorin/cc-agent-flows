@@ -28,6 +28,7 @@
   "about": {
     "version": "Version {{version}}",
     "tagline": "Desktop app built with Tauri and Fluent UI.",
+    "viewLog": "View app log",
     "readiness": "System readiness",
     "refresh": "Check again",
     "checking": "Checking…",

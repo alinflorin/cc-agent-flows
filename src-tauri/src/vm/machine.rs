@@ -86,7 +86,7 @@ pub async fn qemu_img(app: &AppHandle, args: &[&str]) -> Result<(), String> {
     let out = tokio::time::timeout(Duration::from_secs(600), cmd.args(args).output())
         .await
         .map_err(|_| "qemu-img timed out".to_string())?
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| super::qemu::spawn_error(app, "qemu-img", &e))?;
     if out.status.success() {
         Ok(())
     } else {
