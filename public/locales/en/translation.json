@@ -32,8 +32,9 @@
   "home": {
     "welcome": "Welcome",
     "intro": "Run a team of Claude Code agents, each sandboxed in its own VM.",
-    "profiles": "Define the agents: prompt, tools, image.",
-    "projects": "Projects hold sessions and the workflows they run."
+    "workflow": "Design who hands work to whom.",
+    "sessions": "Start a session and watch the agents deliver.",
+    "profiles": "Define the agents: prompt, tools, image."
   },
   "about": {
     "version": "Version {{version}}",
@@ -267,7 +268,7 @@
   },
   "welcome": {
     "title": "Welcome",
-    "text": "Set up demo content? This creates three images built in the background, Manager (the Jira CLI, jtk, on the base image), then Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with agent-browser) on top of it, seven agent profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, tester), three secrets with a dummy value (GITHUB, GITHUB_READONLY and JIRA tokens) to replace with real ones, an injection for each (GitHub, GitHub read-only, Jira; the Jira one takes its site and e-mail from two variables, ATLASSIAN_HOST and ATLASSIAN_EMAIL, to edit in Settings > Variables) wired into the profiles that need them, and a demo project holding the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one and, for each, has the analyst, architect, developer, reviewer and tester do their part, in that order. You can edit or delete all of it later.",
+    "text": "Set up demo content? This creates three images built in the background, Manager (the Jira CLI, jtk, on the base image), then Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with agent-browser) on top of it, seven agent profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, tester), three secrets with a dummy value (GITHUB, GITHUB_READONLY and JIRA tokens) to replace with real ones, an injection for each (GitHub, GitHub read-only, Jira; the Jira one takes its site and e-mail from two variables, ATLASSIAN_HOST and ATLASSIAN_EMAIL, to edit in Settings > Variables) wired into the profiles that need them, and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one and, for each, has the analyst, architect, developer, reviewer and tester do their part, in that order. You can edit or delete all of it later.",
     "yes": "Yes, set it up",
     "no": "Skip",
     "done": "Demo content created. The images are building.",
@@ -295,7 +296,11 @@
       "interrupted": "Interrupted"
     },
     "untitled": "Untitled",
-    "intro": "A session runs the workflow for a request you write in chat."
+    "intro": "A session runs the workflow for a request you write in chat.",
+    "allProjects": "All projects",
+    "filterProject": "Filter by project",
+    "noProject": "No project",
+    "project": "Project"
   },
   "wf": {
     "saved": "Workflow saved.",
@@ -385,9 +390,7 @@
     "cronRunNow": "Run now",
     "fired": "Session started.",
     "cronNextRun": "Next run: {{when}}",
-    "lastRun": "Last start: {{when}}",
-    "copyTo": "Copy to project",
-    "copied": "Workflow copied."
+    "lastRun": "Last start: {{when}}"
   },
   "runs": {
     "title": "Run an agent",
@@ -574,8 +577,6 @@
     "delete": "Delete project",
     "open": "Sessions",
     "save": "Save",
-    "cancel": "Cancel",
-    "workflows_one": "{{count}} workflow",
-    "workflows_other": "{{count}} workflows"
+    "cancel": "Cancel"
   }
 }

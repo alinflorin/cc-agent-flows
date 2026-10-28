@@ -24,7 +24,6 @@ pub struct ProjectEntry {
     pub project: Project,
     /// How many sessions are in it.
     pub sessions: usize,
-    pub workflows: usize,
 }
 
 fn dir(root: &Path) -> PathBuf {
@@ -47,15 +46,13 @@ pub fn get(root: &Path, id: &str) -> Project {
 pub fn list(root: &Path) -> Vec<ProjectEntry> {
     let Ok(rd) = std::fs::read_dir(dir(root)) else { return vec![] };
     let sessions = workflow::sessions(root);
-    let workflows = workflow::workflows(root, None);
     let mut out: Vec<ProjectEntry> = rd
         .flatten()
         .filter_map(|e| {
             let p = e.path();
             let id = p.file_stem()?.to_str()?.to_string();
-            let count = sessions.iter().filter(|s| s.session.project == id).count();
-            let wf = workflows.iter().filter(|w| w.project == id).count();
-            Some(ProjectEntry { project: read_json(&p)?, sessions: count, workflows: wf, id })
+            let count = sessions.iter().filter(|s| s.session.project.as_deref() == Some(id.as_str())).count();
+            Some(ProjectEntry { project: read_json(&p)?, sessions: count, id })
         })
         .collect();
     out.sort_by_key(|e| e.project.name.to_lowercase());
@@ -90,24 +87,16 @@ pub fn save(root: &Path, id: Option<&str>, project: &Project) -> Result<String, 
             id
         }
     };
-    write(root, &id, project)?;
+    let stored = Project { name: name.into(), description: project.description.trim().into(), system_prompt: project.system_prompt.clone() };
+    write_json(&path(root, &id)?, &stored)?;
     Ok(id)
 }
 
-/// Writes a project under a fixed id (the demo project), replacing what is there.
-pub fn write(root: &Path, id: &str, project: &Project) -> Result<(), String> {
-    let stored = Project { name: project.name.trim().into(), description: project.description.trim().into(), system_prompt: project.system_prompt.clone() };
-    write_json(&path(root, id)?, &stored)
-}
-
-/// Deletes a project no session is in, with its workflows.
+/// Deletes a project no session is in.
 pub fn delete(root: &Path, id: &str) -> Result<(), String> {
     let p = path(root, id)?;
-    if workflow::sessions(root).iter().any(|s| s.session.project == id) {
+    if workflow::sessions(root).iter().any(|s| s.session.project.as_deref() == Some(id)) {
         return Err("sessions are in this project: move or delete them first".into());
-    }
-    for w in workflow::workflows(root, Some(id)) {
-        workflow::delete_workflow(root, &w.id)?;
     }
     std::fs::remove_file(p).map_err(|e| e.to_string())
 }
@@ -143,15 +132,13 @@ mod tests {
         assert!(save(&root, None, &Project::default()).is_err());
         assert!(save(&root, Some("nope"), &p).is_err());
 
-        let wid = workflow::save_workflow(&root, "", &id, "W", &workflow::standard_workflow(), &workflow::Instructions::default()).unwrap();
-        let sid = workflow::create_session(&root, "", "", &wid).unwrap();
-        assert_eq!(workflow::read_session(&root, &sid).unwrap().project, id);
-        let e = list(&root).into_iter().find(|e| e.id == id).unwrap();
-        assert_eq!((e.sessions, e.workflows), (1, 1));
+        let sid = workflow::create_session(&root, "", "", "default").unwrap();
+        workflow::set_session_project(&root, &sid, Some(&id)).unwrap();
+        assert!(workflow::set_session_project(&root, &sid, Some("nope")).is_err());
+        assert_eq!(list(&root).iter().find(|e| e.id == id).unwrap().sessions, 1);
         assert!(delete(&root, &id).is_err());
-        workflow::delete_session(&root, &sid).unwrap();
+        workflow::set_session_project(&root, &sid, None).unwrap();
         delete(&root, &id).unwrap();
-        assert!(workflow::workflows(&root, None).is_empty(), "its workflows go with it");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

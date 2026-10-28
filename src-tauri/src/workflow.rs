@@ -55,9 +55,9 @@ pub struct Session {
     /// What started it: `chat`, `cron` or `webhook`.
     #[serde(default = "chat")]
     pub source: String,
-    /// The project this session belongs to (that of its workflow).
+    /// The project (group) this session belongs to, if any.
     #[serde(default)]
-    pub project: String,
+    pub project: Option<String>,
 }
 
 fn default_workflow() -> String {
@@ -470,9 +470,6 @@ fn workflows_dir(root: &Path) -> PathBuf {
 /// A workflow as stored: `workflows/<id>.json`.
 #[derive(Serialize, Deserialize, Default)]
 struct Stored {
-    /// The project that owns the workflow.
-    #[serde(default)]
-    project: String,
     #[serde(default)]
     name: String,
     #[serde(default)]
@@ -500,13 +497,11 @@ pub fn instructions(root: &Path, id: &str) -> Instructions {
 #[derive(Debug, Clone, Serialize)]
 pub struct WorkflowEntry {
     pub id: String,
-    pub project: String,
     pub name: String,
     pub agents: usize,
 }
 
-/// The workflows of one project, or of all when `project` is `None`.
-pub fn workflows(root: &Path, project: Option<&str>) -> Vec<WorkflowEntry> {
+pub fn workflows(root: &Path) -> Vec<WorkflowEntry> {
     let Ok(rd) = std::fs::read_dir(workflows_dir(root)) else { return vec![] };
     let mut out: Vec<WorkflowEntry> = rd
         .flatten()
@@ -517,25 +512,16 @@ pub fn workflows(root: &Path, project: Option<&str>) -> Vec<WorkflowEntry> {
             }
             let id = p.file_stem()?.to_str()?.to_string();
             let s: Stored = read_json(&p)?;
-            if project.is_some_and(|p| p != s.project) {
-                return None;
-            }
             let agents = s.workflow.nodes.iter().filter(|n| n.kind == NodeKind::Agent).count();
-            Some(WorkflowEntry { name: if s.name.is_empty() { id.clone() } else { s.name }, id, agents, project: s.project })
+            Some(WorkflowEntry { name: if s.name.is_empty() { id.clone() } else { s.name }, id, agents })
         })
         .collect();
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then(a.id.cmp(&b.id)));
     out
 }
 
-/// The project a workflow belongs to.
-pub fn workflow_project(root: &Path, id: &str) -> Option<String> {
-    stored(root, id).map(|s| s.project)
-}
-
-/// Saves a workflow; an empty `id` makes a new one in `project` (an existing one stays in its own
-/// project). Returns its id.
-pub fn save_workflow(root: &Path, id: &str, project: &str, name: &str, wf: &Workflow, instructions: &Instructions) -> Result<String, String> {
+/// Saves a workflow; an empty `id` makes a new one. Returns its id.
+pub fn save_workflow(root: &Path, id: &str, name: &str, wf: &Workflow, instructions: &Instructions) -> Result<String, String> {
     let mut wf = wf.clone();
     wf.validate()?;
     // a webhook gets its secret URL the first time it is saved
@@ -549,13 +535,6 @@ pub fn save_workflow(root: &Path, id: &str, project: &str, name: &str, wf: &Work
     if name.trim().is_empty() || name.len() > 120 {
         return Err("the name is required, up to 120 characters".into());
     }
-    let project = match stored(root, id) {
-        Some(s) if !id.is_empty() => s.project,
-        _ => project.to_string(),
-    };
-    if !crate::projects::exists(root, &project) {
-        return Err("a workflow belongs to a project: no such project".into());
-    }
     let id = if id.is_empty() {
         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?;
         let base = format!("w-{:x}", now.as_millis());
@@ -568,18 +547,8 @@ pub fn save_workflow(root: &Path, id: &str, project: &str, name: &str, wf: &Work
     } else {
         id.to_string()
     };
-    write_json(&workflow_path(root, &id)?, &Stored { project, name: name.trim().into(), system_prompt: instructions.system_prompt.clone(), workflow: wf.clone() })?;
+    write_json(&workflow_path(root, &id)?, &Stored { name: name.trim().into(), system_prompt: instructions.system_prompt.clone(), workflow: wf.clone() })?;
     Ok(id)
-}
-
-/// Copies a workflow into a project (webhook nodes get new secret URLs). Returns the new id.
-pub fn copy_workflow(root: &Path, id: &str, project: &str) -> Result<String, String> {
-    let s = stored(root, id).ok_or("no such workflow")?;
-    let mut wf = s.workflow.clone();
-    for n in wf.nodes.iter_mut().filter(|n| n.kind == NodeKind::Webhook) {
-        n.trigger.token.clear();
-    }
-    save_workflow(root, "", project, &s.name, &wf, &Instructions { system_prompt: s.system_prompt })
 }
 
 /// A new unguessable webhook token (128 random bits, hex).
@@ -644,7 +613,6 @@ pub fn create_session(root: &Path, name: &str, task: &str, workflow: &str) -> Re
         return Err("the name is up to 120 characters and the task up to 64 KB".into());
     }
     safe_id(workflow)?;
-    let project = workflow_project(root, workflow).ok_or("no such workflow")?;
     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?;
     let base = format!("s-{:x}", now.as_millis());
     let (mut id, mut n) = (base.clone(), 2);
@@ -652,7 +620,7 @@ pub fn create_session(root: &Path, name: &str, task: &str, workflow: &str) -> Re
         id = format!("{base}-{n}");
         n += 1;
     }
-    let session = Session { name: name.trim().into(), task: task.into(), created: now.as_secs(), status: new_status(), autonomy: ask(), workflow: workflow.into(), messages: vec![], entry: None, source: chat(), project };
+    let session = Session { name: name.trim().into(), task: task.into(), created: now.as_secs(), status: new_status(), autonomy: ask(), workflow: workflow.into(), messages: vec![], entry: None, source: chat(), project: None };
     write_json(&session_path(root, &id)?, &session)?;
     Ok(id)
 }
@@ -735,10 +703,22 @@ pub fn set_session_workflow(root: &Path, sid: &str, workflow: &str) -> Result<()
     if session.status != "new" {
         return Err("the workflow cannot change once the session has started".into());
     }
-    if workflow_project(root, workflow).as_deref() != Some(session.project.as_str()) {
-        return Err("no such workflow in this project".into());
+    if stored(root, workflow).is_none() {
+        return Err("no such workflow".into());
     }
     session.workflow = workflow.into();
+    write_json(&session_path(root, sid)?, &session)
+}
+
+/// Puts a session in a project (`None` takes it out). The project's prompt is read when a turn starts.
+pub fn set_session_project(root: &Path, sid: &str, project: Option<&str>) -> Result<(), String> {
+    let mut session = read_session(root, sid)?;
+    if let Some(p) = project
+        && !crate::projects::exists(root, p)
+    {
+        return Err("no such project".into());
+    }
+    session.project = project.map(String::from);
     write_json(&session_path(root, sid)?, &session)
 }
 
@@ -755,17 +735,12 @@ pub fn root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     app.path().app_data_dir().map_err(|e| e.to_string())
 }
 
-/// The demo project with the standard workflow in it. Existing ones are left alone, unless `reset`
-/// (then the demo ones are written again; other projects and workflows are not touched).
-pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
+/// The standard workflow, if there is no workflow yet (ones the user made are left alone).
+pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
     let root = root(app)?;
-    let (pid, project) = crate::demo::project();
-    if reset || !crate::projects::exists(&root, &pid) {
-        crate::projects::write(&root, &pid, &project)?;
-    }
-    let demo = crate::demo::workflow();
-    if workflow_project(&root, &demo.id).is_none_or(|p| p == pid && reset) {
-        save_workflow(&root, &demo.id, &pid, &demo.name, &demo.workflow, &Instructions::default())?;
+    if workflows(&root).is_empty() {
+        let demo = crate::demo::workflow();
+        save_workflow(&root, &demo.id, &demo.name, &demo.workflow, &Instructions::default())?;
     }
     Ok(())
 }
@@ -787,8 +762,8 @@ fn view(app: &tauri::AppHandle, id: String, name: String, wf: Workflow, system_p
 }
 
 #[tauri::command]
-pub fn workflows_list(app: tauri::AppHandle, project: Option<String>) -> Result<Vec<WorkflowEntry>, String> {
-    Ok(workflows(&root(&app)?, project.as_deref()))
+pub fn workflows_list(app: tauri::AppHandle) -> Result<Vec<WorkflowEntry>, String> {
+    Ok(workflows(&root(&app)?))
 }
 
 #[tauri::command]
@@ -801,15 +776,9 @@ pub fn workflow_get(app: tauri::AppHandle, id: String) -> Result<WorkflowView, S
 
 /// Saves a workflow (an empty `id` creates one); returns it with its (soft) problems.
 #[tauri::command]
-pub fn workflow_save(app: tauri::AppHandle, id: String, project: String, name: String, workflow: Workflow, system_prompt: String) -> Result<WorkflowView, String> {
-    let id = save_workflow(&root(&app)?, &id, &project, &name, &workflow, &Instructions { system_prompt: system_prompt.clone() })?;
+pub fn workflow_save(app: tauri::AppHandle, id: String, name: String, workflow: Workflow, system_prompt: String) -> Result<WorkflowView, String> {
+    let id = save_workflow(&root(&app)?, &id, &name, &workflow, &Instructions { system_prompt: system_prompt.clone() })?;
     view(&app, id, name.trim().into(), workflow, system_prompt)
-}
-
-/// Copies a workflow into another (or the same) project.
-#[tauri::command]
-pub fn workflow_copy(app: tauri::AppHandle, id: String, project: String) -> Result<String, String> {
-    copy_workflow(&root(&app)?, &id, &project)
 }
 
 #[tauri::command]
@@ -829,13 +798,23 @@ pub fn sessions_list(app: tauri::AppHandle) -> Result<Vec<SessionEntry>, String>
 }
 
 #[tauri::command]
-pub fn sessions_create(app: tauri::AppHandle, project: String, workflow: Option<String>) -> Result<String, String> {
+pub fn sessions_create(app: tauri::AppHandle, workflow: Option<String>, project: Option<String>) -> Result<String, String> {
     let root = root(&app)?;
     let workflow = match workflow {
         Some(w) => w,
-        None => workflows(&root, Some(&project)).into_iter().next().map(|w| w.id).ok_or("this project has no workflow: add one first")?,
+        None => workflows(&root).into_iter().next().map(|w| w.id).ok_or("there is no workflow")?,
     };
-    create_session(&root, "", "", &workflow)
+    let sid = create_session(&root, "", "", &workflow)?;
+    if project.is_some() {
+        set_session_project(&root, &sid, project.as_deref())?;
+    }
+    Ok(sid)
+}
+
+/// Moves a session into a project, or out of any (`None`).
+#[tauri::command]
+pub fn sessions_project(app: tauri::AppHandle, id: String, project: Option<String>) -> Result<(), String> {
+    set_session_project(&root(&app)?, &id, project.as_deref())
 }
 
 /// Picks the workflow of a session that has not started.
@@ -870,11 +849,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
-    }
-
-    /// A new project in `root`.
-    fn proj(root: &Path) -> String {
-        crate::projects::save(root, None, &crate::projects::Project { name: "P".into(), ..Default::default() }).unwrap()
     }
 
     fn profiles() -> Vec<String> {
@@ -1046,11 +1020,11 @@ mod tests {
         let mut wf = standard_workflow();
         wf.nodes.push(Node { kind: NodeKind::Webhook, profile: String::new(), ..n("hook") });
         wf.edges.push(Edge { id: "h".into(), from: "hook".into(), to: "orch".into(), kind: EdgeKind::Delegate });
-        let id = save_workflow(&root, "", &proj(&root), "W", &wf, &Instructions::default()).unwrap();
+        let id = save_workflow(&root, "", "W", &wf, &Instructions::default()).unwrap();
         let token = workflow(&root, &id).nodes.iter().find(|n| n.id == "hook").unwrap().trigger.token.clone();
         assert_eq!(token.len(), 32);
         let saved = workflow(&root, &id);
-        save_workflow(&root, &id, "", "W", &saved, &Instructions::default()).unwrap();
+        save_workflow(&root, &id, "W", &saved, &Instructions::default()).unwrap();
         assert_eq!(workflow(&root, &id).nodes.iter().find(|n| n.id == "hook").unwrap().trigger.token, token);
         assert_ne!(new_token(), new_token());
     }
@@ -1065,19 +1039,17 @@ mod tests {
     #[test]
     fn workflow_and_sessions_roundtrip() {
         let root = tmp("rt");
-        let p1 = proj(&root);
-        let p2 = proj(&root);
         assert!(workflow(&root, "main").nodes.is_empty());
         let ins = Instructions { system_prompt: "be brief".into() };
-        let id = save_workflow(&root, "", &p1, "Main", &standard_workflow(), &ins).unwrap();
+        let id = save_workflow(&root, "", "Main", &standard_workflow(), &ins).unwrap();
         assert_eq!(workflow(&root, &id), standard_workflow());
         assert_eq!(instructions(&root, &id), ins);
-        assert!(save_workflow(&root, &id, "", "Main", &Workflow { nodes: vec![n("a"), n("a")], edges: vec![] }, &ins).is_err());
+        assert!(save_workflow(&root, &id, "Main", &Workflow { nodes: vec![n("a"), n("a")], edges: vec![] }, &ins).is_err());
         assert_eq!(workflow(&root, &id), standard_workflow(), "a refused save changes nothing");
-        let other = save_workflow(&root, "", &p1, "Other", &standard_workflow(), &ins).unwrap();
+        let other = save_workflow(&root, "", "Other", &standard_workflow(), &ins).unwrap();
         assert_ne!(id, other);
-        assert_eq!(workflows(&root, Some(&p1)).iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), ["Main", "Other"]);
-        assert!(save_workflow(&root, &id, "", " ", &standard_workflow(), &ins).is_err());
+        assert_eq!(workflows(&root).iter().map(|w| w.name.as_str()).collect::<Vec<_>>(), ["Main", "Other"]);
+        assert!(save_workflow(&root, &id, " ", &standard_workflow(), &ins).is_err());
 
         let s1 = create_session(&root, "first", "do it", &id).unwrap();
         let s2 = create_session(&root, "", "", &id).unwrap();
@@ -1100,20 +1072,5 @@ mod tests {
         delete_workflow(&root, &other).unwrap();
         assert_eq!(sessions(&root).len(), 1);
         assert!(read_session(&root, "../x").is_err());
-
-        // a workflow belongs to one project; a session takes its project from its workflow and cannot use another project's
-        assert_eq!(read_session(&root, &s2).unwrap().project, p1);
-        let foreign = save_workflow(&root, "", &p2, "Foreign", &standard_workflow(), &ins).unwrap();
-        assert_eq!(workflow_project(&root, &foreign).as_deref(), Some(p2.as_str()));
-        assert!(create_session(&root, "", "", "nope").is_err());
-        let s4 = create_session(&root, "", "", &foreign).unwrap();
-        assert_eq!(read_session(&root, &s4).unwrap().project, p2);
-        assert!(set_session_workflow(&root, &s4, &foreign).is_ok());
-        assert!(set_session_workflow(&root, &s4, &id).is_err(), "another project's workflow");
-        assert!(save_workflow(&root, "", "nope", "X", &standard_workflow(), &ins).is_err(), "unknown project");
-        let copy = copy_workflow(&root, &foreign, &p1).unwrap();
-        assert_eq!(workflow_project(&root, &copy).as_deref(), Some(p1.as_str()));
-        assert_eq!(workflows(&root, Some(&p1)).len(), 2);
-        assert_eq!(workflows(&root, None).len(), 3);
     }
 }

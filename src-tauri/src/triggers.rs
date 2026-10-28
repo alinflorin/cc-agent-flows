@@ -25,7 +25,7 @@ pub struct Found {
 
 pub fn find_all(root: &std::path::Path, kind: NodeKind) -> Vec<Found> {
     let mut out = vec![];
-    for w in workflow::workflows(root, None) {
+    for w in workflow::workflows(root) {
         let wf = workflow::workflow(root, &w.id);
         for n in wf.nodes.iter().filter(|n| n.kind == kind) {
             if let Some(t) = wf.trigger_target(&n.id) {

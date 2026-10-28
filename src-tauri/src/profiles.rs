@@ -263,7 +263,7 @@ pub fn provision_defaults(app: &tauri::AppHandle, reset: bool) -> Result<(), Str
     Ok(())
 }
 
-/// First-start setup the user accepted: the starter images (building them), profiles, secrets, and the demo project with its workflow.
+/// First-start setup the user accepted: the starter images (building them), profiles, secrets and workflow.
 #[tauri::command]
 pub fn provision_starters(app: tauri::AppHandle) -> Result<(), String> {
     crate::images::provision_defaults(&app, false)?;
@@ -271,7 +271,7 @@ pub fn provision_starters(app: tauri::AppHandle) -> Result<(), String> {
     crate::secrets::provision_demo(&app, false)?;
     crate::variables::provision_demo(&app, false)?;
     crate::injections::provision_demo(&app, false)?;
-    crate::workflow::provision_demo(&app, false)
+    crate::workflow::provision_defaults(&app)
 }
 
 /// Page Agent profiles > Reset to demo content.

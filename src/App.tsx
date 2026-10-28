@@ -29,10 +29,10 @@ const router = createHashRouter([
     element: <Layout />,
     children: [
       { path: "/", element: <Home /> },
+      { path: "/workflow", element: <Workflow /> },
       { path: "/projects", element: <Projects /> },
-      { path: "/projects/:pid/sessions", element: <Sessions /> },
-      { path: "/projects/:pid/sessions/:sid", element: <SessionView /> },
-      { path: "/projects/:pid/workflows", element: <Workflow /> },
+      { path: "/sessions", element: <Sessions /> },
+      { path: "/sessions/:sid", element: <SessionView /> },
       { path: "/analytics", element: <Analytics /> },
       { path: "/runs", element: <Runs /> },
       { path: "/profiles", element: <Profiles /> },

@@ -22,11 +22,6 @@ import {
   Caption1,
   Field,
   Input,
-  Menu,
-  MenuItem,
-  MenuList,
-  MenuPopover,
-  MenuTrigger,
   MessageBar,
   MessageBarBody,
   Select,
@@ -166,7 +161,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   return invoke<T>(cmd, args);
 }
 
-function Editor({ id, project, onSaved }: { id: string; project: string; onSaved: (id: string) => void }) {
+function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) {
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
@@ -290,7 +285,7 @@ function Editor({ id, project, onSaved }: { id: string; project: string; onSaved
       edges: edges.map((e) => ({ id: e.id, from: e.source, to: e.target, kind: e.data?.kind ?? "delegate" })),
     };
     try {
-      const v = await call<View>("workflow_save", { id, project, name, workflow, systemPrompt: instructions });
+      const v = await call<View>("workflow_save", { id, name, workflow, systemPrompt: instructions });
       setProblems(v.problems);
       setDirty(false);
       notify(t("wf.saved"), "success");
@@ -591,7 +586,7 @@ function Editor({ id, project, onSaved }: { id: string; project: string; onSaved
   );
 }
 
-export function WorkflowEditor({ project }: { project: string }) {
+export function WorkflowEditor() {
   const { t } = useTranslation();
   const notify = useNotify();
   const [list, setList] = useState<Entry[] | null>(null);
@@ -600,33 +595,18 @@ export function WorkflowEditor({ project }: { project: string }) {
   const refresh = useCallback(
     async (select?: string) => {
       try {
-        const l = await call<Entry[]>("workflows_list", { project });
+        const l = await call<Entry[]>("workflows_list");
         setList(l);
         setId((cur) => (select !== undefined ? select : l.some((w) => w.id === cur) ? cur : (l[0]?.id ?? "")));
       } catch (e) {
         notify(String(e), "error");
       }
     },
-    [notify, project],
+    [notify],
   );
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  const [others, setOthers] = useState<{ id: string; name: string }[]>([]);
-  useEffect(() => {
-    void call<{ id: string; name: string }[]>("projects_list").then((l) => setOthers(l), () => setOthers([]));
-  }, [project]);
-
-  const copyTo = async (to: string) => {
-    try {
-      const copy = await call<string>("workflow_copy", { id, project: to });
-      notify(t("wf.copied"), "success");
-      if (to === project) await refresh(copy);
-    } catch (e) {
-      notify(String(e), "error");
-    }
-  };
 
   const remove = async () => {
     try {
@@ -654,27 +634,11 @@ export function WorkflowEditor({ project }: { project: string }) {
         <Button icon={<Add20Regular />} disabled={!id} onClick={() => setId("")}>
           {t("wf.new")}
         </Button>
-        <Menu>
-          <MenuTrigger disableButtonEnhancement>
-            <Button icon={<Copy20Regular />} disabled={!id}>
-              {t("wf.copyTo")}
-            </Button>
-          </MenuTrigger>
-          <MenuPopover>
-            <MenuList>
-              {others.map((p) => (
-                <MenuItem key={p.id} onClick={() => void copyTo(p.id)}>
-                  {p.name}
-                </MenuItem>
-              ))}
-            </MenuList>
-          </MenuPopover>
-        </Menu>
         <Button icon={<Delete20Regular />} disabled={!id} onClick={remove}>
           {t("wf.delete")}
         </Button>
       </div>
-      <Editor key={`${project}/${id || "new"}`} id={id} project={project} onSaved={(saved) => void refresh(saved)} />
+      <Editor key={id || "new"} id={id} onSaved={(saved) => void refresh(saved)} />
     </ReactFlowProvider>
   );
 }
