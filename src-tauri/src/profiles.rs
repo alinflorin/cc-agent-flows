@@ -338,12 +338,17 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
                 "project-manager" | "business-analyst" => "manager".into(),
                 _ => "base".into(),
             },
-            // the developer tools (git, npm, pip) need their registries once the network is sealed
-            allow_hosts: match id {
-                "developer" | "architect" | "reviewer" | "qa" => {
-                    ["github.com", "*.githubusercontent.com", "registry.npmjs.org", "pypi.org", "files.pythonhosted.org"].map(String::from).to_vec()
+            // the developer tools (git, npm, pip) need their registries once the network is sealed; everyone who reads
+            // Jira attachments (`jtk`) is redirected to Atlassian's media host for the file itself
+            allow_hosts: {
+                let mut hosts: Vec<&str> = vec![];
+                if matches!(id, "developer" | "architect" | "reviewer" | "qa") {
+                    hosts.extend(["github.com", "*.githubusercontent.com", "registry.npmjs.org", "pypi.org", "files.pythonhosted.org"]);
                 }
-                _ => vec![],
+                if matches!(id, "project-manager" | "business-analyst" | "architect" | "developer" | "reviewer" | "qa") {
+                    hosts.push("api.media.atlassian.com");
+                }
+                hosts.into_iter().map(String::from).collect()
             },
         };
         save(&dir, Some(id), &profile)?;
