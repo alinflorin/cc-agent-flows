@@ -257,7 +257,7 @@ fn demo_env(id: &str) -> Vec<EnvVar> {
         "architect" | "reviewer" | "qa" => Some("GITHUB_READONLY"),
         _ => None,
     };
-    let atlassian = matches!(id, "project-manager" | "delivery-lead" | "business-analyst" | "architect" | "developer" | "reviewer" | "qa");
+    let atlassian = matches!(id, "project-manager" | "business-analyst" | "architect" | "developer" | "reviewer" | "qa");
     let mut env = vec![];
     if let Some(g) = github {
         env.push(var("GH_TOKEN", g));
@@ -282,14 +282,8 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
         (
             "project-manager",
             "Project manager",
-            "Breaks a request into work items and sees each one through.",
-            "You are a project manager. You turn a request into work items, fetch them from the tracker if the request refers to one, and see each one through, one at a time, by handing it to the agent that delivers it. You keep track of what is done, blocked and left, and you report briefly and concretely. You do not write code.",
-        ),
-        (
-            "delivery-lead",
-            "Delivery lead",
-            "Delivers one work item end to end by coordinating analyst, architect, developer, reviewer and tester.",
-            "You deliver one work item from start to finish by coordinating specialists. You do not write code yourself. You give each specialist everything it needs, because it knows nothing else; you pass identifiers (branch, pull request, build) from one to the next; when a specialist reports a problem you decide whether to send the work back, go on or give up, and you report the outcome plainly.",
+            "Breaks a request into work items and coordinates the team that delivers each one.",
+            "You are a project manager. You turn a request into work items, fetch them from the tracker if the request refers to one, and see each one through, one at a time, by coordinating specialists (business analyst, architect, developer, reviewer, tester). You do not write code yourself. You give each specialist everything it needs, because it knows nothing else; you pass identifiers (branch, pull request, build) from one to the next; when a specialist reports a problem you decide whether to send the work back, go on or give up. You keep track of what is done, blocked and left, and you report briefly and concretely.",
         ),
         (
             "business-analyst",
@@ -319,7 +313,7 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
             "qa",
             "Manual QA",
             "Tests an app by hand in a headless browser.",
-            "You are a manual QA tester. Exercise the application the way a user would, using playwright-cli (a headless Chromium): follow the scenarios you are given, try edge cases and bad input, and check what you see against what is expected. Report each problem with the steps to reproduce it, what you expected and what happened. Do not change the code under test.",
+            "You are a manual QA tester. Exercise the application the way a user would, using agent-browser (a headless Chromium; run `agent-browser --help` for its commands): follow the scenarios you are given, try edge cases and bad input, and check what you see against what is expected. Report each problem with the steps to reproduce it, what you expected and what happened. Do not change the code under test.",
         ),
     ];
     for (id, name, description, prompt) in starters {
@@ -339,6 +333,7 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
             image: match id {
                 "qa" => "qa".into(),
                 "developer" | "architect" | "reviewer" => "developer".into(),
+                "project-manager" | "business-analyst" => "manager".into(),
                 _ => "base".into(),
             },
             // the developer tools (git, npm, pip) need their registries once the network is sealed
@@ -416,9 +411,9 @@ mod tests {
         assert_eq!(value("developer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB}"));
         assert_eq!(value("reviewer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB_READONLY}"));
         assert_eq!(value("architect", "JIRA_API_TOKEN").as_deref(), Some("${injection:JIRA}"));
-        assert_eq!(value("delivery-lead", "JIRA_API_TOKEN").as_deref(), Some("${injection:JIRA}"));
+        assert_eq!(value("project-manager", "JIRA_API_TOKEN").as_deref(), Some("${injection:JIRA}"));
         assert!(demo_env("orchestrator").is_empty());
-        for id in ["orchestrator", "project-manager", "delivery-lead", "business-analyst", "architect", "developer", "reviewer", "qa"] {
+        for id in ["orchestrator", "project-manager", "business-analyst", "architect", "developer", "reviewer", "qa"] {
             assert!(validate_env(demo_env(id).iter().map(|v| (v.name.as_str(), Some(v.value.as_str())))).is_ok(), "{id}");
         }
     }

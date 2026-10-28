@@ -360,9 +360,9 @@ impl Workflow {
 }
 
 /// The standard delivery workflow, as an org chart: the orchestrator takes the request to the
-/// project manager, who goes through the work items one by one, handing each to the delivery lead,
-/// who has the business analyst, architect, developer, reviewer and tester do it, in that order
-/// (the dashed arrows; the engine holds the lead to it). Only the root reaches the user: the others'
+/// project manager, who goes through the work items one by one and has the business analyst,
+/// architect, developer, reviewer and tester do each, in that order (the dashed arrows; the engine
+/// holds the project manager to it). Only the root reaches the user: the others'
 /// questions go up the chain (add a user node to give an agent a direct line). How often and in
 /// which loops is up to the agents, as their prompts say.
 pub fn standard_workflow() -> Workflow {
@@ -375,17 +375,16 @@ pub fn standard_workflow() -> Workflow {
     }
     let mut nodes = vec![
         node("orch", "Orchestrator", 0, 200, "orchestrator", "You receive the user's request. Restate it precisely, with its goal and what done means, and hand it to the project manager. When the project manager reports back, check the report against the request and finish with a short summary for the user: what was delivered and what was not."),
-        node("pm", "Project manager", 280, 200, "project-manager", "Turn the request into work items. If it refers to a list of items (tickets, tasks), fetch the list yourself and go through the items one at a time: hand each to the delivery lead and wait for its report before the next. Keep your progress in your notes (items done, blocked, remaining). Finish with a summary per item."),
-        node("lead", "Delivery lead", 560, 200, "delivery-lead", "Deliver one work item from start to finish, going through the specialists in order: the business analyst writes the requirements, the architect designs the change, the developer implements it in a branch and opens a pull request, the reviewer reviews it, the tester verifies the result once it is deployed. While the reviewer asks for changes, send the developer back, then the reviewer again; when the pull request is approved, have the developer merge it before the tester starts. Give each agent everything it needs (item id, links, branch, pull request number): it knows only what you tell it. Finish with a short report: delivered, or blocked and why."),
-        node("ba", "Business analyst", 880, 0, "business-analyst", "Write testable requirements for the item you are given: user stories with acceptance criteria and the edge cases."),
-        node("arch", "Architect", 880, 100, "architect", "Design the change for the item you are given: which parts of the code change and how, risks, and the order of the work. Do not write code."),
-        node("dev", "Developer", 880, 200, "developer", "Implement what you are asked in the repository: work in a feature branch, run the tests, open a pull request and wait for its checks. When asked to, address review comments, and merge when the pull request is approved."),
-        node("rev", "Reviewer", 880, 300, "reviewer", "Review the pull request you are given. Leave your comments on the pull request itself and report whether you approve it or ask for changes, with the list of changes."),
-        node("qa", "Tester", 880, 400, "qa", "Test the item you are given against its acceptance criteria once it is deployed (watch the build until the deployment finishes), and report what passed and what failed, with steps to reproduce."),
+        node("pm", "Project manager", 280, 200, "project-manager", "Turn the request into work items. If it refers to a list of items (tickets, tasks), fetch the list yourself and go through the items one at a time, finishing one before the next. Deliver each item by going through the specialists in order: the business analyst writes the requirements, the architect designs the change, the developer implements it in a branch and opens a pull request, the reviewer reviews it, the tester verifies the result once it is deployed. While the reviewer asks for changes, send the developer back, then the reviewer again; when the pull request is approved, have the developer merge it before the tester starts. Give each agent everything it needs (item id, links, branch, pull request number): it knows only what you tell it. Keep your progress in your notes (items done, blocked, remaining). Finish with a summary per item: delivered, or blocked and why."),
+        node("ba", "Business analyst", 560, 0, "business-analyst", "Write testable requirements for the item you are given: user stories with acceptance criteria and the edge cases."),
+        node("arch", "Architect", 560, 100, "architect", "Design the change for the item you are given: which parts of the code change and how, risks, and the order of the work. Do not write code."),
+        node("dev", "Developer", 560, 200, "developer", "Implement what you are asked in the repository: work in a feature branch, run the tests, open a pull request and wait for its checks. When asked to, address review comments, and merge when the pull request is approved."),
+        node("rev", "Reviewer", 560, 300, "reviewer", "Review the pull request you are given. Leave your comments on the pull request itself and report whether you approve it or ask for changes, with the list of changes."),
+        node("qa", "Tester", 560, 400, "qa", "Test the item you are given against its acceptance criteria once it is deployed (watch the build until the deployment finishes), and report what passed and what failed, with steps to reproduce."),
     ];
     nodes.iter_mut().for_each(|n| n.max_calls = if n.id == "orch" || n.id == "pm" { 2 } else { 4 });
-    let mut edges = vec![edge("orch", "pm", EdgeKind::Delegate), edge("pm", "lead", EdgeKind::Delegate)];
-    edges.extend(["ba", "arch", "dev", "rev", "qa"].map(|w| edge("lead", w, EdgeKind::Delegate)));
+    let mut edges = vec![edge("orch", "pm", EdgeKind::Delegate)];
+    edges.extend(["ba", "arch", "dev", "rev", "qa"].map(|w| edge("pm", w, EdgeKind::Delegate)));
     edges.extend([("ba", "arch"), ("arch", "dev"), ("dev", "rev"), ("rev", "qa")].map(|(a, b)| edge(a, b, EdgeKind::Before)));
     Workflow { nodes, edges }
 }
@@ -613,7 +612,7 @@ mod tests {
     }
 
     fn profiles() -> Vec<String> {
-        ["orchestrator", "project-manager", "delivery-lead", "business-analyst", "architect", "developer", "reviewer", "qa"].map(String::from).to_vec()
+        ["orchestrator", "project-manager", "business-analyst", "architect", "developer", "reviewer", "qa"].map(String::from).to_vec()
     }
 
     fn n(id: &str) -> Node {
@@ -638,7 +637,7 @@ mod tests {
         wf.validate().unwrap();
         assert_eq!(wf.root().unwrap().id, "orch");
         assert_eq!(wf.problems(&profiles()), vec![]);
-        assert_eq!(wf.problems(&[]).iter().filter(|p| p.code == "unknown_profile").count(), 8);
+        assert_eq!(wf.problems(&[]).iter().filter(|p| p.code == "unknown_profile").count(), 7);
     }
 
     #[test]
@@ -675,7 +674,7 @@ mod tests {
         wf.edges.push(e("dev", "lonely"));
         assert_eq!(wf.problems(&profiles()), vec![]);
         // a cycle that swallows the root leaves no root
-        wf.edges.push(e("lead", "orch"));
+        wf.edges.push(e("pm", "orch"));
         assert!(wf.problems(&profiles()).iter().any(|p| p.code == "no_root"));
         assert!(Workflow::default().problems(&[]).iter().any(|p| p.code == "empty"));
     }

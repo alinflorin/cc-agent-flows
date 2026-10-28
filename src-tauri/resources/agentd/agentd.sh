@@ -5,7 +5,7 @@
 # (src/protocol.rs). Needs busybox ash, jq, setpriv (util-linux) and setsid.
 #
 #   agentd.sh [--channel <path>] [--out <path>] [--workspace <dir>] [--claude <path>]
-#             [--ssh <path>] [--ca-bundle <path>] [--ca-file <path>] [--run-as <user>] [--poweroff]
+#             [--ssh <path>] [--ca-bundle <path>] [--ca-file <path>] [--tools-dir <dir>] [--run-as <user>] [--poweroff]
 #
 # --out is only for tests: with it the channel is split into two files (fifos). Everything
 # `claude` prints is untrusted data: wrapped by jq, truncated, never run.
@@ -18,6 +18,7 @@ CLAUDE=claude
 SSH=ssh
 CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 CA_FILE=/etc/ccaf-ca.pem
+TOOLS_DIR=/usr/share/ccaf/tools
 RUN_AS=
 POWEROFF=0
 while [ $# -gt 0 ]; do
@@ -29,6 +30,7 @@ while [ $# -gt 0 ]; do
 	--ssh) SSH=$2; shift ;;
 	--ca-bundle) CA_BUNDLE=$2; shift ;;
 	--ca-file) CA_FILE=$2; shift ;;
+	--tools-dir) TOOLS_DIR=$2; shift ;;
 	--run-as) RUN_AS=$2; shift ;;
 	--poweroff) POWEROFF=1 ;;
 	*) echo "agentd: unknown argument $1" >&2; exit 2 ;;
@@ -154,6 +156,18 @@ set -- -p "$PROMPT" --output-format stream-json --verbose --include-partial-mess
 if [ "$RESUME" = true ]; then set -- "$@" --resume "$SID"; else set -- "$@" --session-id "$SID"; fi
 [ -z "$MODEL" ] || set -- "$@" --model "$MODEL"
 [ -z "$EFFORT" ] || set -- "$@" --effort "$EFFORT"
+# The image's notes on its command-line tools (`*.md` written when it was built, see images.rs),
+# at the end of the system prompt. Capped: the prompt is an argument.
+TOOLS=$(for f in "$TOOLS_DIR"/*.md; do
+	[ -f "$f" ] && cat "$f"
+done 2>/dev/null | head -c 40000)
+if [ -n "$TOOLS" ]; then
+	SYSTEM="${SYSTEM:+$SYSTEM
+
+}# Command-line tools in this environment
+
+$TOOLS"
+fi
 [ -z "$SYSTEM" ] || set -- "$@" --append-system-prompt "$SYSTEM"
 
 # The token is exported only in the subshell that becomes `claude`, so it is in no other

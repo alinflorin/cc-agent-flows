@@ -90,7 +90,16 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
 
     /// `ssh` is a stand-in script when given.
     fn start_with(tag: &str, claude: &str, task: Task, boot: Bootstrap, ssh: Option<&str>) -> Run {
+        start_full(tag, claude, task, boot, ssh, &[])
+    }
+
+    /// `tools` are files of the image's tools directory.
+    fn start_full(tag: &str, claude: &str, task: Task, boot: Bootstrap, ssh: Option<&str>, tools: &[(&str, &str)]) -> Run {
         let dir = temp(tag);
+        std::fs::create_dir_all(dir.join("tools")).unwrap();
+        for (name, text) in tools {
+            std::fs::write(dir.join("tools").join(name), text).unwrap();
+        }
         let fake = dir.join("claude");
         executable(&fake, claude);
         let fake_ssh = dir.join("ssh");
@@ -106,6 +115,7 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
             .args(["--channel", to_agent.to_str().unwrap(), "--out", from_agent.to_str().unwrap()])
             .args(["--workspace", dir.join("work").to_str().unwrap(), "--claude", fake.to_str().unwrap(), "--ssh", fake_ssh.to_str().unwrap()])
             .args(["--ca-bundle", dir.join("bundle.crt").to_str().unwrap(), "--ca-file", dir.join("ca.pem").to_str().unwrap()])
+            .args(["--tools-dir", dir.join("tools").to_str().unwrap()])
             .spawn()
             .unwrap();
         let rx = drive(tokio::io::join(rx_pipe, tx_pipe), boot, task);
@@ -150,6 +160,35 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
         assert_eq!(fin.output.as_ref().unwrap()["summary"], "half done", "the structured answer is passed on");
         assert!(run.dir.join("work/made-by-claude.txt").is_file(), "claude ran in the workspace");
 
+        let _ = std::fs::remove_dir_all(run.dir);
+    }
+
+    /// `claude` that checks the tool notes come last in the system prompt, in file order.
+    const TOOLS_CLAUDE: &str = r#"#!/bin/sh
+while [ $# -gt 0 ]; do [ "$1" = --append-system-prompt ] && sp=$2; shift; done
+expected="be brief
+
+# Command-line tools in this environment
+
+## jira
+first
+
+## second
+second"
+[ "$sp" = "$expected" ] || { echo "bad prompt: $sp" >&2; exit 2; }
+echo '{"type":"result","is_error":false,"result":"ok","session_id":"s"}'
+"#;
+
+    #[tokio::test]
+    async fn agentd_appends_the_images_tool_notes_to_the_system_prompt() {
+        if !have_jq() {
+            eprintln!("needs jq, skipping");
+            return;
+        }
+        let tools = [("002-b.md", "## second\nsecond\n\n"), ("001-a.md", "## jira\nfirst\n\n"), ("x.txt", "not a note")];
+        let mut run = start_full("agentd-tools", TOOLS_CLAUDE, task(40), boot(), None, &tools);
+        let (_, fin) = run.finish(30).await;
+        assert_eq!(fin.status, Status::Done, "{}", fin.result);
         let _ = std::fs::remove_dir_all(run.dir);
     }
 

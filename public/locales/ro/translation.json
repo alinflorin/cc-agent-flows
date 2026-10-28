@@ -89,7 +89,14 @@
       "parent": "Bazată pe",
       "parentHint": "Imaginea peste care rulează scriptul. Reconstruirea ei face această imagine depășită.",
       "env": "Variabile de mediu",
-      "envHint": "Incluse în imagine, pentru fiecare agent care rulează pe ea (și pe imaginile construite peste ea). Sunt salvate în clar în imagine, deci nu pune secrete aici."
+      "envHint": "Incluse în imagine, pentru fiecare agent care rulează pe ea (și pe imaginile construite peste ea). Sunt salvate în clar în imagine, deci nu pune secrete aici.",
+      "docs": "Documentația uneltelor pentru system prompt",
+      "docsHint": "Se adaugă la finalul system prompt-ului fiecărui agent care rulează pe această imagine (și pe imaginile construite peste ea). O comandă se rulează o singură dată la construirea imaginii, după script, iar ce afișează se salvează (de exemplu jira --help); textul se adaugă așa cum e scris, folosește-l pentru titluri (## Jira) și sfaturi scurte. Păstrează-l scurt: se trimite la fiecare rulare.",
+      "addCommand": "Adaugă comandă",
+      "addText": "Adaugă text",
+      "docText": "Text",
+      "docCommand": "Comandă",
+      "docTextPlaceholder": "## Titlu sau câteva rânduri de sfaturi"
     },
     "network": {
       "intro": "Gazdele de internet la care toți agenții pot ajunge prin HTTPS. Un profil poate permite și altele, peste acestea. Agenții nu au alt acces la rețea.",
@@ -182,7 +189,7 @@
   },
   "welcome": {
     "title": "Bun venit",
-    "text": "Creăm conținut demo? Se creează două imagini, Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu playwright-cli), construite în fundal peste imaginea de bază, opt profiluri de agent (orchestrator, project manager, delivery lead, business analyst, arhitect, developer, reviewer, tester), șase secrete cu valoarea dummy (tokenurile GITHUB, JIRA și CONFLUENCE, fiecare cu un geamăn doar-citire) pe care le înlocuiești cu cele reale, câte o injecție pentru fiecare (GitHub, Jira, Confluence; cele Atlassian au un site și un e-mail de înlocuit) legate de profilurile care au nevoie de ele, și workflow-ul standard de delivery: orchestratorul trimite cererea ta project managerului, care parcurge elementele de lucru pe rând; pentru fiecare, delivery lead-ul pune analistul, arhitectul, developerul, reviewerul și testerul să-și facă partea. Poți modifica sau șterge totul mai târziu.",
+    "text": "Creăm conținut demo? Se creează trei imagini, construite în fundal: Manager (Jira CLI, peste imaginea de bază), apoi Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu agent-browser) peste ea, șapte profiluri de agent (orchestrator, project manager, business analyst, arhitect, developer, reviewer, tester), patru secrete cu valoarea dummy (GITHUB și GITHUB_READONLY, tokenurile JIRA și CONFLUENCE) pe care le înlocuiești cu cele reale, câte o injecție pentru fiecare (GitHub, Jira, Confluence; cele Atlassian au un site și un e-mail de înlocuit) legate de profilurile care au nevoie de ele, și workflow-ul standard de delivery: orchestratorul trimite cererea ta project managerului, care parcurge elementele de lucru pe rând și, pentru fiecare, pune analistul, arhitectul, developerul, reviewerul și testerul să-și facă partea, în această ordine. Poți modifica sau șterge totul mai târziu.",
     "yes": "Da, configurează",
     "no": "Sari peste",
     "done": "Conținutul demo a fost creat. Imaginile se construiesc.",

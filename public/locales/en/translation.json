@@ -89,7 +89,14 @@
       "parent": "Based on",
       "parentHint": "The image the script runs on. Rebuilding it makes this one out of date.",
       "env": "Environment variables",
-      "envHint": "Built into the image, for every agent that runs on it (and on images built on this one). Saved in plain text in the image, so do not put secrets here."
+      "envHint": "Built into the image, for every agent that runs on it (and on images built on this one). Saved in plain text in the image, so do not put secrets here.",
+      "docs": "Tool docs for the system prompt",
+      "docsHint": "Added to the end of the system prompt of every agent that runs on this image (and on images built on it). A command is run once when the image is built, after the script, and what it prints is saved (for example jira --help); text is added as written, use it for titles (## Jira) and short advice. Keep it short: it is sent with every run.",
+      "addCommand": "Add command",
+      "addText": "Add text",
+      "docText": "Text",
+      "docCommand": "Command",
+      "docTextPlaceholder": "## Title, or a few lines of advice"
     },
     "network": {
       "intro": "Internet hosts every agent may reach over HTTPS. A profile can allow more on top of these. Agents have no other network access.",
@@ -182,7 +189,7 @@
   },
   "welcome": {
     "title": "Welcome",
-    "text": "Set up demo content? This creates two images, Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with playwright-cli), built on the base image in the background, eight agent profiles (orchestrator, project manager, delivery lead, business analyst, architect, developer, reviewer, tester), six secrets with a dummy value (GITHUB, JIRA and CONFLUENCE tokens, each with a read-only twin) to replace with real ones, an injection for each (GitHub, Jira, Confluence; the Atlassian ones name a placeholder site and e-mail to edit) wired into the profiles that need them, and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one; for each, the delivery lead has the analyst, architect, developer, reviewer and tester do their part. You can edit or delete all of it later.",
+    "text": "Set up demo content? This creates three images built in the background, Manager (Jira CLI, on the base image), then Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with agent-browser) on top of it, seven agent profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, tester), four secrets with a dummy value (GITHUB and GITHUB_READONLY, JIRA and CONFLUENCE tokens) to replace with real ones, an injection for each (GitHub, Jira, Confluence; the Atlassian ones name a placeholder site and e-mail to edit) wired into the profiles that need them, and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one and, for each, has the analyst, architect, developer, reviewer and tester do their part, in that order. You can edit or delete all of it later.",
     "yes": "Yes, set it up",
     "no": "Skip",
     "done": "Demo content created. The images are building.",
