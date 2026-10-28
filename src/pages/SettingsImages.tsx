@@ -27,12 +27,18 @@ interface EnvVar {
   value: string;
 }
 
+interface Doc {
+  kind: "text" | "command";
+  value: string;
+}
+
 interface Image {
   id: string;
   builtin: boolean;
   name: string;
   description: string;
   script: string;
+  docs: Doc[];
   env: EnvVar[];
   state: "missing" | "queued" | "building" | "ready" | "stale";
   can_build: boolean;
@@ -49,6 +55,7 @@ interface Spec {
   parent: string;
   env: EnvVar[];
   script: string;
+  docs: Doc[];
 }
 
 const useStyles = makeStyles({
@@ -121,13 +128,15 @@ export function ImagesSettings() {
   const nameOf = (id: string) => (id === "base" ? t("settings.images.base") : (images.find((x) => x.id === id)?.name ?? id));
   const setEnv = (n: number, patch: Partial<EnvVar>) =>
     setEditing((e) => e && { ...e, spec: { ...e.spec, env: e.spec.env.map((v, j) => (j === n ? { ...v, ...patch } : v)) } });
+  const setDoc = (n: number, value: string) =>
+    setEditing((e) => e && { ...e, spec: { ...e.spec, docs: e.spec.docs.map((d, j) => (j === n ? { ...d, value } : d)) } });
   const busy = images.some((i) => i.state === "building");
 
   return (
     <>
       <div className={styles.head}>
         <Body1>{t("settings.images.intro")}</Body1>
-        <Button icon={<Add16Regular />} onClick={() => setEditing({ id: null, spec: { name: "", description: "", parent: "base", env: [], script: "" } })}>
+        <Button icon={<Add16Regular />} onClick={() => setEditing({ id: null, spec: { name: "", description: "", parent: "base", env: [], script: "", docs: [] } })}>
           {t("settings.images.new")}
         </Button>
       </div>
@@ -151,7 +160,7 @@ export function ImagesSettings() {
                     appearance="subtle"
                     icon={<Edit16Regular />}
                     aria-label={t("profiles.edit")}
-                    onClick={() => setEditing({ id: i.id, spec: { name: i.name, description: i.description, parent: i.parent ?? "base", env: i.env, script: i.script } })}
+                    onClick={() => setEditing({ id: i.id, spec: { name: i.name, description: i.description, parent: i.parent ?? "base", env: i.env, script: i.script, docs: i.docs } })}
                   />
                   <Button
                     size="small"
@@ -240,6 +249,50 @@ export function ImagesSettings() {
                       value={editing.spec.script}
                       onChange={(_, d) => setEditing({ ...editing, spec: { ...editing.spec, script: d.value } })}
                     />
+                  </Field>
+                  <Field label={t("settings.images.docs")} hint={t("settings.images.docsHint")}>
+                    <div className={styles.form}>
+                      {editing.spec.docs.map((d, n) => (
+                        <div key={n} className={styles.envRow}>
+                          <Caption1>{t(d.kind === "text" ? "settings.images.docText" : "settings.images.docCommand")}</Caption1>
+                          {d.kind === "text" ? (
+                            <Textarea
+                              className={styles.grow}
+                              rows={3}
+                              resize="vertical"
+                              placeholder={t("settings.images.docTextPlaceholder")}
+                              value={d.value}
+                              onChange={(_, x) => setDoc(n, x.value)}
+                            />
+                          ) : (
+                            <Input
+                              className={`${styles.grow} ${styles.mono}`}
+                              placeholder="jira --help"
+                              value={d.value}
+                              onChange={(_, x) => setDoc(n, x.value)}
+                            />
+                          )}
+                          <Button
+                            appearance="subtle"
+                            icon={<Delete16Regular />}
+                            aria-label={t("profiles.delete")}
+                            onClick={() => setEditing({ ...editing, spec: { ...editing.spec, docs: editing.spec.docs.filter((_, j) => j !== n) } })}
+                          />
+                        </div>
+                      ))}
+                      <div className={styles.envRow}>
+                        {(["command", "text"] as const).map((kind) => (
+                          <Button
+                            key={kind}
+                            size="small"
+                            icon={<Add16Regular />}
+                            onClick={() => setEditing({ ...editing, spec: { ...editing.spec, docs: [...editing.spec.docs, { kind, value: "" }] } })}
+                          >
+                            {t(kind === "text" ? "settings.images.addText" : "settings.images.addCommand")}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
                   </Field>
                 </>
               )}

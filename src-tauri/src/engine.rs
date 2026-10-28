@@ -1422,7 +1422,7 @@ mod tests {
     #[test]
     fn decisions_are_checked_against_the_options() {
         let wf = standard_workflow();
-        let opts = options(&wf, "lead");
+        let opts = options(&wf, "pm");
         assert_eq!(opts.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), ["ba", "arch", "dev", "rev", "qa"]);
         let ok = parse_decision(Some(&json!({"action": "delegate", "calls": [{"to": "Developer", "instructions": "x"}], "notes": "n"})), &opts, &["arch".to_string()].into()).unwrap();
         assert!(matches!(&ok.action, Action::Delegate(c) if c[0].0.id == "dev"));

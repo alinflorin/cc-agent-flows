@@ -34,8 +34,52 @@ pub struct EnvVar {
 /// `export` lines for `/etc/conf.d/agentd`: OpenRC sources that file when it starts the service,
 /// so agentd and the `claude` it runs inherit the variables. Appended to what the parent image
 /// has, so a later definition wins.
+fn sh_quote(v: &str) -> String {
+    format!("'{}'", v.replace('\'', "'\\''"))
+}
+
 fn env_lines(env: &[EnvVar]) -> String {
-    env.iter().map(|v| format!("export {}='{}'\n", v.name, v.value.replace('\'', "'\\''"))).collect()
+    env.iter().map(|v| format!("export {}={}\n", v.name, sh_quote(&v.value))).collect()
+}
+
+/// The shell script that writes an image's docs file under `dir`: text as is, a command as
+/// `$ command` and its output (stdout and stderr, a failing command does not stop the build) in a
+/// code block. The values are quoted, nothing in them is interpreted by this script itself.
+fn docs_script(dir: &str, id: &str, docs: &[Doc]) -> String {
+    let mut out = format!("d={}\nmkdir -p \"$d\"\nn=$(ls \"$d\" | wc -l)\nf=\"$d/$(printf %03d $((n + 1)))-{id}.md\"\n: >\"$f\"\n", sh_quote(dir));
+    for doc in docs {
+        match doc.kind {
+            DocKind::Text => out += &format!("printf '%s\\n\\n' {} >>\"$f\"\n", sh_quote(doc.value.trim())),
+            DocKind::Command => {
+                let cmd = doc.value.trim();
+                out += &format!(
+                    "{{ printf '```\\n$ %s\\n' {q}; NO_COLOR=1 sh -c {q} </dev/null 2>&1 || true; printf '```\\n\\n'; }} >>\"$f\"\n",
+                    q = sh_quote(cmd)
+                );
+            }
+        }
+    }
+    out
+}
+
+/// Where the docs of an image's tools are written inside it, one `NNN-<image>.md` per image
+/// (numbered in build order, so a parent's come first); `agentd` appends them to the system prompt.
+const DOCS_DIR: &str = "/usr/share/ccaf/tools";
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DocKind {
+    /// Written as is: a title, a few lines of advice.
+    Text,
+    /// Run in the builder VM after the script; what it prints (`jira --help`) is written.
+    Command,
+}
+
+/// One piece of the system prompt appendix about the image's command-line tools.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Doc {
+    pub kind: DocKind,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -52,6 +96,9 @@ pub struct Spec {
     /// Shell script (busybox ash) run as root in the builder VM, on top of the parent.
     #[serde(default)]
     pub script: String,
+    /// The appendix to the system prompt of agents running on this image (and on images built on it).
+    #[serde(default)]
+    pub docs: Vec<Doc>,
 }
 
 fn base_id() -> String {
@@ -83,6 +130,12 @@ impl Spec {
         }
         if self.script.len() > 256 * 1024 {
             return Err("the script is too large".into());
+        }
+        if self.docs.len() > 100 || self.docs.iter().map(|d| d.value.len()).sum::<usize>() > 64 * 1024 {
+            return Err("too many documentation entries".into());
+        }
+        if self.docs.iter().any(|d| d.value.trim().is_empty()) {
+            return Err("a documentation entry is empty".into());
         }
         crate::profiles::validate_env(self.env.iter().map(|v| (v.name.as_str(), Some(v.value.as_str()))))?;
         if self.parent.is_empty() {
@@ -120,6 +173,7 @@ pub struct Info {
     name: String,
     description: String,
     script: String,
+    docs: Vec<Doc>,
     env: Vec<EnvVar>,
     /// `missing`, `queued`, `building`, `ready` or `stale`.
     state: &'static str,
@@ -195,6 +249,11 @@ fn wanted_stamp(app: &AppHandle, spec: Option<&Spec>) -> Result<String, String> 
             h.update(env_lines(&spec.env).as_bytes());
             h.update([0]);
             h.update(spec.script.as_bytes());
+            if !spec.docs.is_empty() {
+                // only when there are some, so images without docs keep their stamp
+                h.update([0]);
+                h.update(docs_script(DOCS_DIR, "", &spec.docs).as_bytes());
+            }
             Ok(hex(&h.finalize()))
         }
     }
@@ -246,9 +305,9 @@ fn info(app: &AppHandle, id: &str, spec: Option<&Spec>) -> Info {
     } else if g.queue.iter().any(|q| q == id) {
         state = "queued";
     }
-    let (name, description, script, env) = match spec {
-        Some(s) => (s.name.clone(), s.description.clone(), s.script.clone(), s.env.clone()),
-        None => ("Base".into(), "Alpine with agentd, Claude Code and ripgrep".into(), String::new(), vec![]),
+    let (name, description, script, docs, env) = match spec {
+        Some(s) => (s.name.clone(), s.description.clone(), s.script.clone(), s.docs.clone(), s.env.clone()),
+        None => ("Base".into(), "Alpine with agentd, Claude Code and ripgrep".into(), String::new(), vec![], vec![]),
     };
     Info {
         can_build: spec.is_none_or(|s| path(app, &s.parent).is_some()),
@@ -258,6 +317,7 @@ fn info(app: &AppHandle, id: &str, spec: Option<&Spec>) -> Info {
         name,
         description,
         script,
+        docs,
         env,
         state,
         built_at,
@@ -360,30 +420,60 @@ pub fn ensure_base(app: &AppHandle) {
 
 /// The images offered on first start (`developer`, `qa`): id and spec, scripts in `default-images/`.
 fn defaults() -> Vec<(&'static str, Spec)> {
-    let spec = |name: &str, description: &str, env: &[(&str, &str)], script: &str| Spec {
+    let text = |t: &str| Doc { kind: DocKind::Text, value: t.into() };
+    let cmd = |c: &str| Doc { kind: DocKind::Command, value: c.into() };
+    let spec = |name: &str, description: &str, parent: &str, env: &[(&str, &str)], script: &str, docs: Vec<Doc>| Spec {
         name: name.into(),
         description: description.into(),
-        parent: base_id(),
+        parent: parent.into(),
         env: env.iter().map(|(n, v)| EnvVar { name: n.to_string(), value: v.to_string() }).collect(),
         script: script.into(),
+        docs,
     };
     vec![
+        (
+            "manager",
+            spec(
+                "Manager",
+                "Jira CLI on the base image, for agents that plan and coordinate; the other starter images build on it.",
+                BASE,
+                &[],
+                include_str!("../default-images/manager.sh"),
+                vec![
+                    text("## Jira\n\nThe `jira` CLI (jira-cli) is installed and authenticated through the environment; never log in or print the token. Add `--plain` for readable output (or `--raw` for JSON) and `--no-input` to avoid interactive prompts. If a command fails because of access or configuration, report it instead of working around it."),
+                    cmd("jira --help"),
+                    cmd("jira issue --help"),
+                    cmd("jira issue list --help"),
+                    cmd("jira issue view --help"),
+                    cmd("jira issue create --help"),
+                    cmd("jira issue move --help"),
+                    cmd("jira issue comment add --help"),
+                ],
+            ),
+        ),
         (
             "developer",
             spec(
                 "Developer",
                 "Git, GitHub CLI, Python and Node.js, for agents that write code.",
+                "manager",
                 &[],
                 include_str!("../default-images/developer.sh"),
+                vec![],
             ),
         ),
         (
             "qa",
             spec(
                 "Manual QA",
-                "Headless Chromium and playwright-cli, for agents that test an app by hand in a browser.",
-                &[("PLAYWRIGHT_MCP_CONFIG", "/etc/playwright-cli.json")],
+                "Headless Chromium and agent-browser, for agents that test an app by hand in a browser.",
+                "manager",
+                &[("AGENT_BROWSER_EXECUTABLE_PATH", "/usr/bin/chromium"), ("AGENT_BROWSER_ARGS", "--no-sandbox,--disable-dev-shm-usage")],
                 include_str!("../default-images/qa.sh"),
+                vec![
+                    text("## Browser\n\n`agent-browser` drives a headless Chromium; a background daemon keeps the page between commands. Take a new `snapshot -i` after every page change, element refs (`@e3`) go stale."),
+                    cmd("agent-browser --help"),
+                ],
             ),
         ),
     ]
@@ -540,6 +630,14 @@ async fn build_in(app: &AppHandle, id: &str, spec: Option<&Spec>, source: &Path,
     if code != 0 {
         return Err(format!("the script failed (exit {code}), see the log"));
     }
+    if let Some(spec) = spec.filter(|s| !s.docs.is_empty()) {
+        con.put("/tmp/setup/docs.sh", docs_script(DOCS_DIR, id, &spec.docs).as_bytes()).await?;
+        say("writing the tool docs");
+        let code = within(300, "the tool docs", con.run("sh /tmp/setup/docs.sh", |l| say(l))).await?;
+        if code != 0 {
+            return Err(format!("writing the tool docs failed (exit {code})"));
+        }
+    }
     // Same tidy-up for every image: leave nothing behind and give back the free space.
     con.run("rm -rf /tmp/setup; apk cache clean >/dev/null 2>&1; fstrim / ; sync", |_| {}).await?;
 
@@ -618,13 +716,31 @@ mod tests {
     use super::*;
 
     fn spec(parent: &str) -> Spec {
-        Spec { name: "x".into(), description: String::new(), parent: parent.into(), env: vec![], script: String::new() }
+        Spec { name: "x".into(), description: String::new(), parent: parent.into(), env: vec![], script: String::new(), docs: vec![] }
     }
 
     #[test]
     fn env_lines_are_shell_quoted() {
         let env = vec![EnvVar { name: "A".into(), value: "it's a \"b\" $c".into() }];
         assert_eq!(env_lines(&env), "export A='it'\\''s a \"b\" $c'\n");
+    }
+
+    #[test]
+    fn docs_script_writes_text_and_command_output() {
+        let dir = std::env::temp_dir().join(format!("ccaf-docs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("001-parent.md"), "x").unwrap();
+        let docs = vec![
+            Doc { kind: DocKind::Text, value: "## Tool\n\nit's \"quoted\" $HOME".into() },
+            Doc { kind: DocKind::Command, value: "echo it\\'s out; echo err >&2; exit 3".into() },
+        ];
+        let script = docs_script(dir.to_str().unwrap(), "mine", &docs);
+        let out = std::process::Command::new("sh").arg("-c").arg(&script).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let text = std::fs::read_to_string(dir.join("002-mine.md")).unwrap();
+        assert_eq!(text, "## Tool\n\nit's \"quoted\" $HOME\n\n```\n$ echo it\\'s out; echo err >&2; exit 3\nit's out\nerr\n```\n\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
