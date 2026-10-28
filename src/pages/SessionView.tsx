@@ -345,9 +345,6 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
       nodeTypes={nodeTypes}
       nodesDraggable={false}
       nodesConnectable={false}
-      // the wheel moves the graph (the page is scrolled elsewhere); zoom is ctrl/cmd + wheel or the controls
-      panOnScroll
-      zoomOnScroll={false}
       zoomOnDoubleClick={false}
       minZoom={0.2}
       onNodeClick={(_, n) => onPick(n.id)}
