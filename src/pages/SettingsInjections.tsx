@@ -57,7 +57,7 @@ const useStyles = makeStyles({
   introActions: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS },
   list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM, marginTop: tokens.spacingVerticalL },
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM },
-  row: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-start" },
+  row: { marginTop: "auto", display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-start" },
   grow: { flex: 1, minWidth: 0 },
   rule: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) 108px auto", gap: tokens.spacingHorizontalS, alignItems: "start" },
   mono: { fontFamily: tokens.fontFamilyMonospace },
@@ -139,7 +139,7 @@ export function InjectionsSettings() {
       {desktop && list.length === 0 && <Caption1 block style={{ marginTop: 16 }}>{t("settings.injections.empty")}</Caption1>}
       <div className={styles.list}>
         {list.map((x, i) => (
-          <Card key={x.name}>
+          <Card key={x.name} style={{ height: "100%" }}>
             <CardHeader
               header={<Body1 className={styles.mono}>{`\${injection:${x.name}}`}</Body1>}
               description={<Caption1>{x.rules.map((r) => r.host + (r.path || "")).join(", ")}</Caption1>}

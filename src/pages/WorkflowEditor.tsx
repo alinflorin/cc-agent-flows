@@ -109,12 +109,16 @@ function AgentNodeView({ data, selected }: NodeProps<ANode>) {
   return (
     <div className={cls.join(" ")}>
       <Handle type="target" position={Position.Left} />
+      {!human && <Handle type="target" id="order-in" position={Position.Top} style={{ width: 8, height: 8, background: "#fff", border: "1.5px solid #888" }} />}
       <Body1 block>
         <b>{human ? `👤 ${data.label || t("wf.kind.you")}` : data.label || data.profileName || data.agent.profile}</b>
       </Body1>
-      <Caption1 block>{human ? t(`wf.kind.${data.agent.kind}`) : data.profileName || data.agent.profile}</Caption1>
+      {(human || (data.label && data.label !== (data.profileName || data.agent.profile))) && (
+        <Caption1 block>{human ? t(`wf.kind.${data.agent.kind}`) : data.profileName || data.agent.profile}</Caption1>
+      )}
       {data.root && <Caption1 block>★ {t("wf.root")}</Caption1>}
       {data.agent.kind !== "ask" && <Handle type="source" position={Position.Right} />}
+      {!human && <Handle type="source" id="order-out" position={Position.Bottom} style={{ width: 8, height: 8, background: "#fff", border: "1.5px solid #888" }} />}
     </div>
   );
 }
@@ -143,6 +147,9 @@ function Editor() {
       source,
       target,
       data: { kind },
+      // order arrows leave from the bottom and enter at the top, so they do not run over the delegate arrows
+      sourceHandle: kind === "before" ? "order-out" : undefined,
+      targetHandle: kind === "before" ? "order-in" : undefined,
       label: kind === "before" ? t("wf.orderLabel") : undefined,
       style: kind === "before" ? { strokeDasharray: "6 4" } : undefined,
       markerEnd: { type: MarkerType.ArrowClosed },
@@ -180,7 +187,7 @@ function Editor() {
   const onConnect = useCallback(
     (c: Connection) => {
       if (!c.source || !c.target || c.source === c.target) return;
-      setEdges((es) => (es.some((e) => e.source === c.source && e.target === c.target) ? es : [...es, mkEdge(crypto.randomUUID(), c.source, c.target, "delegate")]));
+      setEdges((es) => (es.some((e) => e.source === c.source && e.target === c.target) ? es : [...es, mkEdge(crypto.randomUUID(), c.source, c.target, c.sourceHandle === "order-out" || c.targetHandle === "order-in" ? "before" : "delegate")]));
       setDirty(true);
     },
     [setEdges, mkEdge],

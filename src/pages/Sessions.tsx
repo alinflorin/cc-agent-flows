@@ -65,6 +65,7 @@ export function Sessions() {
     <>
       <PageHeader
         title={t("nav.sessions")}
+        description={desktop ? t("sessions.intro") : undefined}
         actions={
           <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={create}>
             {t("sessions.new")}
@@ -72,12 +73,12 @@ export function Sessions() {
         }
       />
       {!desktop && <Body1 block>{t("app.desktopOnly")}</Body1>}
-      {desktop && sessions.length === 0 && <Body1 block>{t("sessions.empty")}</Body1>}
+      {desktop && sessions.length === 0 && <Body1 block style={{ color: tokens.colorNeutralForeground3 }}>{t("sessions.empty")}</Body1>}
       <div className={styles.list}>
         {sessions.map((s) => (
           <Card key={s.id} onClick={() => navigate(`/sessions/${s.id}`)}>
             <CardHeader
-              header={<Body1><b>{s.name || t("sessions.untitled")}</b></Body1>}
+              header={<Body1><b>{s.name || (s.task ? (s.task.length > 60 ? `${s.task.slice(0, 60)}…` : s.task) : t("sessions.untitled"))}</b></Body1>}
               description={<Caption1>{new Date(s.created * 1000).toLocaleString()} · {t(`sessions.status.${s.status}`, s.status)}</Caption1>}
               action={
                 <Button
@@ -91,7 +92,7 @@ export function Sessions() {
                 />
               }
             />
-            {s.task && <Caption1>{s.task.length > 160 ? `${s.task.slice(0, 160)}…` : s.task}</Caption1>}
+            
           </Card>
         ))}
       </div>

@@ -100,9 +100,8 @@ export function Runs() {
   if (!desktop) return <Body1 block>{t("app.desktopOnly")}</Body1>;
   return (
     <>
-      <PageHeader title={t("runs.title")} />
+      <PageHeader title={t("runs.title")} description={t("runs.hint")} />
       <div className={styles.form}>
-        <Caption1>{t("runs.hint")}</Caption1>
         <Field label={t("wf.profile")}>
           <Select value={profile} onChange={(_, d) => setProfile(d.value)}>
             {profiles.map((p) => (

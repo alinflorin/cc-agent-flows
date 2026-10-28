@@ -28,8 +28,10 @@
   },
   "home": {
     "welcome": "Bun venit",
-    "greeting": "Bun venit, {{name}}",
-    "intro": "Acesta este punctul de pornire al aplicației."
+    "intro": "Rulează o echipă de agenți Claude Code, fiecare izolat în propriul VM.",
+    "workflow": "Proiectează cine predă lucrul cui.",
+    "sessions": "Pornește o sesiune și urmărește agenții livrând.",
+    "profiles": "Definește agenții: prompt, unelte, imagine."
   },
   "about": {
     "version": "Versiunea {{version}}",
@@ -37,7 +39,6 @@
   },
   "settings": {
     "title": "Setări",
-    "displayName": "Nume afișat",
     "autoUpdate": "Caută actualizări la pornire",
     "tabs": {
       "llm": "LLM",
@@ -129,7 +130,7 @@
       "delete": "Șterge variabila"
     },
     "injections": {
-      "intro": "Credențiale pe care aplicația le adaugă cererilor pe care un agent le trimite către anumite adrese, astfel încât secretul nu intră niciodată în VM. Alegi una în variabila de mediu a unui profil ca ${injection:NUME}: variabila conține atunci un placeholder (pentru unelte care nu pornesc fără token), iar valoarea reală e pusă de aplicație pe cererile care se potrivesc, în locul a ce a trimis agentul. Host-ul unei injecții trebuie să fie și printre gazdele permise ale agentului (profil sau Setări > Rețea); o rulare a cărei injecție e pentru o gazdă la care agentul nu poate ajunge nu pornește. Traficul către ele este decriptat de aplicație (VM-ul are încredere într-un certificat făcut pentru fiecare rulare).",
+      "intro": "Credențiale pe care aplicația le adaugă cererilor unui agent către anumite hosturi, astfel încât secretul nu intră niciodată în VM. Folosește una într-o variabilă de mediu a profilului ca ${injection:NAME}: agentul vede doar un înlocuitor, iar aplicația pune valoarea reală pe cererile potrivite. Hostul trebuie să fie și printre hosturile permise ale profilului (sau în Setări > Rețea).",
       "desktopOnly": "Injecțiile sunt disponibile doar în aplicația desktop.",
       "new": "Injecție nouă",
       "editTitle": "Editează injecția",
@@ -214,7 +215,7 @@
   },
   "sessions": {
     "new": "Sesiune nouă",
-    "empty": "Nicio sesiune încă. O sesiune rulează workflow-ul pentru o cerere pe care o scrii în chat.",
+    "empty": "Nicio sesiune încă.",
     "notRunnable": "Rularea sesiunilor nu este disponibilă încă.",
     "delete": "Șterge sesiunea",
     "status": {
@@ -226,7 +227,8 @@
       "cancelled": "Anulată",
       "interrupted": "Întreruptă"
     },
-    "untitled": "Fără titlu"
+    "untitled": "Fără titlu",
+    "intro": "O sesiune rulează workflow-ul pentru o cerere pe care o scrii în chat."
   },
   "wf": {
     "saved": "Workflow salvat.",

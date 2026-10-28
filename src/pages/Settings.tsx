@@ -1,11 +1,10 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
-import { Button, Field, Input, Subtitle1, Switch, Tab, TabList, makeStyles, tokens } from "@fluentui/react-components";
-import { getPref, setPref } from "../prefs";
+import { Button, Subtitle1, Switch, Tab, TabList, makeStyles, tokens } from "@fluentui/react-components";
 import { useNotify } from "../notifications";
 import { useUpdates } from "../updates";
 import { AppearanceFields } from "../components/AppearanceFields";
@@ -15,8 +14,6 @@ import { NetworkSettings } from "./SettingsNetwork";
 import { SecretsSettings } from "./SettingsSecrets";
 import { VariablesSettings } from "./SettingsVariables";
 import { InjectionsSettings } from "./SettingsInjections";
-
-const NAME_MAX = 40;
 
 const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "480px" },
@@ -31,33 +28,20 @@ function GeneralSettings() {
   const notify = useNotify();
   const updates = useUpdates();
 
-  // Rebuilt when the language changes so the messages follow it.
-  const schema = useMemo(
-    () =>
-      z.object({
-        displayName: z
-          .string()
-          .trim()
-          .min(1, t("validation.required"))
-          .max(NAME_MAX, t("validation.max", { max: NAME_MAX })),
-        autoUpdate: z.boolean(),
-      }),
-    [t],
-  );
+  const schema = z.object({ autoUpdate: z.boolean() });
   type Values = z.infer<typeof schema>;
 
   const {
     control,
     handleSubmit,
     reset,
-    formState: { errors, isDirty },
+    formState: { isDirty },
   } = useForm<Values>({
     resolver: zodResolver(schema),
-    defaultValues: { displayName: getPref<string>("displayName") ?? "", autoUpdate: updates.autoUpdate },
+    defaultValues: { autoUpdate: updates.autoUpdate },
   });
 
   const onSubmit = (v: Values) => {
-    setPref("displayName", v.displayName);
     updates.setAutoUpdate(v.autoUpdate);
     reset(v);
     notify(t("settings.saved"), "success");
@@ -69,19 +53,6 @@ function GeneralSettings() {
         <AppearanceFields />
       </div>
       <form className={styles.form} onSubmit={handleSubmit(onSubmit)} noValidate style={{ marginTop: 16 }}>
-        <Field
-          label={t("settings.displayName")}
-          validationState={errors.displayName ? "error" : "none"}
-          validationMessage={errors.displayName?.message}
-        >
-          <Controller
-            control={control}
-            name="displayName"
-            render={({ field }) => (
-              <Input {...field} onChange={(_, d) => field.onChange(d.value)} />
-            )}
-          />
-        </Field>
         <Controller
           control={control}
           name="autoUpdate"

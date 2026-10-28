@@ -28,8 +28,10 @@
   },
   "home": {
     "welcome": "Welcome",
-    "greeting": "Welcome, {{name}}",
-    "intro": "This is the starting point of the app."
+    "intro": "Run a team of Claude Code agents, each sandboxed in its own VM.",
+    "workflow": "Design who hands work to whom.",
+    "sessions": "Start a session and watch the agents deliver.",
+    "profiles": "Define the agents: prompt, tools, image."
   },
   "about": {
     "version": "Version {{version}}",
@@ -37,7 +39,6 @@
   },
   "settings": {
     "title": "Settings",
-    "displayName": "Display name",
     "autoUpdate": "Check for updates on startup",
     "tabs": {
       "llm": "LLM",
@@ -129,7 +130,7 @@
       "delete": "Delete variable"
     },
     "injections": {
-      "intro": "Credentials the app adds to requests an agent sends to certain addresses, so the secret never enters the VM. Pick one in an agent profile's environment variable as ${injection:NAME}: the variable then holds a placeholder (for tools that refuse to run without a token) and the real value is set by the app on the matching requests, replacing whatever the agent sent. The host of an injection must also be in the agent's allowed hosts (profile or Settings > Network); a run whose injection is for a host the agent may not reach does not start. The traffic to them is decrypted by the app (the VM trusts a certificate made for each run).",
+      "intro": "Credentials the app adds to an agent's requests to certain hosts, so the secret never enters the VM. Use one in a profile's environment variable as ${injection:NAME}: the agent sees only a placeholder, and the app sets the real value on matching requests. The host must also be in the profile's allowed hosts (or Settings > Network).",
       "desktopOnly": "Injections are only available in the desktop app.",
       "new": "New injection",
       "editTitle": "Edit injection",
@@ -214,7 +215,7 @@
   },
   "sessions": {
     "new": "New session",
-    "empty": "No sessions yet. A session runs the workflow for a request you write in chat.",
+    "empty": "No sessions yet.",
     "notRunnable": "Running sessions is not available yet.",
     "delete": "Delete session",
     "status": {
@@ -226,7 +227,8 @@
       "cancelled": "Cancelled",
       "interrupted": "Interrupted"
     },
-    "untitled": "Untitled"
+    "untitled": "Untitled",
+    "intro": "A session runs the workflow for a request you write in chat."
   },
   "wf": {
     "saved": "Workflow saved.",
