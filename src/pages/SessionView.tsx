@@ -7,7 +7,7 @@ import { Badge, Body1, Button, Caption1, Field, Input, MessageBar, MessageBarBod
 import { Edit16Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
-import { activeEdges, clip, digest, nodeStates, type CallInfo, type Digest, type Entry, type NodeState } from "../sessionLog";
+import { activeEdges, clip, digest, nodeStates, type CallInfo, type Digest, type Entry, type NodeState, type Run, type Traffic } from "../sessionLog";
 
 interface Pending {
   id: string;
@@ -42,7 +42,7 @@ interface WEdge {
   kind: "delegate" | "before";
 }
 
-type Tab_ = "chat" | "timeline" | "agent";
+type Tab_ = "chat" | "timeline" | "agent" | "traffic";
 
 const useStyles = makeStyles({
   head: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalXS, marginBottom: tokens.spacingVerticalM },
@@ -236,6 +236,48 @@ function Clamp({ text, className }: { text: string; className?: string }) {
         </button>
       )}
     </div>
+  );
+}
+
+/** The picked agent's network traffic, live: what its VM asked the egress proxy for. */
+function TrafficView({ calls, d }: { calls: CallInfo[]; d: Digest }) {
+  const { t } = useTranslation();
+  const styles = useStyles();
+  const runs = calls
+    .flatMap((c) => c.runs)
+    .map((k) => d.runs.get(k))
+    .filter((r): r is Run => !!r)
+    .sort((a, b) => a.t - b.t);
+  const all = runs.flatMap((r) => r.traffic);
+  if (runs.length === 0) return <Caption1 className={styles.muted}>{t("session.noCalls")}</Caption1>;
+  const count = (k: Traffic["kind"]) => all.filter((x) => x.kind === k).length;
+  return (
+    <>
+      <div className={styles.cardHead}>
+        <Badge appearance="tint" color="success">{t("session.traffic.allowed", { count: count("allowed") })}</Badge>
+        <Badge appearance="tint" color="danger">{t("session.traffic.denied", { count: count("denied") })}</Badge>
+        <Badge appearance="tint" color="brand">{t("session.traffic.injected", { count: count("injected") })}</Badge>
+      </div>
+      {all.length === 0 && <Caption1 className={styles.muted}>{t("session.traffic.empty")}</Caption1>}
+      {runs.map((r, n) =>
+        r.traffic.length === 0 ? null : (
+          <div key={r.key} className={styles.steps}>
+            <Caption1 className={styles.muted}>
+              {t("session.run")} {n + 1} · {new Date(r.t * 1000).toLocaleTimeString()}
+            </Caption1>
+            {r.traffic.map((x, i) => (
+              <div key={i} className={mergeClasses(styles.step, styles.mono)}>
+                <Caption1 className={styles.muted}>{new Date(x.t * 1000).toLocaleTimeString()} </Caption1>
+                <Badge size="extra-small" appearance="filled" color={x.kind === "denied" ? "danger" : x.kind === "injected" ? "brand" : x.kind === "allowed" ? "success" : "informative"}>
+                  {t(`session.traffic.kind.${x.kind}`)}
+                </Badge>{" "}
+                {clip(x.text, 300)}
+              </div>
+            ))}
+          </div>
+        ),
+      )}
+    </>
   );
 }
 
@@ -481,6 +523,7 @@ export function SessionView() {
             <Tab value="chat">{t("session.tabs.chat")}{pending && live ? " ●" : ""}</Tab>
             <Tab value="timeline">{t("session.tabs.timeline")}</Tab>
             <Tab value="agent">{picked ? clip(names[picked] ?? "", 18) : t("session.tabs.agent")}</Tab>
+            <Tab value="traffic">{t("session.tabs.traffic")}</Tab>
           </TabList>
 
           <div className={styles.scroll}>
@@ -527,6 +570,7 @@ export function SessionView() {
               ) : (
                 pickedCalls.map((c) => <CallCard key={c.path} c={c} d={d} names={names} />)
               ))}
+            {tab === "traffic" && (!picked ? <Caption1 className={styles.muted}>{t("session.pickAgent")}</Caption1> : <TrafficView calls={pickedCalls} d={d} />)}
             <div ref={end} />
           </div>
 

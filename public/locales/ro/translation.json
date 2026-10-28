@@ -321,7 +321,8 @@
     "tabs": {
       "chat": "Conversație",
       "timeline": "Cronologie",
-      "agent": "Agent"
+      "agent": "Agent",
+      "traffic": "Trafic"
     },
     "node": {
       "idle": "inactiv",
@@ -358,6 +359,18 @@
       "wait": "te așteaptă",
       "reply": "ai răspuns",
       "error": "eroare"
+    },
+    "traffic": {
+      "allowed": "{{count}} permise",
+      "denied": "{{count}} blocate",
+      "injected": "{{count}} cu credențiale",
+      "empty": "Niciun trafic de rețea de la acest agent încă.",
+      "kind": {
+        "allowed": "permis",
+        "denied": "blocat",
+        "injected": "credențial",
+        "other": "info"
+      }
     }
   },
   "app": {
