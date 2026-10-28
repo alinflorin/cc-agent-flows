@@ -155,14 +155,25 @@ impl Proxy {
         let Ok(_slot) = self.slots.try_acquire() else {
             return deny(&mut client, &log, &shown, "too many connections").await;
         };
-        let addr = match self.resolve(host, *port).await {
+        let addrs = match self.resolve(host, *port).await {
             Ok(a) => a,
             Err(e) => return deny(&mut client, &log, &shown, &e).await,
         };
-        let mut upstream = match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
-            Ok(Ok(s)) => s,
-            Ok(Err(e)) => return deny(&mut client, &log, &shown, &format!("cannot connect: {e}")).await,
-            Err(_) => return deny(&mut client, &log, &shown, "connect timed out").await,
+        // A name often has an IPv6 and an IPv4 address and only one of them may be reachable: try each.
+        let mut upstream = None;
+        let mut failure = String::new();
+        for addr in addrs {
+            match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
+                Ok(Ok(s)) => {
+                    upstream = Some(s);
+                    break;
+                }
+                Ok(Err(e)) => failure = format!("cannot connect: {e}"),
+                Err(_) => failure = "connect timed out".into(),
+            }
+        }
+        let Some(mut upstream) = upstream else {
+            return deny(&mut client, &log, &shown, &failure).await;
         };
         log(format!("egress: {shown} allowed"));
         if client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await.is_err() {
@@ -178,17 +189,14 @@ impl Proxy {
         let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
     }
 
-    /// Resolves `host` and picks the first address the guard accepts.
-    async fn resolve(&self, host: &str, port: u16) -> Result<std::net::SocketAddr, String> {
-        let addrs = tokio::net::lookup_host((host, port)).await.map_err(|e| format!("cannot resolve: {e}"))?;
-        let mut found = false;
-        for a in addrs {
-            found = true;
-            if !self.guard || is_public(a.ip()) {
-                return Ok(a);
-            }
+    /// Resolves `host` and returns the addresses the guard accepts.
+    async fn resolve(&self, host: &str, port: u16) -> Result<Vec<std::net::SocketAddr>, String> {
+        let addrs: Vec<_> = tokio::net::lookup_host((host, port)).await.map_err(|e| format!("cannot resolve: {e}"))?.collect();
+        let allowed: Vec<_> = addrs.iter().copied().filter(|a| !self.guard || is_public(a.ip())).collect();
+        if !allowed.is_empty() {
+            return Ok(allowed);
         }
-        Err(if found { "the name resolves to a private address".into() } else { "cannot resolve".into() })
+        Err(if addrs.is_empty() { "cannot resolve".into() } else { "the name resolves to a private address".into() })
     }
 }
 
@@ -348,6 +356,7 @@ mod tests {
         let mut got = [0u8; 64];
         let mut n = 0;
         while !String::from_utf8_lossy(&got[..n]).contains("hello") {
+            assert!(n < got.len(), "no tunnel: {}", String::from_utf8_lossy(&got[..n]));
             n += tokio::time::timeout(Duration::from_secs(5), client.read(&mut got[n..])).await.unwrap().unwrap();
         }
         let text = String::from_utf8_lossy(&got[..n]).into_owned();

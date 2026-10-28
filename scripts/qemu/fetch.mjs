@@ -7,7 +7,7 @@
 // including cross-compiles), then to the host triple. Without --required a triple with no build only
 // warns, since the app falls back to a QEMU on PATH.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,6 +20,10 @@ const triple =
   args.find((a) => !a.startsWith("--")) ??
   process.env.TAURI_ENV_TARGET_TRIPLE ??
   /^host: (.+)$/m.exec(execFileSync("rustc", ["-vV"], { encoding: "utf8" }))[1];
+
+// Firmware for guests the app never runs (only x86_64 and aarch64 are used). Some of it is ELF for
+// other CPUs, which makes linuxdeploy crash when it scans the AppDir, and all of it is dead weight.
+const foreign = /^(openbios-|palcode-|hppa-firmware|s390-|u-boot|slof|skiboot|pnv-|opensbi-|edk2-(riscv|loongarch64)-|qemu-nsis|trace-events)/;
 
 const archive = join(here, "../../vendor/qemu", `qemu-${triple}.tar.gz`);
 const marker = join(dest, ".version");
@@ -37,6 +41,8 @@ try {
   console.log(`Unpacking ${archive}`);
   mkdirSync(dest, { recursive: true });
   execFileSync("tar", ["-xzf", archive, "-C", dest], { stdio: "inherit" });
+  const share = join(dest, "share/qemu");
+  if (existsSync(share)) for (const f of readdirSync(share)) if (foreign.test(f)) rmSync(join(share, f), { force: true });
   writeFileSync(marker, stamp);
 } catch (e) {
   if (required) throw e;
