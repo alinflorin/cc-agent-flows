@@ -27,13 +27,13 @@ export function ResetDemoButton({ command, what, onDone }: { command: string; wh
   };
 
   return (
-    <Dialog open={open} onOpenChange={(_, d) => setOpen(d.open)}>
+    <Dialog surfaceMotion={null} open={open} onOpenChange={(_, d) => setOpen(d.open)}>
       <DialogTrigger disableButtonEnhancement>
         <Button size="small" appearance="subtle" icon={<ArrowReset20Regular />} disabled={!inTauri()}>
           {t("reset.button")}
         </Button>
       </DialogTrigger>
-      <DialogSurface>
+      <DialogSurface backdropMotion={null}>
         <DialogBody>
           <DialogTitle>{t("reset.title")}</DialogTitle>
           <DialogContent>{t(`reset.${what}`)}</DialogContent>
