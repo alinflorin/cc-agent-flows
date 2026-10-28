@@ -45,6 +45,7 @@
       "images": "Images",
       "network": "Network",
       "secrets": "Secrets",
+      "variables": "Variables",
       "injections": "Injections"
     },
     "llm": {
@@ -116,6 +117,17 @@
       "replace": "Replace value",
       "delete": "Delete secret"
     },
+    "variables": {
+      "intro": "Named values that are not secret, such as a site's address or an e-mail. Use one as ${var:NAME} in an agent profile's environment variable (also inside a longer value, https://${var:HOST}) or in an injection's host, path or user name. It is filled in when a run starts, so changing it here changes every place that uses it. Values are saved in plain text, so put secrets in Settings > Secrets instead.",
+      "desktopOnly": "Variables are only available in the desktop app.",
+      "new": "New variable",
+      "newHint": "A name (letters, digits, underscore) and its value, on one line.",
+      "badName": "Letters, digits and underscores, not starting with a digit.",
+      "value": "Value",
+      "saved": "Variable saved.",
+      "empty": "No variables yet.",
+      "delete": "Delete variable"
+    },
     "injections": {
       "intro": "Credentials the app adds to requests an agent sends to certain addresses, so the secret never enters the VM. Pick one in an agent profile's environment variable as ${injection:NAME}: the variable then holds a placeholder (for tools that refuse to run without a token) and the real value is set by the app on the matching requests, replacing whatever the agent sent. The hosts are allowed for the agents that use it. The traffic to them is decrypted by the app (the VM trusts a certificate made for each run).",
       "desktopOnly": "Injections are only available in the desktop app.",
@@ -128,7 +140,7 @@
       "name": "Name",
       "nameHint": "Letters, digits and underscores. It cannot be changed later.",
       "rules": "Where",
-      "rulesHint": "Host (api.example.com or *.example.com), path pattern (* matches anything, empty means all) and methods (none selected means all). HTTPS only. Requests with dot segments or encoded slashes in the path never match.",
+      "rulesHint": "Host (api.example.com or *.example.com; a ${var:NAME} works here, and in the user name), path pattern (* matches anything, empty means all) and methods (none selected means all). HTTPS only. Requests with dot segments or encoded slashes in the path never match.",
       "allMethods": "All methods",
       "addRule": "Add address",
       "header": "Header",
@@ -168,7 +180,7 @@
     "systemPrompt": "System prompt",
     "systemPromptHint": "Added to Claude's system prompt for every task of this agent.",
     "env": "Environment variables",
-    "envHint": "Sent to the agent with every task. A value can be a ${secret:NAME} (Settings > Secrets, the value reaches the VM) or an ${injection:NAME} (Settings > Injections, the VM only sees a placeholder).",
+    "envHint": "Sent to the agent with every task. A value can be a ${secret:NAME} (Settings > Secrets, the value reaches the VM), an ${injection:NAME} (Settings > Injections, the VM only sees a placeholder) or a ${var:NAME} (Settings > Variables, a plain value, also usable inside text).",
     "addVar": "Add variable",
     "image": "Image",
     "imageHint": "The system this agent runs on. Images are managed in Settings.",
@@ -185,11 +197,11 @@
     "memoryHint": "RAM of the VM, at least 1024. Default 2048.",
     "allowHosts": "Allowed hosts",
     "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). The hosts in Settings > Network are always allowed; everything else is blocked.",
-    "envValue": "Value, ${secret:NAME} or ${injection:NAME}"
+    "envValue": "Value, ${secret:NAME}, ${injection:NAME} or ${var:NAME}"
   },
   "welcome": {
     "title": "Welcome",
-    "text": "Set up demo content? This creates three images built in the background, Manager (Jira CLI, on the base image), then Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with agent-browser) on top of it, seven agent profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, tester), four secrets with a dummy value (GITHUB and GITHUB_READONLY, JIRA and CONFLUENCE tokens) to replace with real ones, an injection for each (GitHub, Jira, Confluence; the Atlassian ones name a placeholder site and e-mail to edit) wired into the profiles that need them, and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one and, for each, has the analyst, architect, developer, reviewer and tester do their part, in that order. You can edit or delete all of it later.",
+    "text": "Set up demo content? This creates three images built in the background, Manager (Jira (jtk) and Confluence (cfl) CLIs, on the base image), then Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with agent-browser) on top of it, seven agent profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, tester), four secrets with a dummy value (GITHUB and GITHUB_READONLY, JIRA and CONFLUENCE tokens) to replace with real ones, an injection for each (GitHub, Jira, Confluence; the Atlassian ones take their site and e-mail from two variables, ATLASSIAN_HOST and ATLASSIAN_EMAIL, to edit in Settings > Variables) wired into the profiles that need them, and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one and, for each, has the analyst, architect, developer, reviewer and tester do their part, in that order. You can edit or delete all of it later.",
     "yes": "Yes, set it up",
     "no": "Skip",
     "done": "Demo content created. The images are building.",

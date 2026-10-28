@@ -66,6 +66,10 @@ pub struct Injection {
     pub placeholder: String,
 }
 
+fn has_var(s: &str) -> bool {
+    s.contains("${var:")
+}
+
 fn authorization() -> String {
     "Authorization".into()
 }
@@ -79,11 +83,14 @@ impl Injection {
             return Err(format!("{}: between 1 and {MAX_RULES} rules", self.name));
         }
         for r in &self.rules {
-            clean_host(&r.host).map_err(|e| format!("{}: {e}", self.name))?;
+            // a `${var:NAME}` is only known at run time, when the whole injection is checked again
+            if !has_var(&r.host) {
+                clean_host(&r.host).map_err(|e| format!("{}: {e}", self.name))?;
+            }
             if r.path.len() > 200 || r.path.chars().any(|c| c.is_control() || c == ' ' || c == '?' || c == '#') {
                 return Err(format!("{}: the path pattern is not valid", self.name));
             }
-            if !r.path.is_empty() && !r.path.starts_with('/') && !r.path.starts_with('*') {
+            if !r.path.is_empty() && !r.path.starts_with(['/', '*', '$']) {
                 return Err(format!("{}: the path pattern must start with / or *", self.name));
             }
             if let Some(m) = r.methods.iter().find(|m| !METHODS.contains(&m.as_str())) {
@@ -99,7 +106,7 @@ impl Injection {
         {
             return Err(format!("{}: {h:?} cannot be used as the header", self.name));
         }
-        if self.kind == Kind::Basic && (self.username.is_empty() || self.username.contains(':') || self.username.chars().any(|c| c.is_control())) {
+        if self.kind == Kind::Basic && (self.username.is_empty() || (self.username.contains(':') && !has_var(&self.username)) || self.username.chars().any(|c| c.is_control())) {
             return Err(format!("{}: Basic needs a user name without a colon", self.name));
         }
         if !crate::secrets::valid_name(&self.secret) {
@@ -125,7 +132,11 @@ fn cleaned(list: &[Injection]) -> Result<Vec<Injection>, String> {
     for i in list {
         let mut i = i.clone();
         for r in &mut i.rules {
-            r.host = clean_host(&r.host)?;
+            if has_var(&r.host) {
+                r.host = r.host.trim().to_string();
+            } else {
+                r.host = clean_host(&r.host)?;
+            }
             r.path = r.path.trim().to_string();
             r.methods = r.methods.iter().map(|m| m.trim().to_ascii_uppercase()).filter(|m| !m.is_empty()).collect();
             r.methods.dedup();
@@ -187,8 +198,8 @@ fn demo() -> Vec<Injection> {
     for suffix in ["", "_READONLY"] {
         out.push(basic(&format!("GITHUB{suffix}"), vec![rule("github.com", ""), rule("api.github.com", "")], "x-access-token", &format!("GITHUB{suffix}_TOKEN")));
     }
-    out.push(basic("JIRA", vec![rule("your-site.atlassian.net", "/rest/*")], "you@example.com", "JIRA_TOKEN"));
-    out.push(basic("CONFLUENCE", vec![rule("your-site.atlassian.net", "/wiki/*")], "you@example.com", "CONFLUENCE_TOKEN"));
+    out.push(basic("JIRA", vec![rule("${var:ATLASSIAN_HOST}", "/rest/*")], "${var:ATLASSIAN_EMAIL}", "JIRA_TOKEN"));
+    out.push(basic("CONFLUENCE", vec![rule("${var:ATLASSIAN_HOST}", "/wiki/*")], "${var:ATLASSIAN_EMAIL}", "CONFLUENCE_TOKEN"));
     out
 }
 
@@ -291,8 +302,9 @@ fn header_value(i: &Injection, secret: &str) -> Result<String, String> {
 
 /// Turns a profile's variables into the `Task`'s: `${injection:NAME}` becomes the injection's
 /// placeholder (and switches it on), `${secret:NAME}` the secret's value. Returns the injections
-/// the proxy must apply. `secret` looks a secret up.
-pub fn build(list: &[Injection], vars: &[EnvVar], secret: &dyn Fn(&str) -> Option<String>) -> Result<(Vec<TaskEnv>, Vec<Active>), String> {
+/// the proxy must apply. `secret` looks a secret up, `var` a variable (`${var:NAME}`, resolved
+/// last, so a variable's value is never read as another reference).
+pub fn build(list: &[Injection], vars: &[EnvVar], secret: &dyn Fn(&str) -> Option<String>, var: &dyn Fn(&str) -> Option<String>) -> Result<(Vec<TaskEnv>, Vec<Active>), String> {
     let used: std::cell::RefCell<Vec<&Injection>> = Default::default();
     let mut env = vec![];
     for v in vars {
@@ -304,20 +316,36 @@ pub fn build(list: &[Injection], vars: &[EnvVar], secret: &dyn Fn(&str) -> Optio
             Some(i.placeholder().to_string())
         })
         .and_then(|s| crate::secrets::resolve(&s, "secret", secret))
+        .and_then(|s| crate::secrets::resolve(&s, "var", var))
         .map_err(|e| format!("{}: {e}", v.name))?;
         env.push(TaskEnv { name: v.name.clone(), value });
     }
     let mut active = vec![];
     for i in used.into_inner() {
+        let i = &resolved(i, var).map_err(|e| format!("the injection {}: {e}", i.name))?;
         let value = secret(&i.secret).ok_or_else(|| format!("the injection {}: the secret {} is not set (Settings > Secrets)", i.name, i.secret))?;
         active.push(Active { name: i.name.clone(), rules: i.rules.clone(), header: i.header.clone(), value: header_value(i, &value)? });
     }
     Ok((env, active))
 }
 
-/// [`build`] with the saved injections and the credential store.
+/// The injection with its `${var:NAME}` references (hosts, path patterns, user name) filled in,
+/// and checked as a whole now that the values are known.
+fn resolved(i: &Injection, var: &dyn Fn(&str) -> Option<String>) -> Result<Injection, String> {
+    let fill = |s: &str| crate::secrets::resolve(s, "var", var);
+    let mut i = i.clone();
+    for r in &mut i.rules {
+        r.host = fill(&r.host)?;
+        r.path = fill(&r.path)?;
+    }
+    i.username = fill(&i.username)?;
+    Ok(cleaned(&[i])?.remove(0))
+}
+
+/// [`build`] with the saved injections, the credential store and the saved variables.
 pub fn prepare(app: &tauri::AppHandle, vars: &[EnvVar]) -> Result<(Vec<TaskEnv>, Vec<Active>), String> {
-    build(&load(&file(app)?), vars, &crate::secrets::secret_value)
+    let variables = crate::variables::all(app);
+    build(&load(&file(app)?), vars, &crate::secrets::secret_value, &|n| variables.get(n).cloned())
 }
 
 #[cfg(test)]
@@ -336,6 +364,10 @@ mod tests {
         }
     }
 
+    fn no_vars(_: &str) -> Option<String> {
+        None
+    }
+
     fn var(n: &str, v: &str) -> EnvVar {
         EnvVar { name: n.into(), value: v.into() }
     }
@@ -349,6 +381,33 @@ mod tests {
         }
         let names: Vec<_> = list.iter().map(|i| i.name.as_str()).collect();
         assert!(names.contains(&"GITHUB_READONLY") && !names.contains(&"JIRA_READONLY"));
+    }
+
+    #[test]
+    fn variables_fill_env_values_and_injection_fields() {
+        let vars = |n: &str| match n {
+            "HOST" => Some("acme.atlassian.net".to_string()),
+            "MAIL" => Some("me@acme.com".to_string()),
+            "BAD" => Some("1.2.3.4".to_string()),
+            "TRICK" => Some("${secret:GH}".to_string()),
+            _ => None,
+        };
+        let mut a = inj("A");
+        a.kind = Kind::Basic;
+        a.username = "${var:MAIL}".into();
+        a.rules[0].host = "${var:HOST}".into();
+        assert_eq!(cleaned(std::slice::from_ref(&a)).unwrap().len(), 1, "references are accepted when saving");
+        let (env, active) = build(&[a.clone()], &[var("URL", "https://${var:HOST}/x"), var("T", "${injection:A}"), var("K", "${var:TRICK}")], &|_| Some("tok".into()), &vars).unwrap();
+        assert_eq!(env[0].value, "https://acme.atlassian.net/x");
+        assert_eq!(env[2].value, "${secret:GH}", "a variable's value is not resolved again");
+        assert_eq!(active[0].rules[0].host, "acme.atlassian.net");
+        assert_eq!(active[0].value, format!("Basic {}", base64::engine::general_purpose::STANDARD.encode("me@acme.com:tok")));
+        // the resolved injection is checked as a whole
+        a.rules[0].host = "${var:BAD}".into();
+        assert!(build(&[a.clone()], &[var("T", "${injection:A}")], &|_| Some("tok".into()), &vars).is_err());
+        a.rules[0].host = "${var:NOPE}".into();
+        assert!(build(&[a], &[var("T", "${injection:A}")], &|_| Some("tok".into()), &vars).err().unwrap().contains("Variables"));
+        assert!(build(&[], &[var("U", "${var:NOPE}")], &|_| None, &vars).is_err());
     }
 
     #[test]
@@ -410,31 +469,31 @@ mod tests {
     fn builds_the_task_env_and_the_active_set() {
         let secrets = |n: &str| (n == "GH").then(|| "s3cret".to_string()).or_else(|| (n == "PLAIN").then(|| "p".to_string()));
         let list = [inj("GITHUB")];
-        let (env, active) = build(&list, &[var("GH_TOKEN", "${injection:GITHUB}"), var("X", "${secret:PLAIN}"), var("Y", "1")], &secrets).unwrap();
+        let (env, active) = build(&list, &[var("GH_TOKEN", "${injection:GITHUB}"), var("X", "${secret:PLAIN}"), var("Y", "1")], &secrets, &no_vars).unwrap();
         assert_eq!(env[0].value, DEFAULT_PLACEHOLDER);
         assert_eq!(env[1].value, "p");
         assert_eq!(env[2].value, "1");
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].value, "Bearer s3cret");
         // the same injection twice is one
-        let (_, active) = build(&list, &[var("A", "${injection:GITHUB}"), var("B", "${injection:GITHUB}")], &secrets).unwrap();
+        let (_, active) = build(&list, &[var("A", "${injection:GITHUB}"), var("B", "${injection:GITHUB}")], &secrets, &no_vars).unwrap();
         assert_eq!(active.len(), 1);
         // none referenced, none active
-        assert!(build(&list, &[var("A", "1")], &secrets).unwrap().1.is_empty());
+        assert!(build(&list, &[var("A", "1")], &secrets, &no_vars).unwrap().1.is_empty());
         // errors
-        assert!(build(&list, &[var("A", "${injection:NOPE}")], &secrets).err().unwrap().contains("NOPE"));
-        assert!(build(&list, &[var("A", "${injection:GITHUB}")], &|_| None).err().unwrap().contains("GH"));
+        assert!(build(&list, &[var("A", "${injection:NOPE}")], &secrets, &no_vars).err().unwrap().contains("NOPE"));
+        assert!(build(&list, &[var("A", "${injection:GITHUB}")], &|_| None, &no_vars).err().unwrap().contains("GH"));
         // basic and raw
         let mut b = inj("B");
         b.kind = Kind::Basic;
         b.username = "me".into();
-        let (_, a) = build(&[b], &[var("A", "${injection:B}")], &secrets).unwrap();
+        let (_, a) = build(&[b], &[var("A", "${injection:B}")], &secrets, &no_vars).unwrap();
         assert_eq!(a[0].value, format!("Basic {}", base64::engine::general_purpose::STANDARD.encode("me:s3cret")));
         let mut r = inj("R");
         r.kind = Kind::Raw;
         r.header = "X-Api-Key".into();
         r.placeholder = "ghp_xxxx".into();
-        let (env, a) = build(&[r], &[var("A", "${injection:R}")], &secrets).unwrap();
+        let (env, a) = build(&[r], &[var("A", "${injection:R}")], &secrets, &no_vars).unwrap();
         assert_eq!((a[0].value.as_str(), env[0].value.as_str()), ("s3cret", "ghp_xxxx"));
     }
 }
