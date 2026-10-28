@@ -957,8 +957,8 @@ fn prepare(app: &AppHandle, workflow: &str) -> Result<(Workflow, String, HashMap
             return Err(format!("the image {image} (profile {}) is not built yet", n.profile));
         }
     }
-    if crate::secrets::claude_token().is_none() {
-        return Err("no Claude token is set (Settings > LLM)".into());
+    if !crate::accounts::usable(app) {
+        return Err("no Claude account is ready: add a setup token in Settings > LLM".into());
     }
     Ok((wf, crate::workflow::instructions(&root, workflow).system_prompt, profiles))
 }

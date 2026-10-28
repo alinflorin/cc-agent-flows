@@ -1,7 +1,5 @@
-//! Secrets live in the OS credential store, never in `settings.json`. The token is write-only
-//! from the frontend: commands report whether one is set but never return it.
-//!
-//! Besides the Claude token there are named secrets (Settings > Secrets). The credential store
+//! Secrets live in the OS credential store, never in `settings.json`; they are write-only from the
+//! frontend. (The Claude setup tokens are in `accounts.rs`.) These are the named secrets (Settings > Secrets). The credential store
 //! cannot list its entries, so the names are kept in `<app data>/secrets.json` (no values). A
 //! profile's environment variable may refer to one as `${secret:NAME}`; the reference is resolved
 //! when the run starts (`injections::prepare`), so the value is only in the app and the run's `Task`.
@@ -13,44 +11,6 @@ use serde::{Deserialize, Serialize};
 
 
 const SERVICE: &str = "cc-agent-flows";
-const CLAUDE_TOKEN: &str = "claude-setup-token";
-
-fn entry() -> Result<Entry, String> {
-    Entry::new(SERVICE, CLAUDE_TOKEN).map_err(|e| e.to_string())
-}
-
-/// The stored Claude setup token, for the backend to hand to an agent VM.
-#[allow(dead_code)]
-pub fn claude_token() -> Option<String> {
-    entry().ok()?.get_password().ok()
-}
-
-#[tauri::command]
-pub fn claude_token_set(token: String) -> Result<(), String> {
-    let token = token.trim();
-    if token.is_empty() {
-        return Err("empty token".into());
-    }
-    entry()?.set_password(token).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn claude_token_status() -> Result<bool, String> {
-    match entry()?.get_password() {
-        Ok(_) => Ok(true),
-        Err(keyring::Error::NoEntry) => Ok(false),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
-#[tauri::command]
-pub fn claude_token_clear() -> Result<(), String> {
-    match entry()?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
 const MAX_SECRETS: usize = 200;
 const MAX_VALUE: usize = 16 * 1024;
 

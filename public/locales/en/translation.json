@@ -110,7 +110,24 @@
         "high": "High",
         "xhigh": "Extra high",
         "max": "Max"
-      }
+      },
+      "accounts": "Claude accounts",
+      "accountsHint": "Add several setup tokens (personal subscriptions). Runs take the accounts in turn. When Claude refuses one (usage limit, rejected token) it rests and the run starts again on the next, if it had done no billed work yet.",
+      "accountName": "Name",
+      "accountOn": "Use this account",
+      "state": {
+        "ready": "Ready",
+        "empty": "No token",
+        "disabled": "Off",
+        "limited": "Limit reached",
+        "rejected": "Token rejected"
+      },
+      "restUntil": "Resting until {{time}}.",
+      "wake": "Use it again now",
+      "replaceToken": "Replace token",
+      "setToken": "Set token",
+      "addAccount": "Add an account",
+      "add": "Add"
     },
     "saved": "Settings saved.",
     "images": {

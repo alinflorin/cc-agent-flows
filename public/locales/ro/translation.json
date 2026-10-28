@@ -110,7 +110,24 @@
         "high": "Ridicat",
         "xhigh": "Foarte ridicat",
         "max": "Maxim"
-      }
+      },
+      "accounts": "Conturi Claude",
+      "accountsHint": "Adaugă mai multe tokenuri de configurare (abonamente personale). Rulările folosesc conturile pe rând. Când Claude refuză unul (limită de utilizare, token respins), acesta se odihnește, iar rularea reîncepe pe următorul, dacă nu făcuse încă muncă taxată.",
+      "accountName": "Nume",
+      "accountOn": "Folosește acest cont",
+      "state": {
+        "ready": "Gata",
+        "empty": "Fără token",
+        "disabled": "Oprit",
+        "limited": "Limită atinsă",
+        "rejected": "Token respins"
+      },
+      "restUntil": "Se odihnește până la {{time}}.",
+      "wake": "Folosește-l din nou acum",
+      "replaceToken": "Înlocuiește tokenul",
+      "setToken": "Setează tokenul",
+      "addAccount": "Adaugă un cont",
+      "add": "Adaugă"
     },
     "saved": "Setările au fost salvate.",
     "images": {
