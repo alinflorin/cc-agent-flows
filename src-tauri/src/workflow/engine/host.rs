@@ -192,7 +192,10 @@ fn launch(app: AppHandle, project: String, sid: String, fresh: bool) -> Result<(
     }
     let (wf, instructions, profiles) = prepare(&app, &project, &session.workflow)?;
     let mut state = if fresh { State::default() } else { read_state(&root, &sid).unwrap_or_default() };
-    state.rewind_failures();
+    // A finished session replays all its turns as they were: only an unfinished one retries what failed.
+    if session.status != "done" {
+        state.rewind_failures();
+    }
 
     let (cancel_tx, cancel_rx) = watch::channel(false);
     let (reply_tx, reply_rx) = mpsc::channel(4);

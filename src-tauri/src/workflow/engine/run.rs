@@ -260,7 +260,7 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
 
         match decision.action {
             Action::Finish { result, success } => {
-                return Ok(Reported { label: label_of(&n), status: if success { "done" } else { "failed" }.into(), summary: result, questions: vec![] });
+                return Ok(Reported { label: label_of(&n), status: if success { "done" } else { "unmet" }.into(), summary: result, questions: vec![] });
             }
             Action::Ask(questions) => {
                 if !may_ask {
@@ -364,7 +364,9 @@ pub async fn drive<H: Host>(host: Arc<H>, wf: Workflow, task: String, state: Sta
                     s.result = Some(r.summary.clone());
                     s.turns = s.turns.max(turn as u32 + 1);
                 }
-                if r.status != "done" {
+                // `unmet`: the root decided the goal cannot be met. Nothing broke, the turn is over and
+                // the user can answer it (a failed run, on the other hand, ends the session as failed).
+                if r.status != "done" && r.status != "unmet" {
                     break Ended::Failed(r.summary);
                 }
                 done.push((message.clone(), r.summary));
@@ -808,7 +810,7 @@ mod tests {
             _ => fin(Status::Failed, "the VM died", None),
         });
         let (ended, _) = run(&host, &wf, vec![]).await;
-        assert_eq!(ended, Ended::Failed("gave up".into()));
+        assert_eq!(ended, Ended::Done, "the root's own decision is a finished turn");
         assert!(host.prompt(2).contains("the VM died"));
     }
 
