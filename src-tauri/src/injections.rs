@@ -184,11 +184,11 @@ fn demo() -> Vec<Injection> {
         placeholder: String::new(),
     };
     let mut out = vec![];
-    for (suffix, secret_infix) in [("", ""), ("_READONLY", "_READONLY")] {
-        out.push(basic(&format!("GITHUB{suffix}"), vec![rule("github.com", ""), rule("api.github.com", "")], "x-access-token", &format!("GITHUB{secret_infix}_TOKEN")));
-        out.push(basic(&format!("JIRA{suffix}"), vec![rule("your-site.atlassian.net", "/rest/*")], "you@example.com", &format!("JIRA{secret_infix}_TOKEN")));
-        out.push(basic(&format!("CONFLUENCE{suffix}"), vec![rule("your-site.atlassian.net", "/wiki/*")], "you@example.com", &format!("CONFLUENCE{secret_infix}_TOKEN")));
+    for suffix in ["", "_READONLY"] {
+        out.push(basic(&format!("GITHUB{suffix}"), vec![rule("github.com", ""), rule("api.github.com", "")], "x-access-token", &format!("GITHUB{suffix}_TOKEN")));
     }
+    out.push(basic("JIRA", vec![rule("your-site.atlassian.net", "/rest/*")], "you@example.com", "JIRA_TOKEN"));
+    out.push(basic("CONFLUENCE", vec![rule("your-site.atlassian.net", "/wiki/*")], "you@example.com", "CONFLUENCE_TOKEN"));
     out
 }
 
@@ -343,12 +343,12 @@ mod tests {
     #[test]
     fn demo_injections_are_valid_and_use_demo_secrets() {
         let list = demo();
-        assert_eq!(cleaned(&list).unwrap().len(), 6);
+        assert_eq!(cleaned(&list).unwrap().len(), 4);
         for i in &list {
             assert!(crate::secrets::DEMO_SECRETS.contains(&i.secret.as_str()), "{}", i.name);
         }
         let names: Vec<_> = list.iter().map(|i| i.name.as_str()).collect();
-        assert!(names.contains(&"GITHUB_READONLY") && names.contains(&"CONFLUENCE_READONLY"));
+        assert!(names.contains(&"GITHUB_READONLY") && !names.contains(&"JIRA_READONLY"));
     }
 
     #[test]

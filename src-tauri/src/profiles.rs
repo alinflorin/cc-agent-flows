@@ -249,8 +249,7 @@ pub fn used_images(app: &tauri::AppHandle) -> Vec<String> {
 }
 
 /// The demo profiles' credentials, as injections (see `injections::demo`): only the developer
-/// writes to GitHub, only the project manager and delivery lead write to Jira and Confluence;
-/// everyone else who reads them gets the read-only variants.
+/// writes to GitHub (the others get the read-only variant); Jira and Confluence have one token each.
 fn demo_env(id: &str) -> Vec<EnvVar> {
     let var = |name: &str, injection: &str| EnvVar { name: name.into(), value: format!("${{injection:{injection}}}") };
     let github = match id {
@@ -258,18 +257,14 @@ fn demo_env(id: &str) -> Vec<EnvVar> {
         "architect" | "reviewer" | "qa" => Some("GITHUB_READONLY"),
         _ => None,
     };
-    let atlassian = match id {
-        "project-manager" | "delivery-lead" => Some(""),
-        "business-analyst" | "architect" | "developer" | "reviewer" | "qa" => Some("_READONLY"),
-        _ => None,
-    };
+    let atlassian = matches!(id, "project-manager" | "delivery-lead" | "business-analyst" | "architect" | "developer" | "reviewer" | "qa");
     let mut env = vec![];
     if let Some(g) = github {
         env.push(var("GH_TOKEN", g));
     }
-    if let Some(s) = atlassian {
-        env.push(var("JIRA_API_TOKEN", &format!("JIRA{s}")));
-        env.push(var("CONFLUENCE_API_TOKEN", &format!("CONFLUENCE{s}")));
+    if atlassian {
+        env.push(var("JIRA_API_TOKEN", "JIRA"));
+        env.push(var("CONFLUENCE_API_TOKEN", "CONFLUENCE"));
     }
     env
 }
@@ -420,7 +415,7 @@ mod tests {
         let value = |id: &str, name: &str| demo_env(id).into_iter().find(|v| v.name == name).map(|v| v.value);
         assert_eq!(value("developer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB}"));
         assert_eq!(value("reviewer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB_READONLY}"));
-        assert_eq!(value("architect", "JIRA_API_TOKEN").as_deref(), Some("${injection:JIRA_READONLY}"));
+        assert_eq!(value("architect", "JIRA_API_TOKEN").as_deref(), Some("${injection:JIRA}"));
         assert_eq!(value("delivery-lead", "JIRA_API_TOKEN").as_deref(), Some("${injection:JIRA}"));
         assert!(demo_env("orchestrator").is_empty());
         for id in ["orchestrator", "project-manager", "delivery-lead", "business-analyst", "architect", "developer", "reviewer", "qa"] {
