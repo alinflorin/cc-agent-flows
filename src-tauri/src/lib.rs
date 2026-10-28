@@ -14,6 +14,7 @@ mod protocol;
 mod qemu;
 mod runs;
 mod secrets;
+mod variables;
 mod tunnel;
 
 /// Whether the updater can replace this installation. On Linux only an AppImage can;
@@ -108,6 +109,9 @@ pub fn run() {
             secrets::secrets_list,
             secrets::secrets_set,
             secrets::secrets_delete,
+            variables::variables_list,
+            variables::variables_set,
+            variables::variables_delete,
             injections::injections_get,
             injections::injections_save
         ])

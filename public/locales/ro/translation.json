@@ -45,6 +45,7 @@
       "images": "Imagini",
       "network": "Rețea",
       "secrets": "Secrete",
+      "variables": "Variabile",
       "injections": "Injecții"
     },
     "llm": {
@@ -116,6 +117,17 @@
       "replace": "Înlocuiește valoarea",
       "delete": "Șterge secretul"
     },
+    "variables": {
+      "intro": "Valori cu nume care nu sunt secrete, de exemplu adresa unui site sau un e-mail. Folosește una ca ${var:NAME} într-o variabilă de mediu a unui profil de agent (și în interiorul unei valori mai lungi, https://${var:HOST}) sau în gazda, calea ori utilizatorul unei injecții. Se completează când pornește o rulare, deci schimbarea ei aici schimbă toate locurile unde e folosită. Valorile se salvează în clar, așa că secretele pune-le în Setări > Secrete.",
+      "desktopOnly": "Variabilele sunt disponibile doar în aplicația desktop.",
+      "new": "Variabilă nouă",
+      "newHint": "Un nume (litere, cifre, underscore) și valoarea, pe un singur rând.",
+      "badName": "Litere, cifre și underscore, fără cifră la început.",
+      "value": "Valoare",
+      "saved": "Variabilă salvată.",
+      "empty": "Nicio variabilă încă.",
+      "delete": "Șterge variabila"
+    },
     "injections": {
       "intro": "Credențiale pe care aplicația le adaugă cererilor pe care un agent le trimite către anumite adrese, astfel încât secretul nu intră niciodată în VM. Alegi una în variabila de mediu a unui profil ca ${injection:NUME}: variabila conține atunci un placeholder (pentru unelte care nu pornesc fără token), iar valoarea reală e pusă de aplicație pe cererile care se potrivesc, în locul a ce a trimis agentul. Hosturile sunt permise agenților care o folosesc. Traficul către ele este decriptat de aplicație (VM-ul are încredere într-un certificat făcut pentru fiecare rulare).",
       "desktopOnly": "Injecțiile sunt disponibile doar în aplicația desktop.",
@@ -128,7 +140,7 @@
       "name": "Nume",
       "nameHint": "Litere, cifre și underscore. Nu poate fi schimbat ulterior.",
       "rules": "Unde",
-      "rulesHint": "Host (api.exemplu.com sau *.exemplu.com), tipar de cale (* potrivește orice, gol înseamnă toate) și metode (niciuna selectată înseamnă toate). Doar HTTPS. Cererile cu segmente cu punct sau slash-uri codate în cale nu se potrivesc niciodată.",
+      "rulesHint": "Host (api.exemplu.com sau *.exemplu.com; aici merge și un ${var:NUME}, ca și la utilizator), tipar de cale (* potrivește orice, gol înseamnă toate) și metode (niciuna selectată înseamnă toate). Doar HTTPS. Cererile cu segmente cu punct sau slash-uri codate în cale nu se potrivesc niciodată.",
       "allMethods": "Toate metodele",
       "addRule": "Adaugă adresă",
       "header": "Header",
@@ -168,7 +180,7 @@
     "systemPrompt": "Prompt de sistem",
     "systemPromptHint": "Adăugat la promptul de sistem al lui Claude pentru fiecare sarcină a acestui agent.",
     "env": "Variabile de mediu",
-    "envHint": "Trimise agentului la fiecare sarcină. O valoare poate fi un ${secret:NUME} (Setări > Secrete, valoarea ajunge în VM) sau un ${injection:NUME} (Setări > Injecții, VM-ul vede doar un placeholder).",
+    "envHint": "Trimise agentului la fiecare sarcină. O valoare poate fi un ${secret:NUME} (Setări > Secrete, valoarea ajunge în VM), un ${injection:NUME} (Setări > Injecții, VM-ul vede doar un placeholder) sau un ${var:NUME} (Setări > Variabile, o valoare simplă, folosibilă și în interiorul unui text).",
     "addVar": "Adaugă variabilă",
     "image": "Imagine",
     "imageHint": "Sistemul pe care rulează acest agent. Imaginile se gestionează în Setări.",
@@ -185,11 +197,11 @@
     "memoryHint": "RAM-ul VM-ului, minimum 1024. Implicit 2048.",
     "allowHosts": "Gazde permise",
     "allowHostsHint": "Gazdele de internet la care agentul poate ajunge prin HTTPS, câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Gazdele din Setări > Rețea sunt mereu permise; restul sunt blocate.",
-    "envValue": "Valoare, ${secret:NUME} sau ${injection:NUME}"
+    "envValue": "Valoare, ${secret:NUME}, ${injection:NUME} sau ${var:NUME}"
   },
   "welcome": {
     "title": "Bun venit",
-    "text": "Creăm conținut demo? Se creează trei imagini, construite în fundal: Manager (Jira CLI, peste imaginea de bază), apoi Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu agent-browser) peste ea, șapte profiluri de agent (orchestrator, project manager, business analyst, arhitect, developer, reviewer, tester), patru secrete cu valoarea dummy (GITHUB și GITHUB_READONLY, tokenurile JIRA și CONFLUENCE) pe care le înlocuiești cu cele reale, câte o injecție pentru fiecare (GitHub, Jira, Confluence; cele Atlassian au un site și un e-mail de înlocuit) legate de profilurile care au nevoie de ele, și workflow-ul standard de delivery: orchestratorul trimite cererea ta project managerului, care parcurge elementele de lucru pe rând și, pentru fiecare, pune analistul, arhitectul, developerul, reviewerul și testerul să-și facă partea, în această ordine. Poți modifica sau șterge totul mai târziu.",
+    "text": "Creăm conținut demo? Se creează trei imagini, construite în fundal: Manager (Jira (jtk) și Confluence (cfl), peste imaginea de bază), apoi Developer (git, GitHub CLI, Python, Node.js) și QA manual (Chromium headless cu agent-browser) peste ea, șapte profiluri de agent (orchestrator, project manager, business analyst, arhitect, developer, reviewer, tester), patru secrete cu valoarea dummy (GITHUB și GITHUB_READONLY, tokenurile JIRA și CONFLUENCE) pe care le înlocuiești cu cele reale, câte o injecție pentru fiecare (GitHub, Jira, Confluence; cele Atlassian iau site-ul și e-mailul din două variabile, ATLASSIAN_HOST și ATLASSIAN_EMAIL, de editat în Setări > Variabile) legate de profilurile care au nevoie de ele, și workflow-ul standard de delivery: orchestratorul trimite cererea ta project managerului, care parcurge elementele de lucru pe rând și, pentru fiecare, pune analistul, arhitectul, developerul, reviewerul și testerul să-și facă partea, în această ordine. Poți modifica sau șterge totul mai târziu.",
     "yes": "Da, configurează",
     "no": "Sari peste",
     "done": "Conținutul demo a fost creat. Imaginile se construiesc.",

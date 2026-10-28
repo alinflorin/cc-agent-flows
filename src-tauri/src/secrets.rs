@@ -106,7 +106,11 @@ pub fn resolve(value: &str, kind: &str, lookup: &dyn Fn(&str) -> Option<String>)
             continue;
         }
         out.push_str(&rest[..at]);
-        let tab = if kind == "secret" { "Secrets" } else { "Injections" };
+        let tab = match kind {
+            "secret" => "Secrets",
+            "var" => "Variables",
+            _ => "Injections",
+        };
         out.push_str(&lookup(name).ok_or_else(|| format!("the {kind} {name} does not exist (Settings > {tab})"))?);
         rest = &after[end + 1..];
     }

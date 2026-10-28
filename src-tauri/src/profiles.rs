@@ -264,7 +264,10 @@ fn demo_env(id: &str) -> Vec<EnvVar> {
     }
     if atlassian {
         env.push(var("JIRA_API_TOKEN", "JIRA"));
-        env.push(var("CONFLUENCE_API_TOKEN", "CONFLUENCE"));
+        env.push(var("CFL_API_TOKEN", "CONFLUENCE"));
+        // jtk and cfl both read these; the site and e-mail are the demo variables (Settings > Variables), shared with the injections
+        env.push(EnvVar { name: "ATLASSIAN_URL".into(), value: "https://${var:ATLASSIAN_HOST}".into() });
+        env.push(EnvVar { name: "ATLASSIAN_EMAIL".into(), value: "${var:ATLASSIAN_EMAIL}".into() });
     }
     env
 }
@@ -355,6 +358,7 @@ pub fn provision_starters(app: tauri::AppHandle) -> Result<(), String> {
     crate::images::provision_defaults(&app)?;
     provision_defaults(&app)?;
     crate::secrets::provision_demo(&app)?;
+    crate::variables::provision_demo(&app)?;
     crate::injections::provision_demo(&app)?;
     crate::workflow::provision_defaults(&app)
 }
