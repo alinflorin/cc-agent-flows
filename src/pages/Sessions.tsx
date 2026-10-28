@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
-import { Body1, Button, Card, CardHeader, Caption1, makeStyles, tokens } from "@fluentui/react-components";
+import { Body1, Button, Card, CardHeader, Caption1, Select, makeStyles, tokens } from "@fluentui/react-components";
 import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
@@ -33,6 +33,8 @@ export function Sessions() {
   const desktop = inTauri();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [workflows, setWorkflows] = useState<Record<string, string>>({});
+  const [filter, setFilter] = useState("");
+  const shown = filter ? sessions.filter((s) => s.workflow === filter) : sessions;
 
   const load = useCallback(async () => {
     try {
@@ -98,9 +100,22 @@ export function Sessions() {
         }
       />
       {!desktop && <Body1 block>{t("app.desktopOnly")}</Body1>}
+      {desktop && sessions.length > 0 && (
+        <Select
+          aria-label={t("sessions.filterWorkflow")}
+          value={filter}
+          onChange={(_, d) => setFilter(d.value)}
+          style={{ marginBottom: tokens.spacingVerticalM, maxWidth: 320 }}
+        >
+          <option value="">{t("sessions.allWorkflows")}</option>
+          {Object.entries(workflows).map(([id, name]) => (
+            <option key={id} value={id}>{name}</option>
+          ))}
+        </Select>
+      )}
       {desktop && sessions.length === 0 && <Body1 block style={{ color: tokens.colorNeutralForeground3 }}>{t("sessions.empty")}</Body1>}
       <div className={styles.list}>
-        {sessions.map((s) => (
+        {shown.map((s) => (
           <Card key={s.id} onClick={() => navigate(`/sessions/${s.id}`)}>
             <CardHeader
               header={<Body1><b>{s.name || (s.task ? (s.task.length > 60 ? `${s.task.slice(0, 60)}…` : s.task) : t("sessions.untitled"))}</b></Body1>}
