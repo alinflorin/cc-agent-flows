@@ -55,13 +55,25 @@ pub fn all(app: &tauri::AppHandle) -> BTreeMap<String, String> {
 }
 
 /// Part of the demo content: adds the demo variables that do not exist yet.
-pub fn provision_demo(app: &tauri::AppHandle) -> Result<(), String> {
+///
+/// `reset`: the demo variables get their placeholder values again, the ones the user set are lost.
+pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
     let path = file(app)?;
     let mut map = load(&path);
     for (name, value) in DEMO_VARIABLES {
-        map.entry(name.to_string()).or_insert_with(|| value.to_string());
+        if reset {
+            map.insert(name.to_string(), value.to_string());
+        } else {
+            map.entry(name.to_string()).or_insert_with(|| value.to_string());
+        }
     }
     save(&path, &map)
+}
+
+/// Settings > Variables > Reset to demo content.
+#[tauri::command]
+pub fn variables_reset_demo(app: tauri::AppHandle) -> Result<(), String> {
+    provision_demo(&app, true)
 }
 
 #[tauri::command]

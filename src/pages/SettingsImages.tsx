@@ -20,6 +20,7 @@ import {
 import { Add20Regular, Delete20Regular, Edit20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../components/SettingsIntro";
 import { FormDialogSurface } from "../components/FormDialogSurface";
+import { ResetDemoButton } from "../components/ResetDemoButton";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
@@ -60,6 +61,7 @@ interface Spec {
 }
 
 const useStyles = makeStyles({
+  introActions: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS },
   list: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, maxWidth: "760px" },
   item: {
     display: "flex",
@@ -135,9 +137,12 @@ export function ImagesSettings() {
   return (
     <>
       <SettingsIntro text={t("settings.images.intro")}>
+        <div className={styles.introActions}>
         <Button appearance="primary" icon={<Add20Regular />} onClick={() => setEditing({ id: null, spec: { name: "", description: "", parent: "base", env: [], script: "", docs: [] } })}>
           {t("settings.images.new")}
         </Button>
+        <ResetDemoButton command="images_reset_demo" what="images" onDone={() => void refresh()} />
+        </div>
       </SettingsIntro>
       <div className={styles.list}>
         {images.map((i) => (

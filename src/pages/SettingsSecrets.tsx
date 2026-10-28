@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Body1, Button, Caption1, Field, Input, makeStyles, tokens } from "@fluentui/react-components";
 import { Delete20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../components/SettingsIntro";
+import { ResetDemoButton } from "../components/ResetDemoButton";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
@@ -72,6 +73,7 @@ export function SecretsSettings() {
     <div className={styles.form}>
       <SettingsIntro text={t("settings.secrets.intro")}>
         {!desktop && <Body1 block>{t("settings.secrets.desktopOnly")}</Body1>}
+        <ResetDemoButton command="secrets_reset_demo" what="secrets" onDone={() => void load()} />
       </SettingsIntro>
 
       <Field

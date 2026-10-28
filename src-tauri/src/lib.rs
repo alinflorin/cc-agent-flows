@@ -81,12 +81,14 @@ pub fn run() {
             images::images_save,
             images::images_delete,
             images::images_build,
+            images::images_reset_demo,
             network::network_get,
             network::network_set,
             profiles::provision_starters,
             profiles::profiles_list,
             profiles::profiles_save,
             profiles::profiles_delete,
+            profiles::profiles_reset_demo,
             workflow::workflow_get,
             workflow::workflow_save,
             workflow::workflow_standard,
@@ -109,11 +111,14 @@ pub fn run() {
             secrets::secrets_list,
             secrets::secrets_set,
             secrets::secrets_delete,
+            secrets::secrets_reset_demo,
             variables::variables_list,
             variables::variables_set,
             variables::variables_delete,
+            variables::variables_reset_demo,
             injections::injections_get,
-            injections::injections_save
+            injections::injections_save,
+            injections::injections_reset_demo
         ])
         .setup(|app| {
             use tauri::Manager;

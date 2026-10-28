@@ -129,7 +129,7 @@
       "delete": "Șterge variabila"
     },
     "injections": {
-      "intro": "Credențiale pe care aplicația le adaugă cererilor pe care un agent le trimite către anumite adrese, astfel încât secretul nu intră niciodată în VM. Alegi una în variabila de mediu a unui profil ca ${injection:NUME}: variabila conține atunci un placeholder (pentru unelte care nu pornesc fără token), iar valoarea reală e pusă de aplicație pe cererile care se potrivesc, în locul a ce a trimis agentul. Hosturile sunt permise agenților care o folosesc. Traficul către ele este decriptat de aplicație (VM-ul are încredere într-un certificat făcut pentru fiecare rulare).",
+      "intro": "Credențiale pe care aplicația le adaugă cererilor pe care un agent le trimite către anumite adrese, astfel încât secretul nu intră niciodată în VM. Alegi una în variabila de mediu a unui profil ca ${injection:NUME}: variabila conține atunci un placeholder (pentru unelte care nu pornesc fără token), iar valoarea reală e pusă de aplicație pe cererile care se potrivesc, în locul a ce a trimis agentul. Host-ul unei injecții trebuie să fie și printre gazdele permise ale agentului (profil sau Setări > Rețea); o rulare a cărei injecție e pentru o gazdă la care agentul nu poate ajunge nu pornește. Traficul către ele este decriptat de aplicație (VM-ul are încredere într-un certificat făcut pentru fiecare rulare).",
       "desktopOnly": "Injecțiile sunt disponibile doar în aplicația desktop.",
       "new": "Injecție nouă",
       "editTitle": "Editează injecția",
@@ -196,7 +196,7 @@
     "memory": "Memorie (MB)",
     "memoryHint": "RAM-ul VM-ului, minimum 1024. Implicit 2048.",
     "allowHosts": "Gazde permise",
-    "allowHostsHint": "Gazdele de internet la care agentul poate ajunge prin HTTPS, câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Gazdele din Setări > Rețea sunt mereu permise; restul sunt blocate.",
+    "allowHostsHint": "Gazdele de internet la care agentul poate ajunge prin HTTPS, câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Merge și o ${var:NUME} (Setări > Variabile). Gazdele din Setări > Rețea sunt mereu permise; restul sunt blocate. Pune în listă host-ul fiecărei injecții pe care o folosește agentul: nu îl adaugă nimic.",
     "envValue": "Valoare, ${secret:NUME}, ${injection:NUME} sau ${var:NUME}"
   },
   "welcome": {
@@ -389,5 +389,16 @@
   },
   "app": {
     "desktopOnly": "Disponibil doar în aplicația desktop."
+  },
+  "reset": {
+    "button": "Resetează la conținutul demo",
+    "title": "Resetezi la conținutul demo?",
+    "confirm": "Resetează",
+    "done": "Conținutul demo a fost restaurat.",
+    "images": "Imaginile starter (manager, developer, qa) sunt scrise din nou cu scriptul și setările inițiale; modificările tale la ele se pierd. Imaginile create de tine nu sunt atinse. Cele care rămân învechite sunt reconstruite.",
+    "profiles": "Profilele starter (orchestrator, project manager, business analyst, architect, developer, reviewer, qa) sunt scrise din nou așa cum au fost create prima dată, cu prompturi, variabile și gazde permise; modificările tale la ele se pierd, iar cele șterse revin. Celelalte profile nu sunt atinse.",
+    "secrets": "GITHUB_TOKEN, GITHUB_READONLY_TOKEN și JIRA_TOKEN primesc din nou valoarea dummy. Dacă ai pus tokenuri reale sub aceste nume, se pierd. Celelalte secrete nu sunt atinse.",
+    "variables": "ATLASSIAN_HOST și ATLASSIAN_EMAIL primesc din nou valorile placeholder. Dacă le-ai completat cu ale tale, se pierd. Celelalte variabile nu sunt atinse.",
+    "injections": "Injecțiile GITHUB, GITHUB_READONLY și JIRA sunt scrise din nou așa cum au fost create prima dată; modificările tale la ele se pierd. Celelalte injecții nu sunt atinse."
   }
 }
