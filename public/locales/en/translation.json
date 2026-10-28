@@ -215,6 +215,13 @@
         "basic": "Basic (user:secret)",
         "raw": "The secret as is"
       },
+      "source": "Value from",
+      "sources": { "secret": "A secret", "var": "A variable", "text": "Fixed text" },
+      "variable": "Variable",
+      "noVariables": "Create the variable in Variables first.",
+      "text": "Text",
+      "textHint": "Saved in plain text, visible here: not for credentials. Use a secret for those.",
+      "fixedText": "fixed text",
       "secret": "Secret",
       "noSecrets": "Create the secret in Settings > Secrets first.",
       "placeholder": "Placeholder",

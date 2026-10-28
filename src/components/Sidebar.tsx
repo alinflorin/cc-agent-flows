@@ -259,6 +259,9 @@ export function Sidebar({
             <NavItem value="/settings/general" icon={<SettingsIcon />}>
               {t("nav.settings")}
             </NavItem>
+            <NavItem value="/analytics" icon={<AnalyticsIcon />}>
+              {t("nav.analytics")}
+            </NavItem>
             <NavItem value="/about" icon={<AboutIcon />}>
               {t("nav.about")}
             </NavItem>

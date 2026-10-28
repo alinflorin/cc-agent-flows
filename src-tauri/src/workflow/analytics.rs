@@ -25,6 +25,8 @@ fn log_entries(root: &Path, sid: &str, kinds: &[&str]) -> Vec<Value> {
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct SessionStat {
+    /// The project the session belongs to.
+    project: String,
     id: String,
     name: String,
     task: String,
@@ -75,6 +77,7 @@ fn day(t: u64) -> String {
 /// Folds one session's log entries into its stat and the per-agent and per-day tables.
 fn fold(sid: &str, session: &workflow::Session, entries: &[Value], agents: &mut HashMap<String, AgentStat>, days: &mut BTreeMap<String, DayStat>) -> SessionStat {
     let mut stat = SessionStat {
+        project: String::new(),
         id: sid.into(),
         name: session.name.clone(),
         task: session.task.chars().take(200).collect(),
@@ -126,16 +129,20 @@ fn fold(sid: &str, session: &workflow::Session, entries: &[Value], agents: &mut 
     stat
 }
 
-pub fn compute(root: &std::path::Path) -> Analytics {
+/// The numbers over the sessions of the given projects (id and directory), merged.
+pub fn compute(roots: &[(String, std::path::PathBuf)]) -> Analytics {
     let mut out = Analytics::default();
     let (mut agents, mut days) = (HashMap::new(), BTreeMap::new());
-    for s in workflow::sessions(root).into_iter().filter(|s| s.session.status != "new") {
-        let entries = log_entries(root, &s.id, &["started", "status", "run_start", "run_end"]);
-        let stat = fold(&s.id, &s.session, &entries, &mut agents, &mut days);
-        out.total_tokens += stat.tokens;
-        out.total_runs += stat.runs;
-        out.failed_runs += stat.failed_runs;
-        out.sessions.push(stat);
+    for (project, root) in roots {
+        for s in workflow::sessions(root).into_iter().filter(|s| s.session.status != "new") {
+            let entries = log_entries(root, &s.id, &["started", "status", "run_start", "run_end"]);
+            let mut stat = fold(&s.id, &s.session, &entries, &mut agents, &mut days);
+            stat.project = project.clone();
+            out.total_tokens += stat.tokens;
+            out.total_runs += stat.runs;
+            out.failed_runs += stat.failed_runs;
+            out.sessions.push(stat);
+        }
     }
     let mut agents: Vec<AgentStat> = agents.into_values().collect();
     for a in &mut agents {
@@ -147,10 +154,15 @@ pub fn compute(root: &std::path::Path) -> Analytics {
     out
 }
 
+/// `project` null = all the projects together.
 #[tauri::command]
-pub async fn analytics_get(app: AppHandle, project: String) -> Result<Analytics, String> {
-    let root = workflow::root(&app, &project)?;
-    tauri::async_runtime::spawn_blocking(move || compute(&root)).await.map_err(|e| e.to_string())
+pub async fn analytics_get(app: AppHandle, project: Option<String>) -> Result<Analytics, String> {
+    let ids = match project {
+        Some(p) => vec![p],
+        None => crate::config::projects::ids(&app),
+    };
+    let roots = ids.into_iter().map(|id| workflow::root(&app, &id).map(|r| (id, r))).collect::<Result<Vec<_>, _>>()?;
+    tauri::async_runtime::spawn_blocking(move || compute(&roots)).await.map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

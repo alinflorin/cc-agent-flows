@@ -215,6 +215,13 @@
         "basic": "Basic (utilizator:secret)",
         "raw": "Secretul ca atare"
       },
+      "source": "Valoarea din",
+      "sources": { "secret": "Un secret", "var": "O variabilă", "text": "Text fix" },
+      "variable": "Variabilă",
+      "noVariables": "Creează mai întâi variabila în Variabile.",
+      "text": "Text",
+      "textHint": "Salvat în clar, vizibil aici: nu pentru credențiale. Pentru ele folosește un secret.",
+      "fixedText": "text fix",
       "secret": "Secret",
       "noSecrets": "Creează mai întâi secretul în Setări > Secrete.",
       "placeholder": "Placeholder",
