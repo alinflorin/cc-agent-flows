@@ -301,6 +301,8 @@
     "back": "Back"
   },
   "sessions": {
+    "allWorkflows": "All workflows",
+    "filterWorkflow": "Filter by workflow",
     "new": "New session",
     "empty": "No sessions yet.",
     "notRunnable": "Running sessions is not available yet.",

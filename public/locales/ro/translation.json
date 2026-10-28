@@ -301,6 +301,8 @@
     "back": "Înapoi"
   },
   "sessions": {
+    "allWorkflows": "Toate fluxurile de lucru",
+    "filterWorkflow": "Filtrează după flux de lucru",
     "new": "Sesiune nouă",
     "empty": "Nicio sesiune încă.",
     "notRunnable": "Rularea sesiunilor nu este disponibilă încă.",

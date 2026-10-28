@@ -763,7 +763,7 @@ pub fn drive_arg(overlay: &Path) -> String {
 }
 
 fn launch(app: &AppHandle, disk: &Path, serial: &Serial) -> Result<tokio::process::Child, String> {
-    let mut cmd = machine(app, 1024, Some(2), true)?;
+    let mut cmd = machine(app, 1024, Some(2), false)?;
     // builders need the internet (package managers, installers)
     cmd.args(["-nic", "user,model=virtio-net-pci"])
         .arg("-drive")
@@ -794,6 +794,15 @@ mod tests {
 
     fn spec(parent: &str) -> Spec {
         Spec { name: "x".into(), description: String::new(), parent: parent.into(), env: vec![], script: String::new(), docs: vec![] }
+    }
+
+    #[test]
+    fn builders_get_a_console_and_agents_get_ccaf_init() {
+        let line = |agent| boot_args(Path::new("/x"), "x86_64", agent).last().unwrap().to_string_lossy().into_owned();
+        let (builder, agent) = (line(false), line(true));
+        assert!(builder.contains("console=ttyS0") && !builder.contains("init="), "{builder}");
+        assert!(agent.contains("init=/sbin/ccaf-init") && !agent.contains("console="), "{agent}");
+        assert!(boot_args(Path::new("/x"), "aarch64", false).last().unwrap().to_string_lossy().contains("console=ttyAMA0"));
     }
 
     #[test]
