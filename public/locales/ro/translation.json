@@ -20,8 +20,7 @@
     "runs": "Rulări",
     "workflow": "Workflow",
     "sessions": "Sesiuni",
-    "analytics": "Statistici",
-    "projects": "Proiecte"
+    "analytics": "Statistici"
   },
   "theme": {
     "label": "Temă",
@@ -296,11 +295,7 @@
       "interrupted": "Întreruptă"
     },
     "untitled": "Fără titlu",
-    "intro": "O sesiune rulează workflow-ul pentru o cerere pe care o scrii în chat.",
-    "allProjects": "Toate proiectele",
-    "filterProject": "Filtrează după proiect",
-    "noProject": "Fără proiect",
-    "project": "Proiect"
+    "intro": "O sesiune rulează workflow-ul pentru o cerere pe care o scrii în chat."
   },
   "wf": {
     "saved": "Workflow salvat.",
@@ -563,23 +558,5 @@
     "tokens": "Tokeni",
     "avgTokens": "Tokeni pe sesiune",
     "heaviest": "Sesiunile cu cei mai mulți tokeni"
-  },
-  "projects": {
-    "title": "Proiecte",
-    "new": "Proiect nou",
-    "edit": "Editează proiectul",
-    "empty": "Niciun proiect încă.",
-    "name": "Nume",
-    "description": "Descriere",
-    "noDescription": "Fără descriere",
-    "systemPrompt": "Prompt de sistem",
-    "systemPromptHint": "Primit de fiecare agent din sesiunile proiectului, după instrucțiunile workflow-ului și înaintea promptului profilului.",
-    "sessions_one": "{{count}} sesiune",
-    "sessions_few": "{{count}} sesiuni",
-    "sessions_other": "{{count}} de sesiuni",
-    "delete": "Șterge proiectul",
-    "open": "Sesiuni",
-    "save": "Salvează",
-    "cancel": "Anulează"
   }
 }

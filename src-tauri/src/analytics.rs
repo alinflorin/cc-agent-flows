@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn folds_runs_into_session_agent_and_day_numbers() {
-        let session = workflow::Session { name: "n".into(), task: "t".into(), created: 1_000_000, status: "done".into(), autonomy: "ask".into(), workflow: "w".into(), messages: vec!["x".into()], entry: None, source: "chat".into(), project: None };
+        let session = workflow::Session { name: "n".into(), task: "t".into(), created: 1_000_000, status: "done".into(), autonomy: "ask".into(), workflow: "w".into(), messages: vec!["x".into()], entry: None, source: "chat".into() };
         let e = |t: u64, kind: &str, body: Value| json!({"t": t, "kind": kind, "body": body});
         let entries = vec![
             e(100, "started", json!({})),

@@ -20,7 +20,7 @@ interface Pending {
 }
 
 interface View {
-  session: { name: string; task: string; status: string; workflow: string; project?: string | null; autonomy: "ask" | "never"; source: "chat" | "cron" | "webhook" };
+  session: { name: string; task: string; status: string; workflow: string; autonomy: "ask" | "never"; source: "chat" | "cron" | "webhook" };
   messages: string[];
   pending: Pending | null;
   live: boolean;
@@ -539,7 +539,6 @@ export function SessionView() {
   const [view, setView] = useState<View | null>(null);
   const [wf, setWf] = useState<{ nodes: WNode[]; edges: WEdge[] } | null>(null);
   const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [log, setLog] = useState<Entry[]>([]);
   const [answer, setAnswer] = useState("");
   const [message, setMessage] = useState("");
@@ -563,7 +562,6 @@ export function SessionView() {
     void (async () => {
       try {
         setWorkflows(await call<{ id: string; name: string }[]>("workflows_list"));
-        setProjects(await call<{ id: string; name: string }[]>("projects_list"));
       } catch (e) {
         notify(String(e), "error");
       }
@@ -696,16 +694,6 @@ export function SessionView() {
             {workflows.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field className={styles.autonomy} orientation="horizontal" label={t("sessions.project")}>
-          <Select value={session.project ?? ""} onChange={(_, x) => act("sessions_project", { project: x.value || null })}>
-            <option value="">{t("sessions.noProject")}</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
               </option>
             ))}
           </Select>

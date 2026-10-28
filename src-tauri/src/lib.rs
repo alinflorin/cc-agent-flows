@@ -1,5 +1,4 @@
 mod accounts;
-mod projects;
 mod agent;
 mod analytics;
 mod cron;
@@ -109,10 +108,6 @@ pub fn run() {
             workflow::sessions_rename,
             workflow::sessions_autonomy,
             workflow::sessions_workflow,
-            workflow::sessions_project,
-            projects::projects_list,
-            projects::projects_save,
-            projects::projects_delete,
             workflow::sessions_delete,
             engine::session_start,
             engine::session_continue,

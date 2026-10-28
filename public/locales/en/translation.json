@@ -20,8 +20,7 @@
     "runs": "Runs",
     "workflow": "Workflow",
     "sessions": "Sessions",
-    "analytics": "Analytics",
-    "projects": "Projects"
+    "analytics": "Analytics"
   },
   "theme": {
     "label": "Theme",
@@ -296,11 +295,7 @@
       "interrupted": "Interrupted"
     },
     "untitled": "Untitled",
-    "intro": "A session runs the workflow for a request you write in chat.",
-    "allProjects": "All projects",
-    "filterProject": "Filter by project",
-    "noProject": "No project",
-    "project": "Project"
+    "intro": "A session runs the workflow for a request you write in chat."
   },
   "wf": {
     "saved": "Workflow saved.",
@@ -561,22 +556,5 @@
     "tokens": "Tokens",
     "avgTokens": "Tokens per session",
     "heaviest": "Sessions using the most tokens"
-  },
-  "projects": {
-    "title": "Projects",
-    "new": "New project",
-    "edit": "Edit project",
-    "empty": "No projects yet.",
-    "name": "Name",
-    "description": "Description",
-    "noDescription": "No description",
-    "systemPrompt": "System prompt",
-    "systemPromptHint": "Given to every agent of the project's sessions, after the workflow's instructions and before the profile's own prompt.",
-    "sessions_one": "{{count}} session",
-    "sessions_other": "{{count}} sessions",
-    "delete": "Delete project",
-    "open": "Sessions",
-    "save": "Save",
-    "cancel": "Cancel"
   }
 }
