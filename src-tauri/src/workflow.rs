@@ -55,6 +55,9 @@ pub struct Session {
     /// What started it: `chat`, `cron` or `webhook`.
     #[serde(default = "chat")]
     pub source: String,
+    /// The project (group) this session belongs to, if any.
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 fn default_workflow() -> String {
@@ -441,14 +444,14 @@ pub fn standard_workflow() -> Workflow {
 
 // ---- storage ----
 
-fn safe_id(id: &str) -> Result<&str, String> {
+pub(crate) fn safe_id(id: &str) -> Result<&str, String> {
     if id.is_empty() || !id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
         return Err("bad id".into());
     }
     Ok(id)
 }
 
-fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+pub(crate) fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -456,7 +459,7 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     std::fs::write(path, text).map_err(|e| e.to_string())
 }
 
-fn read_json<T: for<'a> Deserialize<'a>>(path: &Path) -> Option<T> {
+pub(crate) fn read_json<T: for<'a> Deserialize<'a>>(path: &Path) -> Option<T> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
@@ -617,7 +620,7 @@ pub fn create_session(root: &Path, name: &str, task: &str, workflow: &str) -> Re
         id = format!("{base}-{n}");
         n += 1;
     }
-    let session = Session { name: name.trim().into(), task: task.into(), created: now.as_secs(), status: new_status(), autonomy: ask(), workflow: workflow.into(), messages: vec![], entry: None, source: chat() };
+    let session = Session { name: name.trim().into(), task: task.into(), created: now.as_secs(), status: new_status(), autonomy: ask(), workflow: workflow.into(), messages: vec![], entry: None, source: chat(), project: None };
     write_json(&session_path(root, &id)?, &session)?;
     Ok(id)
 }
@@ -707,6 +710,18 @@ pub fn set_session_workflow(root: &Path, sid: &str, workflow: &str) -> Result<()
     write_json(&session_path(root, sid)?, &session)
 }
 
+/// Puts a session in a project (`None` takes it out). The project's prompt is read when a turn starts.
+pub fn set_session_project(root: &Path, sid: &str, project: Option<&str>) -> Result<(), String> {
+    let mut session = read_session(root, sid)?;
+    if let Some(p) = project
+        && !crate::projects::exists(root, p)
+    {
+        return Err("no such project".into());
+    }
+    session.project = project.map(String::from);
+    write_json(&session_path(root, sid)?, &session)
+}
+
 pub fn delete_session(root: &Path, sid: &str) -> Result<(), String> {
     for ext in ["state.json", "log.jsonl"] {
         let _ = std::fs::remove_file(session_file(root, sid, ext)?);
@@ -783,13 +798,23 @@ pub fn sessions_list(app: tauri::AppHandle) -> Result<Vec<SessionEntry>, String>
 }
 
 #[tauri::command]
-pub fn sessions_create(app: tauri::AppHandle, workflow: Option<String>) -> Result<String, String> {
+pub fn sessions_create(app: tauri::AppHandle, workflow: Option<String>, project: Option<String>) -> Result<String, String> {
     let root = root(&app)?;
     let workflow = match workflow {
         Some(w) => w,
         None => workflows(&root).into_iter().next().map(|w| w.id).ok_or("there is no workflow")?,
     };
-    create_session(&root, "", "", &workflow)
+    let sid = create_session(&root, "", "", &workflow)?;
+    if project.is_some() {
+        set_session_project(&root, &sid, project.as_deref())?;
+    }
+    Ok(sid)
+}
+
+/// Moves a session into a project, or out of any (`None`).
+#[tauri::command]
+pub fn sessions_project(app: tauri::AppHandle, id: String, project: Option<String>) -> Result<(), String> {
+    set_session_project(&root(&app)?, &id, project.as_deref())
 }
 
 /// Picks the workflow of a session that has not started.

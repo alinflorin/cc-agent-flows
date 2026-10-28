@@ -140,8 +140,9 @@ pub struct Final {
     /// The Claude session, to resume it on the next run.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// Tokens the run used (input, cache and output together), if Claude reported them.
     #[serde(default)]
-    pub cost_usd: Option<f64>,
+    pub tokens: Option<u64>,
     /// The structured answer (matching the task's schema), for conditions and the coordinator.
     /// Untrusted: the app validates it.
     #[serde(default)]

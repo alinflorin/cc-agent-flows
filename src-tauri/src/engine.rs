@@ -104,7 +104,7 @@ pub struct State {
     #[serde(default)]
     pub runs: u32,
     #[serde(default)]
-    pub cost_usd: f64,
+    pub tokens: u64,
     /// The root's final report.
     #[serde(default)]
     pub result: Option<String>,
@@ -490,11 +490,11 @@ impl<H: Host> Ctx<H> {
         }
         self.host.log(
             "run_end",
-            json!({"call": call_key, "node": node, "status": f.status, "cost_usd": f.cost_usd, "summary": clip(&f.result, 4000), "questions": f.questions, "assumptions": assumptions_of(f.output.as_ref())}),
+            json!({"call": call_key, "node": node, "status": f.status, "tokens": f.tokens, "summary": clip(&f.result, 4000), "questions": f.questions, "assumptions": assumptions_of(f.output.as_ref())}),
         );
         {
             let mut s = self.state.lock().unwrap();
-            s.cost_usd += f.cost_usd.unwrap_or(0.0);
+            s.tokens += f.tokens.unwrap_or(0);
             s.seq += 1;
             let seq = s.seq;
             s.journal.insert(key, Journaled { seq, done: f.clone() });
@@ -918,7 +918,7 @@ impl Host for RealHost {
             }
         }
         let _ = crate::workflow::set_session_status(&self.root, &self.sid, status);
-        self.log("status", json!({"status": status, "cost_usd": state.cost_usd}));
+        self.log("status", json!({"status": status, "tokens": state.tokens}));
     }
 
     fn autonomy(&self) -> String {
@@ -984,6 +984,9 @@ fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
         _ => return Err(format!("a session that is {} cannot be {}", session.status, if fresh { "started" } else { "continued" })),
     }
     let (wf, instructions, profiles) = prepare(&app, &session.workflow)?;
+    // workflow instructions first, then the project's, then (per agent) the profile's
+    let project_prompt = session.project.as_deref().map(|p| crate::projects::get(&root, p).system_prompt).unwrap_or_default();
+    let instructions = crate::workflow::combine_system_prompts(&instructions, &project_prompt).unwrap_or_default();
     let mut state = if fresh { State::default() } else { read_state(&root, &sid).unwrap_or_default() };
     state.rewind_failures();
 
@@ -1104,7 +1107,7 @@ pub struct SessionView {
     pub pending: Option<Pending>,
     pub live: bool,
     pub messages: Vec<String>,
-    pub cost_usd: f64,
+    pub tokens: u64,
     pub result: Option<String>,
 }
 
@@ -1114,7 +1117,7 @@ pub fn session_get(app: AppHandle, id: String) -> Result<SessionView, String> {
     let session = crate::workflow::read_session(&root, &id)?;
     let state = read_state(&root, &id).unwrap_or_default();
     let live = app.state::<Sessions>().0.lock().unwrap().contains_key(&key(&id));
-    Ok(SessionView { messages: session.messages.clone(), session, pending: state.pending.filter(|_| live), live, cost_usd: state.cost_usd, result: state.result })
+    Ok(SessionView { messages: session.messages.clone(), session, pending: state.pending.filter(|_| live), live, tokens: state.tokens, result: state.result })
 }
 
 /// The session's log (the last entries when it is long).
@@ -1174,7 +1177,7 @@ mod tests {
     }
 
     fn fin(status: Status, summary: &str, output: Option<Value>) -> Final {
-        Final { status, result: summary.into(), questions: vec![], session_id: None, cost_usd: Some(0.5), output, exit_code: Some(0) }
+        Final { status, result: summary.into(), questions: vec![], session_id: None, tokens: Some(500), output, exit_code: Some(0) }
     }
 
     fn done(summary: &str) -> Final {
@@ -1269,7 +1272,7 @@ mod tests {
         // workers know the goal, their role and only what they were told
         let ba = host.prompt(3);
         assert!(ba.contains("build a thing") && ba.contains("write the requirements") && !ba.contains("PROJ-2"));
-        assert_eq!(state.cost_usd, 7.5);
+        assert_eq!(state.tokens, 7500);
     }
 
     #[tokio::test]

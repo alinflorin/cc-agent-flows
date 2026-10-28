@@ -20,7 +20,8 @@
     "runs": "Runs",
     "workflow": "Workflow",
     "sessions": "Sessions",
-    "analytics": "Analytics"
+    "analytics": "Analytics",
+    "projects": "Projects"
   },
   "theme": {
     "label": "Theme",
@@ -253,7 +254,7 @@
     "modelHint": "Empty uses Claude Code's default.",
     "modelDefault": "Default",
     "effort": "Thinking effort",
-    "effortHint": "How much the agent thinks before answering. Higher is slower and costs more.",
+    "effortHint": "How much the agent thinks before answering. Higher is slower and uses more tokens.",
     "effortDefault": "Default",
     "cpus": "CPUs",
     "cpusAll": "All of the host's",
@@ -295,7 +296,11 @@
       "interrupted": "Interrupted"
     },
     "untitled": "Untitled",
-    "intro": "A session runs the workflow for a request you write in chat."
+    "intro": "A session runs the workflow for a request you write in chat.",
+    "allProjects": "All projects",
+    "filterProject": "Filter by project",
+    "noProject": "No project",
+    "project": "Project"
   },
   "wf": {
     "saved": "Workflow saved.",
@@ -379,7 +384,7 @@
     "triggerAutonomyHint": "Nobody watches these sessions, so the usual choice is that agents decide on their own.",
     "saveFirst": "Save the workflow to see the details and try it.",
     "webhookUrl": "URL",
-    "webhookUrlHint": "Send a request to it (any method). Treat it like a password: anyone with the URL can start sessions (which cost money).",
+    "webhookUrlHint": "Send a request to it (any method). Treat it like a password: anyone with the URL can start sessions.",
     "webhookSample": "Sample body",
     "webhookTest": "Send sample",
     "cronRunNow": "Run now",
@@ -506,7 +511,8 @@
       "questions": "{{label}} has questions for you",
       "done": "The session is done",
       "failed": "The session failed"
-    }
+    },
+    "tokens": "{{n}} tokens"
   },
   "app": {
     "desktopOnly": "Only available in the desktop app."
@@ -523,18 +529,16 @@
     "injections": "The injections GITHUB, GITHUB_READONLY and JIRA are written again as they were first created; your edits to them are lost. Other injections are not touched."
   },
   "analytics": {
-    "intro": "Cost, time and failures over your sessions, from their logs.",
+    "intro": "Tokens, time and failures over your sessions, from their logs.",
     "range": "Period",
     "last": "Last {{days}} days",
     "all": "All time",
     "refresh": "Refresh",
     "sessions": "Sessions",
     "finished": "Finished",
-    "cost": "Cost",
-    "avgCost": "Cost per session",
     "runs": "Agent runs",
     "failRate": "Runs that failed",
-    "perDay": "Cost per day",
+    "perDay": "Tokens per day",
     "none": "No sessions in this period.",
     "runsN_one": "{{count}} run",
     "runsN_other": "{{count}} runs",
@@ -542,18 +546,37 @@
     "sessionsN_other": "{{count}} sessions",
     "perAgent": "By agent profile",
     "allTime": "Over all sessions.",
-    "costliest": "Costliest sessions",
     "col": {
       "agent": "Profile",
       "runs": "Runs",
       "failed": "Failed",
       "avg": "Average",
       "longest": "Longest",
-      "cost": "Cost",
       "session": "Session",
       "status": "Status",
       "turns": "Turns",
-      "duration": "Duration"
-    }
+      "duration": "Duration",
+      "tokens": "Tokens"
+    },
+    "tokens": "Tokens",
+    "avgTokens": "Tokens per session",
+    "heaviest": "Sessions using the most tokens"
+  },
+  "projects": {
+    "title": "Projects",
+    "new": "New project",
+    "edit": "Edit project",
+    "empty": "No projects yet.",
+    "name": "Name",
+    "description": "Description",
+    "noDescription": "No description",
+    "systemPrompt": "System prompt",
+    "systemPromptHint": "Given to every agent of the project's sessions, after the workflow's instructions and before the profile's own prompt.",
+    "sessions_one": "{{count}} session",
+    "sessions_other": "{{count}} sessions",
+    "delete": "Delete project",
+    "open": "Sessions",
+    "save": "Save",
+    "cancel": "Cancel"
   }
 }
