@@ -175,11 +175,14 @@ async fn boot_and_drive(
     // which hands the agent's traffic to the egress proxy. The server must listen before QEMU
     // starts, which connects to it at once.
     let (egress_tx, mut egress_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let (rules, injections) = egress;
-    let inspector = if injections.is_empty() { None } else { Some(crate::net::inspect::Inspector::new(injections)?) };
-    let ca = inspector.as_ref().map(|i| i.ca_pem().to_string());
+    let (rules, mut injections) = egress;
+    // The Claude token never enters the VM: the proxy sets it on the requests to the API. Last, so
+    // no user injection can override it.
+    injections.push(crate::config::injections::claude(token)?);
+    let inspector = crate::net::inspect::Inspector::new(injections)?;
+    let ca = Some(inspector.ca_pem().to_string());
     let tunnel = crate::net::tunnel::Tunnel::start(
-        crate::net::egress::Proxy::new(rules, inspector),
+        crate::net::egress::Proxy::new(rules, Some(inspector)),
         std::sync::Arc::new(move |line| {
             let _ = egress_tx.send(line);
         }),
@@ -217,7 +220,7 @@ async fn boot_and_drive(
     // The stream stays open inside `drive` until the run is over.
     let mut rx = crate::vm::agent::drive(stream, Bootstrap {
             id: identity.to_string(),
-            claude_token: token.to_string(),
+            claude_token: crate::config::injections::CLAUDE_PLACEHOLDER.to_string(),
             tunnel: Some(TunnelKeys { key: tunnel.client_key.clone(), host_key: tunnel.host_key.clone() }),
             ca,
         },
