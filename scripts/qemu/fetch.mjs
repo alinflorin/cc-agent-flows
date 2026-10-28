@@ -8,7 +8,7 @@
 // warns, since the app falls back to a QEMU on PATH.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -40,7 +40,8 @@ try {
   if (!existsSync(archive)) throw new Error(`no QEMU build for ${triple} in vendor/qemu`);
   console.log(`Unpacking ${archive}`);
   mkdirSync(dest, { recursive: true });
-  execFileSync("tar", ["-xzf", archive, "-C", dest], { stdio: "inherit" });
+  // Relative path from the destination: GNU tar (Git Bash on Windows) reads "C:\..." as host:path.
+  execFileSync("tar", ["-xzf", relative(dest, archive).replaceAll("\\", "/")], { cwd: dest, stdio: "inherit" });
   const share = join(dest, "share/qemu");
   if (existsSync(share)) for (const f of readdirSync(share)) if (foreign.test(f)) rmSync(join(share, f), { force: true });
   writeFileSync(marker, stamp);
