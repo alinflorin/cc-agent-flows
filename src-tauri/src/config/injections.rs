@@ -51,6 +51,19 @@ pub enum Kind {
     Raw,
 }
 
+/// Where the injected value comes from.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    /// A named secret (Settings > Secrets), in `Injection::secret`.
+    #[default]
+    Secret,
+    /// A variable (Settings > Variables), its name in `Injection::value`.
+    Var,
+    /// A fixed text, in `Injection::value`.
+    Text,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Injection {
     pub name: String,
@@ -62,7 +75,14 @@ pub struct Injection {
     #[serde(default)]
     pub username: String,
     /// The name of the secret (Settings > Secrets).
+    #[serde(default)]
     pub secret: String,
+    /// Where the value comes from; a secret unless said otherwise.
+    #[serde(default)]
+    pub source: Source,
+    /// The variable's name (`Var`) or the text itself (`Text`).
+    #[serde(default)]
+    pub value: String,
     /// What `${injection:NAME}` expands to in the VM; empty means [`DEFAULT_PLACEHOLDER`].
     #[serde(default)]
     pub placeholder: String,
@@ -111,8 +131,13 @@ impl Injection {
         if self.kind == Kind::Basic && (self.username.is_empty() || (self.username.contains(':') && !has_var(&self.username)) || self.username.chars().any(|c| c.is_control())) {
             return Err(format!("{}: Basic needs a user name without a colon", self.name));
         }
-        if !crate::config::secrets::valid_name(&self.secret) {
-            return Err(format!("{}: pick a secret", self.name));
+        match self.source {
+            Source::Secret if !crate::config::secrets::valid_name(&self.secret) => return Err(format!("{}: pick a secret", self.name)),
+            Source::Var if !crate::config::secrets::valid_name(&self.value) => return Err(format!("{}: pick a variable", self.name)),
+            Source::Text if self.value.is_empty() || self.value.len() > 2000 || self.value.chars().any(|c| c.is_control()) => {
+                return Err(format!("{}: the text is empty, too long or has a control character", self.name));
+            }
+            _ => {}
         }
         if self.placeholder.len() > 300 || self.placeholder.chars().any(|c| c.is_control()) {
             return Err(format!("{}: the placeholder is not valid", self.name));
@@ -292,7 +317,7 @@ fn glob(p: &[u8], s: &[u8]) -> bool {
 
 fn header_value(i: &Injection, secret: &str) -> Result<String, String> {
     if secret.chars().any(|c| c.is_control()) {
-        return Err(format!("the secret {} has a control character", i.secret));
+        return Err(format!("the value of {} has a control character", i.name));
     }
     Ok(match i.kind {
         Kind::Bearer => format!("Bearer {secret}"),
@@ -324,7 +349,11 @@ pub fn build(list: &[Injection], vars: &[EnvVar], secret: &dyn Fn(&str) -> Optio
     let mut active = vec![];
     for i in used.into_inner() {
         let i = &resolved(i, var).map_err(|e| format!("the injection {}: {e}", i.name))?;
-        let value = secret(&i.secret).ok_or_else(|| format!("the injection {}: the secret {} is not set (Settings > Secrets)", i.name, i.secret))?;
+        let value = match i.source {
+            Source::Secret => secret(&i.secret).ok_or_else(|| format!("the injection {}: the secret {} is not set (Settings > Secrets)", i.name, i.secret))?,
+            Source::Var => var(&i.value).ok_or_else(|| format!("the injection {}: the variable {} is not set (Settings > Variables)", i.name, i.value))?,
+            Source::Text => i.value.clone(),
+        };
         active.push(Active { name: i.name.clone(), rules: i.rules.clone(), header: i.header.clone(), value: header_value(i, &value)? });
     }
     Ok((env, active))
@@ -383,6 +412,8 @@ mod tests {
             kind: Kind::Bearer,
             username: String::new(),
             secret: "GH".into(),
+            source: Source::Secret,
+            value: String::new(),
             placeholder: String::new(),
         }
     }
@@ -518,5 +549,27 @@ mod tests {
         r.placeholder = "ghp_xxxx".into();
         let (env, a) = build(&[r], &[var("A", "${injection:R}")], &secrets, &no_vars).unwrap();
         assert_eq!((a[0].value.as_str(), env[0].value.as_str()), ("s3cret", "ghp_xxxx"));
+    }
+
+    #[test]
+    fn value_can_come_from_a_variable_or_a_fixed_text() {
+        let vars = |n: &str| (n == "KEY").then(|| "from-var".to_string());
+        let mut a = inj("A");
+        a.source = Source::Var;
+        a.value = "KEY".into();
+        a.secret = String::new();
+        a.validate().unwrap();
+        let (_, active) = build(&[a.clone()], &[var("T", "${injection:A}")], &|_| None, &vars).unwrap();
+        assert_eq!(active[0].value, "Bearer from-var");
+        a.value = "NOPE".into();
+        assert!(build(&[a], &[var("T", "${injection:A}")], &|_| None, &vars).err().unwrap().contains("NOPE"));
+        let mut t = inj("T");
+        t.source = Source::Text;
+        t.value = "fixed".into();
+        t.validate().unwrap();
+        let (_, active) = build(&[t.clone()], &[var("T", "${injection:T}")], &|_| None, &no_vars).unwrap();
+        assert_eq!(active[0].value, "Bearer fixed");
+        t.value.clear();
+        assert!(t.validate().is_err());
     }
 }

@@ -40,6 +40,8 @@ interface Injection {
   kind: "bearer" | "basic" | "raw";
   username: string;
   secret: string;
+  source: "secret" | "var" | "text";
+  value: string;
   placeholder: string;
 }
 
@@ -52,6 +54,8 @@ const EMPTY: Injection = {
   kind: "bearer",
   username: "",
   secret: "",
+  source: "secret",
+  value: "",
   placeholder: "",
 };
 
@@ -74,6 +78,7 @@ export function InjectionsSettings() {
 
   const [list, setList] = useState<Injection[]>([]);
   const [secrets, setSecrets] = useState<string[]>([]);
+  const [variables, setVariables] = useState<string[]>([]);
   // the injection being edited and its position in the list (null = new); kept after closing so the dialog does not flicker while it fades out
   const [editing, setEditing] = useState<{ at: number | null; value: Injection } | null>(null);
   const [open, setOpen] = useState(false);
@@ -82,6 +87,7 @@ export function InjectionsSettings() {
     try {
       setList(await call<Injection[]>("injections_get", { project }));
       setSecrets(await call<string[]>("secrets_list", { project }));
+      setVariables((await call<{ name: string }[]>("variables_list", { project })).map((x) => x.name));
     } catch (e) {
       notify(String(e), "error");
     }
@@ -121,7 +127,7 @@ export function InjectionsSettings() {
     set({ rules: editing!.value.rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
 
   const v = editing?.value;
-  const ready = !!v && !!v.name && !!v.secret && !!v.header && v.rules.length > 0 && v.rules.every((r) => r.host.trim()) && (v.kind !== "basic" || !!v.username);
+  const ready = !!v && !!v.name && (v.source === "secret" ? !!v.secret : !!v.value.trim()) && !!v.header && v.rules.length > 0 && v.rules.every((r) => r.host.trim()) && (v.kind !== "basic" || !!v.username);
 
   return (
     <>
@@ -142,7 +148,7 @@ export function InjectionsSettings() {
               header={<Body1 className={styles.mono}>{`\${injection:${x.name}}`}</Body1>}
               description={<Caption1>{x.rules.map((r) => r.host + (r.path || "")).join(", ")}</Caption1>}
             />
-            <Caption1>{t("settings.injections.summary", { header: x.header, kind: t(`settings.injections.kinds.${x.kind}`), secret: x.secret })}</Caption1>
+            <Caption1>{t("settings.injections.summary", { header: x.header, kind: t(`settings.injections.kinds.${x.kind}`), secret: x.source === "secret" ? x.secret : x.source === "var" ? `\${var:${x.value}}` : t("settings.injections.fixedText") })}</Caption1>
             <div className={styles.row}>
               <Button onClick={() => edit(i, x)}>
                 {t("settings.injections.edit")}
@@ -229,15 +235,43 @@ export function InjectionsSettings() {
                     </Field>
                   )}
 
-                  <Field required label={t("settings.injections.secret")} hint={secrets.length === 0 ? t("settings.injections.noSecrets") : undefined}>
-                    <Dropdown value={v.secret} selectedOptions={[v.secret]} onOptionSelect={(_, d) => set({ secret: d.optionValue ?? "" })}>
-                      {secrets.map((n) => (
-                        <Option key={n} value={n}>
-                          {n}
+                  <Field required label={t("settings.injections.source")}>
+                    <Dropdown value={t(`settings.injections.sources.${v.source}`)} selectedOptions={[v.source]} onOptionSelect={(_, d) => set({ source: (d.optionValue ?? "secret") as Injection["source"] })}>
+                      {(["secret", "var", "text"] as const).map((k) => (
+                        <Option key={k} value={k}>
+                          {t(`settings.injections.sources.${k}`)}
                         </Option>
                       ))}
                     </Dropdown>
                   </Field>
+
+                  {v.source === "secret" && (
+                    <Field required label={t("settings.injections.secret")} hint={secrets.length === 0 ? t("settings.injections.noSecrets") : undefined}>
+                      <Dropdown value={v.secret} selectedOptions={[v.secret]} onOptionSelect={(_, d) => set({ secret: d.optionValue ?? "" })}>
+                        {secrets.map((n) => (
+                          <Option key={n} value={n}>
+                            {n}
+                          </Option>
+                        ))}
+                      </Dropdown>
+                    </Field>
+                  )}
+                  {v.source === "var" && (
+                    <Field required label={t("settings.injections.variable")} hint={variables.length === 0 ? t("settings.injections.noVariables") : undefined}>
+                      <Dropdown value={v.value} selectedOptions={[v.value]} onOptionSelect={(_, d) => set({ value: d.optionValue ?? "" })}>
+                        {variables.map((n) => (
+                          <Option key={n} value={n}>
+                            {n}
+                          </Option>
+                        ))}
+                      </Dropdown>
+                    </Field>
+                  )}
+                  {v.source === "text" && (
+                    <Field required label={t("settings.injections.text")} hint={t("settings.injections.textHint")}>
+                      <Input className={styles.mono} value={v.value} onChange={(_, d) => set({ value: d.value })} />
+                    </Field>
+                  )}
 
                   <Field label={t("settings.injections.placeholder")} hint={t("settings.injections.placeholderHint")}>
                     <Input className={styles.mono} placeholder="ccaf-injected" value={v.placeholder} onChange={(_, d) => set({ placeholder: d.value })} />

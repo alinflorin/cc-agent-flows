@@ -7,9 +7,10 @@ import { PageHeader } from "../components/PageHeader";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 import { call } from "../tauri";
-import { projectPath, useProjectId } from "../project";
+import { projectPath, useProject } from "../project";
 
 interface SessionStat {
+  project: string;
   id: string;
   name: string;
   task: string;
@@ -59,24 +60,24 @@ const useStyles = makeStyles({
 const tok = (n: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n);
 const dur = (s: number) => (s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m` : s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);
 
-/** Tokens, time and failures over all the sessions, from their logs. */
+/** Tokens, time and failures over all the sessions of the project (or of every project, outside one), from their logs. */
 export function Analytics() {
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
   const navigate = useNavigate();
-  const project = useProjectId();
+  const scope = useProject();
   const desktop = inTauri();
   const [data, setData] = useState<Data | null>(null);
   const [range, setRange] = useState("30");
 
   const load = useCallback(async () => {
     try {
-      setData(await call<Data>("analytics_get", { project }));
+      setData(await call<Data>("analytics_get", { project: scope }));
     } catch (e) {
       notify(String(e), "error");
     }
-  }, [notify, project]);
+  }, [notify, scope]);
   useEffect(() => {
     if (desktop) void load();
   }, [desktop, load]);
@@ -187,7 +188,7 @@ export function Analytics() {
               </TableHeader>
               <TableBody>
                 {heaviest.map((s) => (
-                  <TableRow key={s.id} className={styles.row} onClick={() => navigate(projectPath(project, `/sessions/${s.id}`))}>
+                  <TableRow key={s.id} className={styles.row} onClick={() => navigate(projectPath(s.project, `/sessions/${s.id}`))}>
                     <TableCell><TableCellLayout>{s.name || s.task.slice(0, 60) || t("sessions.untitled")}</TableCellLayout></TableCell>
                     <TableCell>{t(`sessions.status.${s.status}`, s.status)}</TableCell>
                     <TableCell>{s.turns}</TableCell>
