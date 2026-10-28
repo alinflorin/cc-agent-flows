@@ -1,0 +1,2 @@
+minimumReleaseAgeExclude:
+  - '@tauri-apps/plugin-notification@2.8.0'
