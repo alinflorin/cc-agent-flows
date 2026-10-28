@@ -129,7 +129,7 @@
       "delete": "Delete variable"
     },
     "injections": {
-      "intro": "Credentials the app adds to requests an agent sends to certain addresses, so the secret never enters the VM. Pick one in an agent profile's environment variable as ${injection:NAME}: the variable then holds a placeholder (for tools that refuse to run without a token) and the real value is set by the app on the matching requests, replacing whatever the agent sent. The hosts are allowed for the agents that use it. The traffic to them is decrypted by the app (the VM trusts a certificate made for each run).",
+      "intro": "Credentials the app adds to requests an agent sends to certain addresses, so the secret never enters the VM. Pick one in an agent profile's environment variable as ${injection:NAME}: the variable then holds a placeholder (for tools that refuse to run without a token) and the real value is set by the app on the matching requests, replacing whatever the agent sent. The host of an injection must also be in the agent's allowed hosts (profile or Settings > Network); a run whose injection is for a host the agent may not reach does not start. The traffic to them is decrypted by the app (the VM trusts a certificate made for each run).",
       "desktopOnly": "Injections are only available in the desktop app.",
       "new": "New injection",
       "editTitle": "Edit injection",
@@ -196,7 +196,7 @@
     "memory": "Memory (MB)",
     "memoryHint": "RAM of the VM, at least 1024. Default 2048.",
     "allowHosts": "Allowed hosts",
-    "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). The hosts in Settings > Network are always allowed; everything else is blocked.",
+    "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). A ${var:NAME} (Settings > Variables) works too. The hosts in Settings > Network are always allowed; everything else is blocked. List the host of every injection the agent uses: nothing adds it.",
     "envValue": "Value, ${secret:NAME}, ${injection:NAME} or ${var:NAME}"
   },
   "welcome": {
@@ -387,5 +387,16 @@
   },
   "app": {
     "desktopOnly": "Only available in the desktop app."
+  },
+  "reset": {
+    "button": "Reset to demo content",
+    "title": "Reset to demo content?",
+    "confirm": "Reset",
+    "done": "Demo content restored.",
+    "images": "The starter images (manager, developer, qa) are written again with their original script and settings; your edits to them are lost. Images you made yourself are not touched. The ones that end up out of date are rebuilt.",
+    "profiles": "The starter profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, qa) are written again as they were first created, with their prompts, variables and allowed hosts; your edits to them are lost and deleted ones come back. Other profiles are not touched.",
+    "secrets": "GITHUB_TOKEN, GITHUB_READONLY_TOKEN and JIRA_TOKEN are set to the dummy value again. If you stored real tokens under these names, they are lost. Other secrets are not touched.",
+    "variables": "ATLASSIAN_HOST and ATLASSIAN_EMAIL are set to their placeholder values again. If you entered your own, they are lost. Other variables are not touched.",
+    "injections": "The injections GITHUB, GITHUB_READONLY and JIRA are written again as they were first created; your edits to them are lost. Other injections are not touched."
   }
 }

@@ -128,23 +128,33 @@ const DUMMY: &str = "dummy";
 
 /// Part of the demo content: adds the demo secrets with a dummy value. One that is already listed
 /// or already in the credential store is left as it is.
-pub fn provision_demo(app: &tauri::AppHandle) -> Result<(), String> {
+///
+/// `reset`: the demo secrets get the dummy value again, a real one is lost.
+pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
     let path = index_file(app)?;
     let mut index = load_index(&path);
     for name in DEMO_SECRETS {
-        if index.names.iter().any(|n| n == name) {
+        if !reset && index.names.iter().any(|n| n == name) {
             continue;
         }
         let entry = secret_entry(name)?;
         match entry.get_password() {
-            Err(keyring::Error::NoEntry) => entry.set_password(DUMMY).map_err(|e| e.to_string())?,
-            Ok(_) => {}
+            Ok(_) if !reset => {}
+            Ok(_) | Err(keyring::Error::NoEntry) => entry.set_password(DUMMY).map_err(|e| e.to_string())?,
             Err(e) => return Err(e.to_string()),
         }
-        index.names.push(name.to_string());
+        if !index.names.iter().any(|n| n == name) {
+            index.names.push(name.to_string());
+        }
     }
     index.names.sort();
     save_index(&path, &index)
+}
+
+/// Settings > Secrets > Reset to demo content.
+#[tauri::command]
+pub fn secrets_reset_demo(app: tauri::AppHandle) -> Result<(), String> {
+    provision_demo(&app, true)
 }
 
 /// The names of the saved secrets.

@@ -21,6 +21,7 @@ import {
 import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../components/SettingsIntro";
 import { FormDialogSurface } from "../components/FormDialogSurface";
+import { ResetDemoButton } from "../components/ResetDemoButton";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
@@ -53,6 +54,7 @@ const EMPTY: Injection = {
 };
 
 const useStyles = makeStyles({
+  introActions: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS },
   list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM, marginTop: tokens.spacingVerticalL },
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM },
   row: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-start" },
@@ -127,9 +129,12 @@ export function InjectionsSettings() {
     <>
       <SettingsIntro text={t("settings.injections.intro")}>
         {!desktop && <Body1 block>{t("settings.injections.desktopOnly")}</Body1>}
-        <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit(null, EMPTY)}>
-          {t("settings.injections.new")}
-        </Button>
+        <div className={styles.introActions}>
+          <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit(null, EMPTY)}>
+            {t("settings.injections.new")}
+          </Button>
+          <ResetDemoButton command="injections_reset_demo" what="injections" onDone={() => void load()} />
+        </div>
       </SettingsIntro>
       {desktop && list.length === 0 && <Caption1 block style={{ marginTop: 16 }}>{t("settings.injections.empty")}</Caption1>}
       <div className={styles.list}>

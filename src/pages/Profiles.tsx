@@ -25,6 +25,7 @@ import {
 } from "@fluentui/react-components";
 import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { FormDialogSurface } from "../components/FormDialogSurface";
+import { ResetDemoButton } from "../components/ResetDemoButton";
 import { inTauri } from "../prefs";
 import { MODELS } from "../llm";
 import { useNotify } from "../notifications";
@@ -139,9 +140,12 @@ export function Profiles() {
       <PageHeader
         title={t("profiles.title")}
         actions={
-          <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit({ id: null, profile: EMPTY })}>
-            {t("profiles.new")}
-          </Button>
+          <>
+            <ResetDemoButton command="profiles_reset_demo" what="profiles" onDone={load} />
+            <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit({ id: null, profile: EMPTY })}>
+              {t("profiles.new")}
+            </Button>
+          </>
         }
       />
       {!desktop && <Body1 block>{t("profiles.desktopOnly")}</Body1>}

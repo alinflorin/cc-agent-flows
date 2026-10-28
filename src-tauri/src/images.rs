@@ -482,16 +482,27 @@ fn defaults() -> Vec<(&'static str, Spec)> {
 
 /// Creates the default images (the ones that do not exist yet) and builds them: now if the base is
 /// built, else after it (while the base builds they follow it as the images built on it).
-pub fn provision_defaults(app: &AppHandle) -> Result<(), String> {
+///
+/// `reset`: the starter images are written again over what is there (the edits of the user are lost, other images are left alone) and the ones that are then missing or out of date are built. Refused while a build runs.
+pub fn provision_defaults(app: &AppHandle, reset: bool) -> Result<(), String> {
     let dir = spec_dir(app)?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    if reset {
+        let images = app.state::<Images>();
+        let g = images.0.lock().unwrap();
+        if g.building.is_some() || !g.queue.is_empty() {
+            return Err("an image is being built, wait for it".into());
+        }
+    }
     let mut created = vec![];
     for (id, spec) in defaults() {
         let file = dir.join(format!("{id}.json"));
-        if !file.exists() {
+        if reset || !file.exists() {
             let text = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
             std::fs::write(&file, text).map_err(|e| e.to_string())?;
-            created.push(id.to_string());
+            if !reset || info(app, id, Some(&spec)).state != "ready" {
+                created.push(id.to_string());
+            }
         }
     }
     if info(app, BASE, None).state == "ready"
@@ -501,6 +512,12 @@ pub fn provision_defaults(app: &AppHandle) -> Result<(), String> {
         let _ = start(app, first);
     }
     Ok(())
+}
+
+/// Settings > Images > Reset to demo content.
+#[tauri::command]
+pub fn images_reset_demo(app: AppHandle) -> Result<(), String> {
+    provision_defaults(&app, true)
 }
 
 fn start(app: &AppHandle, id: &str) -> Result<(), String> {

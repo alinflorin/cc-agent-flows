@@ -183,7 +183,7 @@ pub fn injections_save(app: tauri::AppHandle, injections: Vec<Injection>) -> Res
 /// needs it and the API accepts a token as the password too; the Atlassian ones name a placeholder
 /// site and e-mail the user must replace (a wildcard over `atlassian.net` would hand the token to
 /// anyone's site).
-fn demo() -> Vec<Injection> {
+pub(crate) fn demo() -> Vec<Injection> {
     let rule = |host: &str, path: &str| Rule { host: host.into(), path: path.into(), methods: vec![] };
     let basic = |name: &str, rules: Vec<Rule>, username: &str, secret: &str| Injection {
         name: name.into(),
@@ -203,12 +203,16 @@ fn demo() -> Vec<Injection> {
 }
 
 /// Part of the demo content: adds the demo injections that do not exist yet.
-pub fn provision_demo(app: &tauri::AppHandle) -> Result<(), String> {
+///
+/// `reset`: the demo injections are written again over the ones with their names, other injections are left alone.
+pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
     let path = file(app)?;
     let mut list = load(&path);
     for i in demo() {
-        if !list.iter().any(|o| o.name == i.name) {
-            list.push(i);
+        match list.iter_mut().find(|o| o.name == i.name) {
+            Some(o) if reset => *o = i,
+            Some(_) => {}
+            None => list.push(i),
         }
     }
     let list = cleaned(&list)?;
@@ -216,6 +220,12 @@ pub fn provision_demo(app: &tauri::AppHandle) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     std::fs::write(&path, serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+/// Settings > Injections > Reset to demo content.
+#[tauri::command]
+pub fn injections_reset_demo(app: tauri::AppHandle) -> Result<(), String> {
+    provision_demo(&app, true)
 }
 
 /// An injection switched on for a run, with its header value built from the secret. It lives in

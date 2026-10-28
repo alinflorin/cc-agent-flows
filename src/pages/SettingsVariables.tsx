@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Body1, Button, Caption1, Field, Input, makeStyles, tokens } from "@fluentui/react-components";
 import { Delete20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../components/SettingsIntro";
+import { ResetDemoButton } from "../components/ResetDemoButton";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
@@ -77,6 +78,7 @@ export function VariablesSettings() {
     <div className={styles.form}>
       <SettingsIntro text={t("settings.variables.intro")}>
         {!desktop && <Body1 block>{t("settings.variables.desktopOnly")}</Body1>}
+        <ResetDemoButton command="variables_reset_demo" what="variables" onDone={() => void load()} />
       </SettingsIntro>
 
       <Field

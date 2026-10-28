@@ -146,7 +146,7 @@ impl Profile {
         }
         let mut seen = std::collections::HashSet::new();
         for h in &self.allow_hosts {
-            if clean_host(h)? != *h {
+            if !h.contains("${var:") && clean_host(h)? != *h {
                 return Err(format!("{h:?} is not in normal form"));
             }
             if !seen.insert(h) {
@@ -203,7 +203,8 @@ pub fn save(user: &Path, id: Option<&str>, profile: &Profile) -> Result<String, 
     let mut profile = profile.clone();
     let mut hosts: Vec<String> = vec![];
     for h in profile.allow_hosts.iter().filter(|h| !h.trim().is_empty()) {
-        let h = clean_host(h)?;
+        // a `${var:NAME}` is only known at run time, when the entry is checked again
+        let h = if h.contains("${var:") { h.trim().to_string() } else { clean_host(h)? };
         if !hosts.contains(&h) {
             hosts.push(h);
         }
@@ -271,8 +272,22 @@ fn demo_env(id: &str) -> Vec<EnvVar> {
     env
 }
 
+/// The allowed hosts of a starter profile: the registries the developer tools need once the network is sealed, the hosts of the injections it uses (`demo_env`; nothing adds them) and Atlassian's media host, where Jira attachments (`jtk`) are served.
+fn demo_hosts(id: &str) -> Vec<String> {
+    let mut hosts: Vec<&str> = vec![];
+    if matches!(id, "developer" | "architect" | "reviewer" | "qa") {
+        hosts.extend(["github.com", "api.github.com", "*.githubusercontent.com", "registry.npmjs.org", "pypi.org", "files.pythonhosted.org"]);
+    }
+    if matches!(id, "project-manager" | "business-analyst" | "architect" | "developer" | "reviewer" | "qa") {
+        hosts.extend(["${var:ATLASSIAN_HOST}", "api.media.atlassian.com"]);
+    }
+    hosts.into_iter().map(String::from).collect()
+}
+
 /// The starter profiles: the ones that work on code (developer, architect, reviewer) on the `developer` image, `qa` on its own, the rest on the base image; existing ones are left alone.
-pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
+///
+/// `reset`: the starter profiles are written again over what is there (the edits of the user are lost, other profiles are left alone).
+pub fn provision_defaults(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
     let dir = dir(app)?;
     let starters = [
         (
@@ -319,7 +334,7 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
         ),
     ];
     for (id, name, description, prompt) in starters {
-        if user_path(&dir, id)?.exists() {
+        if !reset && user_path(&dir, id)?.exists() {
             continue;
         }
         let profile = Profile {
@@ -338,18 +353,7 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
                 "project-manager" | "business-analyst" => "manager".into(),
                 _ => "base".into(),
             },
-            // the developer tools (git, npm, pip) need their registries once the network is sealed; everyone who reads
-            // Jira attachments (`jtk`) is redirected to Atlassian's media host for the file itself
-            allow_hosts: {
-                let mut hosts: Vec<&str> = vec![];
-                if matches!(id, "developer" | "architect" | "reviewer" | "qa") {
-                    hosts.extend(["github.com", "*.githubusercontent.com", "registry.npmjs.org", "pypi.org", "files.pythonhosted.org"]);
-                }
-                if matches!(id, "project-manager" | "business-analyst" | "architect" | "developer" | "reviewer" | "qa") {
-                    hosts.push("api.media.atlassian.com");
-                }
-                hosts.into_iter().map(String::from).collect()
-            },
+            allow_hosts: demo_hosts(id),
         };
         save(&dir, Some(id), &profile)?;
     }
@@ -359,12 +363,18 @@ pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
 /// First-start setup the user accepted: the starter images (building them), profiles, secrets and workflow.
 #[tauri::command]
 pub fn provision_starters(app: tauri::AppHandle) -> Result<(), String> {
-    crate::images::provision_defaults(&app)?;
-    provision_defaults(&app)?;
-    crate::secrets::provision_demo(&app)?;
-    crate::variables::provision_demo(&app)?;
-    crate::injections::provision_demo(&app)?;
+    crate::images::provision_defaults(&app, false)?;
+    provision_defaults(&app, false)?;
+    crate::secrets::provision_demo(&app, false)?;
+    crate::variables::provision_demo(&app, false)?;
+    crate::injections::provision_demo(&app, false)?;
     crate::workflow::provision_defaults(&app)
+}
+
+/// Page Agent profiles > Reset to demo content.
+#[tauri::command]
+pub fn profiles_reset_demo(app: tauri::AppHandle) -> Result<(), String> {
+    provision_defaults(&app, true)
 }
 
 #[tauri::command]
@@ -403,6 +413,17 @@ mod tests {
             x.allow_hosts = vec![bad.into()];
             assert!(save(&dir, None, &x).is_err(), "{bad}");
         }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn allowlist_accepts_variable_references_unchecked() {
+        let dir = tmp("allowvar");
+        let mut x = p("a");
+        x.allow_hosts = vec!["${var:ATLASSIAN_HOST}".into(), "github.com".into()];
+        let id = save(&dir, None, &x).unwrap();
+        let saved = list(&dir).into_iter().find(|e| e.id == id).unwrap();
+        assert_eq!(saved.profile.allow_hosts, vec!["${var:ATLASSIAN_HOST}", "github.com"]);
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -485,5 +506,22 @@ mod tests {
         assert_eq!(all[0].profile.name, "My Agent");
         delete(&usr, "my-agent").unwrap();
         assert_eq!(list(&usr).len(), 1);
+    }
+
+    #[test]
+    fn starter_profiles_list_the_hosts_of_their_injections() {
+        let demo = crate::injections::demo();
+        for id in ["orchestrator", "project-manager", "business-analyst", "architect", "developer", "reviewer", "qa"] {
+            // as at run time, the variables are filled in first
+            let fill = |h: &str| crate::secrets::resolve(h, "var", &|_| Some("me.atlassian.net".to_string())).unwrap();
+            let rules = crate::egress::Rules::new([demo_hosts(id).iter().map(|h| fill(h)).collect::<Vec<_>>()]);
+            for v in demo_env(id) {
+                let name = v.value.strip_prefix("${injection:").and_then(|n| n.strip_suffix('}'));
+                let Some(i) = name.and_then(|n| demo.iter().find(|i| i.name == n)) else { continue };
+                for r in &i.rules {
+                    assert!(rules.covers(&fill(&r.host)), "{id} uses {} but does not list {}", i.name, r.host);
+                }
+            }
+        }
     }
 }

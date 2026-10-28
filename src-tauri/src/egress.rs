@@ -54,6 +54,17 @@ impl Rules {
     pub fn allows(&self, host: &str) -> bool {
         self.0.iter().any(|rule| host_matches(rule, host))
     }
+
+    /// Whether every host `pattern` (a name or a `*.` wildcard, as in an injection's rule) can name is allowed.
+    pub fn covers(&self, pattern: &str) -> bool {
+        match pattern.strip_prefix("*.") {
+            None => self.allows(pattern),
+            Some(suffix) => self.0.iter().any(|rule| match rule.strip_prefix("*.") {
+                Some(s) => suffix == s || suffix.ends_with(&format!(".{s}")),
+                None => false,
+            }),
+        }
+    }
 }
 
 /// Whether `host` (lowercase, no trailing dot) is the host `rule` names, or a subdomain of it for
@@ -235,6 +246,19 @@ mod tests {
 
     fn rules(hosts: &[&str]) -> Rules {
         Rules::new([hosts.iter().map(|s| s.to_string()).collect::<Vec<_>>()])
+    }
+
+    #[test]
+    fn rules_cover_the_hosts_of_an_injection() {
+        let r = rules(&["api.github.com", "*.example.com"]);
+        assert!(r.covers("api.github.com"));
+        assert!(r.covers("a.example.com"));
+        assert!(!r.covers("github.com"));
+        // a wildcard is covered only by an entry that allows every name it can match
+        assert!(r.covers("*.example.com"));
+        assert!(r.covers("*.a.example.com"));
+        assert!(!r.covers("*.github.com"));
+        assert!(!rules(&["a.example.com"]).covers("*.example.com"));
     }
 
     #[test]

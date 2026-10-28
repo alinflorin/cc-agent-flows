@@ -91,6 +91,18 @@ pub struct Spec {
     pub task: Task,
 }
 
+/// A profile's allowed hosts with their `${var:NAME}` references filled in (Settings > Variables) and
+/// checked as hosts; an entry that does not come out as one fails the run.
+fn resolve_hosts(hosts: &[String], var: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>, String> {
+    hosts
+        .iter()
+        .map(|h| {
+            let h = crate::secrets::resolve(h, "var", var).map_err(|e| format!("allowed host {h}: {e}"))?;
+            crate::profiles::clean_host(&h)
+        })
+        .collect()
+}
+
 /// Tells the listener what the VM is doing (`preparing`, `starting`, `booting`, `running`, `off`), as an
 /// event like the egress lines: seq 0, not Claude's, ignored by what digests the agent's own events.
 fn vm_state(on_msg: &mut impl FnMut(&Outbound), state: &str) {
@@ -106,9 +118,15 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, cancel: oneshot::Receiver<()>, 
     let disk = crate::images::path(app, &image).ok_or_else(|| format!("the image {image} is not built"))?;
     let work = app.path().app_data_dir().map_err(|e| e.to_string())?.join("runs").join("tmp").join(&run_id);
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
-    // the hosts of the injections are allowed too: a profile that uses one means to reach it
-    let injected: Vec<String> = injections.iter().flat_map(|a| a.rules.iter().map(|r| r.host.clone())).collect();
-    let rules = crate::egress::Rules::new([crate::network::current(app).allow_hosts, allow_hosts, injected]);
+    let vars = crate::variables::all(app);
+    let allow_hosts = resolve_hosts(&allow_hosts, &|n| vars.get(n).cloned())?;
+    let rules = crate::egress::Rules::new([crate::network::current(app).allow_hosts, allow_hosts]);
+    // an injection only works on a host the agent may reach: the host is listed in the profile, not added here
+    for a in &injections {
+        if let Some(r) = a.rules.iter().find(|r| !rules.covers(&r.host)) {
+            return Err(format!("the injection {} is for {}, which is not in the profile's allowed hosts (or Settings > Network)", a.name, r.host));
+        }
+    }
     let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), &identity, &token, (rules, injections), task, cancel, &mut on_msg).await;
     let _ = std::fs::remove_dir_all(&work);
     let fin = result?;
@@ -334,6 +352,16 @@ pub fn agent_run_cancel(app: AppHandle, run: String) -> bool {
 mod tests {
     use super::*;
     use crate::protocol::TaskEnv;
+
+    #[test]
+    fn allowed_hosts_take_variables() {
+        let vars = |n: &str| (n == "HOST").then(|| " Me.Atlassian.net. ".to_string());
+        let hosts = vec!["github.com".to_string(), "${var:HOST}".to_string()];
+        assert_eq!(resolve_hosts(&hosts, &vars).unwrap(), vec!["github.com", "me.atlassian.net"]);
+        assert!(resolve_hosts(&["${var:NOPE}".to_string()], &vars).is_err());
+        let bad = |_: &str| Some("10.0.0.1".to_string());
+        assert!(resolve_hosts(&["${var:HOST}".to_string()], &bad).is_err());
+    }
 
     #[test]
     fn identity_is_safe_and_structured() {
