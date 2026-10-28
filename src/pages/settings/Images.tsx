@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Badge,
@@ -90,6 +90,28 @@ const useStyles = makeStyles({
   },
 });
 
+/** Build output that follows the newest line, unless the user has scrolled up to read. */
+function BuildLog({ lines, className }: { lines: string[]; className: string }) {
+  const ref = useRef<HTMLPreElement>(null);
+  const follow = useRef(true);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && follow.current) el.scrollTop = el.scrollHeight;
+  }, [lines]);
+  return (
+    <pre
+      ref={ref}
+      className={className}
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+      }}
+    >
+      {lines.join("\n")}
+    </pre>
+  );
+}
+
 const COLORS = { missing: "danger", queued: "informative", building: "informative", ready: "success", stale: "warning" } as const;
 
 /** The images agents can run on: the built-in base and the user's own, each with its build state. */
@@ -180,7 +202,7 @@ export function ImagesSettings() {
               </Caption1>
             )}
             {i.error && i.state !== "building" && <Body1 style={{ color: tokens.colorPaletteRedForeground1 }}>{i.error}</Body1>}
-            {i.log.length > 0 && (i.state === "building" || i.error) && <pre className={styles.log}>{i.log.join("\n")}</pre>}
+            {i.log.length > 0 && (i.state === "building" || i.error) && <BuildLog className={styles.log} lines={i.log} />}
           </div>
         ))}
       </div>

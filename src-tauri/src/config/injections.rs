@@ -232,6 +232,23 @@ impl Active {
     }
 }
 
+/// What the VM holds instead of the Claude token (its `CLAUDE_CODE_OAUTH_TOKEN`), shaped like a
+/// setup token in case `claude` looks at the prefix.
+pub const CLAUDE_PLACEHOLDER: &str = "sk-ant-oat01-ccaf-injected";
+/// The one host the Claude token is injected for.
+pub const CLAUDE_HOST: &str = "api.anthropic.com";
+
+/// The built-in injection of the Claude account's setup token: every request to the Claude API
+/// gets `Authorization: Bearer <token>`, whatever the client sent. Not stored, not listed in
+/// Settings > Injections and not editable; the token itself never enters the VM.
+pub fn claude(token: &str) -> Result<Active, String> {
+    let token = token.trim();
+    if token.is_empty() || token.chars().any(|c| c.is_control() || c == ' ') {
+        return Err("the Claude token is not valid".into());
+    }
+    Ok(Active { name: "claude".into(), rules: vec![Rule { host: CLAUDE_HOST.into(), path: String::new(), methods: vec![] }], header: "Authorization".into(), value: format!("Bearer {token}") })
+}
+
 /// `*` matches any run of characters (slashes included); an empty pattern matches everything. A
 /// path that could mean something else after the server normalizes it (dot segments, encoded
 /// slashes or dots, backslashes) never matches, so a rule for `/repos/a/*` cannot be stretched to
@@ -333,6 +350,17 @@ pub fn prepare(app: &tauri::AppHandle, vars: &[EnvVar]) -> Result<(Vec<TaskEnv>,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_claude_token_is_injected_for_the_api_only() {
+        let a = claude(" sk-ant-oat01-secret\n").unwrap();
+        assert_eq!(a.value, "Bearer sk-ant-oat01-secret");
+        assert!(a.applies("api.anthropic.com", "POST", "/v1/messages"));
+        assert!(!a.applies("statsig.anthropic.com", "POST", "/v1/messages"));
+        assert!(!a.applies("api.anthropic.com.evil.com", "GET", "/"));
+        assert!(claude("").is_err());
+        assert!(claude("a b").is_err());
+    }
 
     fn inj(name: &str) -> Injection {
         Injection {
