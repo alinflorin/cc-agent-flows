@@ -30,7 +30,7 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { Delete16Regular, Save16Regular } from "@fluentui/react-icons";
+import { Add20Regular, Delete20Regular, Flowchart20Regular, Person20Regular, Save20Regular, ShieldCheckmark20Regular } from "@fluentui/react-icons";
 import { useNotify } from "../notifications";
 
 type Kind = "agent" | "ask" | "approve";
@@ -277,21 +277,21 @@ function Editor() {
   return (
     <div className={styles.root}>
       <div className={styles.bar}>
-        <Button appearance="primary" icon={<Save16Regular />} disabled={!dirty} onClick={save}>
-          {t("common.save")}
-        </Button>
-        <span className={styles.grow} />
-        <Button size="small" onClick={() => add("agent")}>
+        <Button icon={<Add20Regular />} onClick={() => add("agent")}>
           {t("wf.addAgent")}
         </Button>
-        <Button size="small" onClick={() => add("ask")}>
+        <Button icon={<Person20Regular />} onClick={() => add("ask")}>
           {t("wf.addAsk")}
         </Button>
-        <Button size="small" onClick={() => add("approve")}>
+        <Button icon={<ShieldCheckmark20Regular />} onClick={() => add("approve")}>
           {t("wf.addApprove")}
         </Button>
-        <Button size="small" appearance="subtle" onClick={useStandard}>
+        <span className={styles.grow} />
+        <Button icon={<Flowchart20Regular />} onClick={useStandard}>
           {t("wf.loadStandard")}
+        </Button>
+        <Button appearance="primary" icon={<Save20Regular />} disabled={!dirty} onClick={save}>
+          {t("common.save")}
         </Button>
       </div>
 
@@ -363,7 +363,7 @@ function Editor() {
                 <Field label={t("wf.label")}>
                   <Input value={selected.data.label} maxLength={120} placeholder={t("wf.kind.you")} onChange={(_, d) => patchData(selected.id, (x) => ({ ...x, label: d.value }))} />
                 </Field>
-                <Button icon={<Delete16Regular />} onClick={() => remove(selected.id)}>
+                <Button icon={<Delete20Regular />} onClick={() => remove(selected.id)}>
                   {t("wf.removeNode")}
                 </Button>
               </>
@@ -405,7 +405,7 @@ function Editor() {
                   onChange={(_, d) => patchAgent(selected.id, { timeout_mins: Math.min(480, Math.max(1, Math.floor(Number(d.value)) || 1)) })}
                 />
               </Field>
-              <Button icon={<Delete16Regular />} onClick={() => remove(selected.id)}>
+              <Button icon={<Delete20Regular />} onClick={() => remove(selected.id)}>
                 {t("wf.remove")}
               </Button>
             </>

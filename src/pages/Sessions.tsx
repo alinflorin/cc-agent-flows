@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
+import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
-import { Body1, Button, Card, CardHeader, Caption1, Title2, makeStyles, tokens } from "@fluentui/react-components";
-import { Add16Regular, Delete16Regular } from "@fluentui/react-icons";
+import { Body1, Button, Card, CardHeader, Caption1, makeStyles, tokens } from "@fluentui/react-components";
+import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
@@ -15,7 +16,6 @@ interface Session {
 }
 
 const useStyles = makeStyles({
-  head: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: tokens.spacingVerticalL },
   list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM },
 });
 
@@ -63,12 +63,14 @@ export function Sessions() {
 
   return (
     <>
-      <div className={styles.head}>
-        <Title2 as="h1">{t("nav.sessions")}</Title2>
-        <Button appearance="primary" icon={<Add16Regular />} disabled={!desktop} onClick={create}>
-          {t("sessions.new")}
-        </Button>
-      </div>
+      <PageHeader
+        title={t("nav.sessions")}
+        actions={
+          <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={create}>
+            {t("sessions.new")}
+          </Button>
+        }
+      />
       {!desktop && <Body1 block>{t("app.desktopOnly")}</Body1>}
       {desktop && sessions.length === 0 && <Body1 block>{t("sessions.empty")}</Body1>}
       <div className={styles.list}>
@@ -80,7 +82,7 @@ export function Sessions() {
               action={
                 <Button
                   appearance="subtle"
-                  icon={<Delete16Regular />}
+                  icon={<Delete20Regular />}
                   aria-label={t("sessions.delete")}
                   onClick={(ev) => {
                     ev.stopPropagation();

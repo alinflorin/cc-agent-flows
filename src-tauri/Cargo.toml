@@ -34,6 +34,7 @@ hyper-util = { version = "0.1.21", features = ["tokio"] }
 http-body-util = "0.1.5"
 bytes = "1.12.1"
 webpki-roots = "1.0.11"
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

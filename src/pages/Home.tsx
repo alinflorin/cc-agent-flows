@@ -1,5 +1,5 @@
+import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
-import { Body1, Title2 } from "@fluentui/react-components";
 import { getPref } from "../prefs";
 
 export function Home() {
@@ -7,10 +7,7 @@ export function Home() {
   const name = getPref<string>("displayName");
   return (
     <>
-      <Title2 as="h1" block>
-        {name ? t("home.greeting", { name }) : t("home.welcome")}
-      </Title2>
-      <Body1 block>{t("home.intro")}</Body1>
+      <PageHeader title={name ? t("home.greeting", { name }) : t("home.welcome")} description={t("home.intro")} />
     </>
   );
 }

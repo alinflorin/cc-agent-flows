@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Body1, Button, Caption1, Field, Input, makeStyles, tokens } from "@fluentui/react-components";
-import { Delete16Regular } from "@fluentui/react-icons";
+import { Delete20Regular } from "@fluentui/react-icons";
+import { SettingsIntro } from "../components/SettingsIntro";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
@@ -13,7 +14,7 @@ interface Variable {
 }
 
 const useStyles = makeStyles({
-  form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "720px" },
+  form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "760px" },
   row: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "center" },
   grow: { flex: 1 },
   mono: { fontFamily: tokens.fontFamilyMonospace },
@@ -74,8 +75,9 @@ export function VariablesSettings() {
 
   return (
     <div className={styles.form}>
-      <Body1 block>{t("settings.variables.intro")}</Body1>
-      {!desktop && <Body1 block>{t("settings.variables.desktopOnly")}</Body1>}
+      <SettingsIntro text={t("settings.variables.intro")}>
+        {!desktop && <Body1 block>{t("settings.variables.desktopOnly")}</Body1>}
+      </SettingsIntro>
 
       <Field
         label={t("settings.variables.new")}
@@ -122,7 +124,7 @@ export function VariablesSettings() {
             >
               {t("common.save")}
             </Button>
-            <Button appearance="subtle" icon={<Delete16Regular />} aria-label={t("settings.variables.delete")} onClick={() => void remove(x.name)} />
+            <Button appearance="subtle" icon={<Delete20Regular />} aria-label={t("settings.variables.delete")} onClick={() => void remove(x.name)} />
           </div>
         );
       })}

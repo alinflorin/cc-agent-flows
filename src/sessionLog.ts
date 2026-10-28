@@ -19,6 +19,21 @@ export interface Traffic {
   text: string;
 }
 
+/** What a run's VM is doing, as the app reported it (runs.rs `vm_state`). */
+export type VmState = "queued" | "preparing" | "starting" | "booting" | "running" | "off";
+
+const STATS_KEPT = 40;
+
+export const VM_STATES: VmState[] = ["queued", "preparing", "starting", "booting", "running", "off"];
+
+/** One sample of what a VM costs the host (QEMU's process): `cpu` in % of one core, memory in MB. */
+export interface VmStats {
+  cpu: number;
+  mem: number;
+  memLimit: number;
+  cpus: number;
+}
+
 export interface Run {
   key: string;
   call: string;
@@ -30,6 +45,11 @@ export interface Run {
   assumptions: string[];
   pieces: Piece[];
   traffic: Traffic[];
+  vm: VmState;
+  /** when the VM entered each state */
+  vmLog: { state: VmState; t: number }[];
+  /** the last samples, oldest first */
+  stats: VmStats[];
   t: number;
 }
 
@@ -115,16 +135,33 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
         const path = pathOf(b.call);
         const c = callOf(path, b.node, e.t);
         if (!c.runs.includes(b.call)) c.runs.push(b.call);
-        runs.set(b.call, { key: b.call, call: path, node: b.node, status: "running", cost: 0, summary: "", questions: [], assumptions: [], pieces: [], traffic: [], t: e.t });
+        runs.set(b.call, { key: b.call, call: path, node: b.node, status: "running", cost: 0, summary: "", questions: [], assumptions: [], pieces: [], traffic: [], vm: "queued", vmLog: [{ state: "queued", t: e.t }], stats: [], t: e.t });
         break;
       }
       case "run_end": {
         const r = runs.get(b.call);
+        if (r && r.vm !== "off") {
+          r.vm = "off";
+          r.vmLog.push({ state: "off", t: e.t });
+        }
         if (r) Object.assign(r, { status: b.status, cost: b.cost_usd ?? 0, summary: b.summary ?? "", questions: b.questions ?? [], assumptions: b.assumptions ?? [] });
         break;
       }
       case "agent": {
         const r = runs.get(b.call);
+        if (r && b.event?.type === "vm") {
+          const state = b.event.state as VmState;
+          if (VM_STATES.includes(state) && r.vm !== state) {
+            r.vm = state;
+            r.vmLog.push({ state, t: e.t });
+          }
+          break;
+        }
+        if (r && b.event?.type === "vm_stats") {
+          r.stats.push({ cpu: Number(b.event.cpu) || 0, mem: Number(b.event.mem_mb) || 0, memLimit: Number(b.event.mem_limit_mb) || 0, cpus: Number(b.event.cpus) || 1 });
+          if (r.stats.length > STATS_KEPT) r.stats.shift();
+          break;
+        }
         if (r && b.event?.type === "egress") {
           const text = String(b.event.text ?? "").replace(/^egress: /, "");
           const kind = /denied|refused|cannot|failed/.test(text) ? "denied" : / gets /.test(text) ? "injected" : /allowed$/.test(text) ? "allowed" : "other";
@@ -198,6 +235,24 @@ export function activeEdges(d: Digest, edges: { id: string; from: string; to: st
         }
       }
     }
+  }
+  return out;
+}
+
+/** The VM state shown on each agent's node: of its runs that are going on, the one furthest along (several calls can run in parallel); else the last run's. `count`: VMs alive now. */
+export function nodeVms(d: Digest): Map<string, { state: VmState; count: number; use: VmStats | null }> {
+  const out = new Map<string, { state: VmState; count: number; use: VmStats | null }>();
+  const byNode = new Map<string, Run[]>();
+  for (const r of d.runs.values()) byNode.set(r.node, [...(byNode.get(r.node) ?? []), r]);
+  for (const [id, runs] of byNode) {
+    const alive = runs.filter((r) => r.vm !== "off");
+    if (alive.length) {
+      const best = alive.reduce((a, b) => (VM_STATES.indexOf(b.vm) > VM_STATES.indexOf(a.vm) ? b : a));
+      // the VMs alive now, added up (the last sample of each)
+      const last = alive.map((r) => r.stats[r.stats.length - 1]).filter(Boolean);
+      const use = last.length ? last.reduce((a, b) => ({ cpu: a.cpu + b.cpu, mem: a.mem + b.mem, memLimit: a.memLimit + b.memLimit, cpus: a.cpus + b.cpus })) : null;
+      out.set(id, { state: best.vm, count: alive.length, use });
+    } else out.set(id, { state: "off", count: 0, use: null });
   }
   return out;
 }

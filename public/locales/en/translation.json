@@ -369,6 +369,20 @@
         "injected": "credential",
         "other": "info"
       }
+    },
+    "vm": {
+      "title": "State of the agent's virtual machine",
+      "queued": "VM queued",
+      "preparing": "VM preparing",
+      "starting": "VM starting",
+      "booting": "VM booting",
+      "running": "VM running",
+      "off": "VM off",
+      "alive_one": "{{count}} VM up",
+      "alive_other": "{{count}} VMs up",
+      "cpu": "CPU",
+      "mem": "RAM",
+      "usageTitle": "CPU and memory the VM takes from this computer (QEMU's process)"
     }
   },
   "app": {
