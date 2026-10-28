@@ -223,9 +223,9 @@ pub fn valid_id(id: &str) -> bool {
     !id.is_empty() && id != BASE && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-const SETUP_FILES: [&str; 3] = ["setup.sh", "agentd.sh", "agentd.initd"];
+const SETUP_FILES: [&str; 4] = ["setup.sh", "agentd.sh", "agentd.initd", "ccaf-init.sh"];
 
-/// What the base image is made of: the setup files and the plain image's size.
+/// What the base image is made of: the setup files and the sizes of the plain image, kernel and initramfs.
 fn base_stamp(app: &AppHandle) -> Result<String, String> {
     let dir = resources(app)?.join("agentd");
     let mut h = Sha256::new();
@@ -234,6 +234,11 @@ fn base_stamp(app: &AppHandle) -> Result<String, String> {
     }
     let plain = std::fs::metadata(plain_image(app)?).map_err(|e| format!("plain image: {e}"))?;
     h.update(plain.len().to_le_bytes());
+    // the kernel and initramfs the image's modules belong to
+    for ext in ["vmlinuz", "initramfs"] {
+        let f = plain_image(app)?.with_extension(ext);
+        h.update(std::fs::metadata(&f).map_err(|e| format!("{}: {e}", f.display()))?.len().to_le_bytes());
+    }
     Ok(hex(&h.finalize()))
 }
 
@@ -686,7 +691,7 @@ async fn build_in(app: &AppHandle, id: &str, spec: Option<&Spec>, source: &Path,
     say("compressing the image");
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let tmp = out.join(format!("{id}.qcow2.tmp"));
-    qemu_img(app, &["convert", "-c", "-O", "qcow2", overlay.to_str().unwrap(), tmp.to_str().unwrap()]).await?;
+    qemu_img(app, &["convert", "-O", "qcow2", overlay.to_str().unwrap(), tmp.to_str().unwrap()]).await?;
     std::fs::rename(&tmp, out.join(format!("{id}.qcow2"))).map_err(|e| e.to_string())?;
     let built_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let meta = serde_json::to_string(&Meta { stamp: stamp.to_string(), built_at }).unwrap();
@@ -700,11 +705,38 @@ fn host_cpus() -> u32 {
     std::thread::available_parallelism().map_or(2, |n| n.get() as u32)
 }
 
+/// The arguments that boot the kernel and initramfs shipped beside the plain image directly (no
+/// bootloader, no firmware): `dir` is where `alpine-<arch>.vmlinuz` and `.initramfs` are. The root
+/// is the first virtio disk. A builder (`agent` false) gets the kernel's output and the stock init
+/// with a login on the serial port; an agent VM is silent and starts `ccaf-init`, which brings up
+/// the little it needs and runs agentd (no OpenRC, no DHCP).
+pub fn boot_args(dir: &Path, arch: &str, agent: bool) -> Vec<std::ffi::OsString> {
+    let tty = if arch == "aarch64" { "ttyAMA0" } else { "ttyS0" };
+    let cmdline = if agent {
+        "quiet loglevel=0 8250.nr_uarts=0 noresume root=/dev/vda rootfstype=ext4 rootflags=noatime rw init=/sbin/ccaf-init".to_string()
+    } else {
+        format!("console={tty} root=/dev/vda rootfstype=ext4 rw")
+    };
+    vec![
+        "-kernel".into(),
+        dir.join(format!("alpine-{arch}.vmlinuz")).into(),
+        "-initrd".into(),
+        dir.join(format!("alpine-{arch}.initramfs")).into(),
+        "-append".into(),
+        cmdline.into(),
+    ]
+}
+
+/// Most vCPUs a VM gets when its profile does not say: more only slow the boot and oversubscribe a
+/// host that runs several VMs.
+const DEFAULT_VCPUS: u32 = 4;
+
 /// A QEMU command for a headless guest of this machine's architecture: hardware acceleration with
-/// a software fallback, `-cpu max` (Claude Code needs SSE4.2), no reboot. The caller adds the
-/// network card (`-nic`): open for builders, sealed for agents.
-/// `cpus` is the number of vCPUs (`None`: all of the host's). The caller adds the disk and the channels.
-pub fn machine(app: &AppHandle, mem_mb: u32, cpus: Option<u32>) -> Result<std::process::Command, String> {
+/// a software fallback, `-cpu max` (Claude Code needs SSE4.2), no reboot, no default devices, booting
+/// the shipped kernel directly. The caller adds the network card (`-nic`): open for builders,
+/// sealed for agents. `cpus` is the number of vCPUs (`None`: the host's, at most `DEFAULT_VCPUS`).
+/// The caller adds the disk (`drive_arg`) and the channels. `agent`: see `boot_args`.
+pub fn machine(app: &AppHandle, mem_mb: u32, cpus: Option<u32>, agent: bool) -> Result<std::process::Command, String> {
     let arch = arch()?;
     let mut cmd = crate::qemu::command(app, &format!("qemu-system-{arch}"));
     let accel = if cfg!(target_os = "linux") {
@@ -714,21 +746,28 @@ pub fn machine(app: &AppHandle, mem_mb: u32, cpus: Option<u32>) -> Result<std::p
     } else {
         "whpx"
     };
-    cmd.args(["-accel", accel, "-accel", "tcg", "-cpu", "max", "-m", &mem_mb.to_string(), "-smp", &cpus.unwrap_or_else(host_cpus).to_string()]);
-    if arch == "aarch64" {
-        let fw = resources(app)?.join("qemu/share/qemu/edk2-aarch64-code.fd");
-        cmd.args(["-M", "virt", "-bios"]).arg(fw);
-    }
-    cmd.args(["-display", "none", "-monitor", "none", "-no-reboot"]);
+    // pauth-impdef: without it the software fallback spends minutes on pointer authentication
+    let cpu = if arch == "aarch64" { "max,pauth-impdef=on" } else { "max" };
+    let vcpus = cpus.unwrap_or_else(|| host_cpus().min(DEFAULT_VCPUS));
+    cmd.args(["-accel", accel, "-accel", "tcg", "-cpu", cpu, "-m", &mem_mb.to_string(), "-smp", &vcpus.to_string()]);
+    cmd.args(if arch == "aarch64" { ["-M", "virt"] } else { ["-M", "pc,usb=off,vmport=off"] });
+    // no VGA, CD-ROM, floppy, parallel port or default NIC to probe: the caller adds what the VM has
+    cmd.args(["-nodefaults", "-no-user-config", "-display", "none", "-monitor", "none", "-no-reboot"]);
+    cmd.args(boot_args(&resources(app)?.join("images"), arch, agent));
     Ok(cmd)
 }
 
+/// The disk of a VM that boots a throwaway overlay: no flushes (the overlay is deleted afterwards).
+pub fn drive_arg(overlay: &Path) -> String {
+    format!("file={},if=virtio,discard=unmap,cache=unsafe", overlay.display())
+}
+
 fn launch(app: &AppHandle, disk: &Path, serial: &Serial) -> Result<tokio::process::Child, String> {
-    let mut cmd = machine(app, 1024, Some(2))?;
+    let mut cmd = machine(app, 1024, Some(2), true)?;
     // builders need the internet (package managers, installers)
-    cmd.args(["-nic", "user"])
+    cmd.args(["-nic", "user,model=virtio-net-pci"])
         .arg("-drive")
-        .arg(format!("file={},if=virtio,discard=unmap", disk.display()))
+        .arg(drive_arg(disk))
         .arg("-serial")
         .arg(&serial.qemu_arg);
     let mut cmd = Command::from(cmd);

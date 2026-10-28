@@ -66,8 +66,9 @@ finish() {
 	FINISHED=1
 	rm -rf "$T"
 	if [ "$POWEROFF" = 1 ]; then
-		sleep 2 # let the last message leave
-		poweroff
+		sleep 1 # let the last message leave
+		# the disk is a throwaway overlay: no orderly shutdown, power off at once
+		poweroff -f
 	fi
 	exit 0
 }

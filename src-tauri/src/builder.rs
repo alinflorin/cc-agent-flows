@@ -240,6 +240,7 @@ mod tests {
         std::path::Path::new("/dev/kvm").exists()
             && res().join("qemu/bin/qemu-system-x86_64").exists()
             && res().join("images/alpine-x86_64.qcow2").exists()
+            && res().join("images/alpine-x86_64.vmlinuz").exists()
     }
 
     /// Boots the plain image (x86_64, KVM) and returns its console.
@@ -262,7 +263,8 @@ mod tests {
         let vm = tokio::process::Command::new(q.join("bin/qemu-system-x86_64"))
             .arg("-L")
             .arg(q.join("share/qemu"))
-            .args(["-accel", "kvm", "-cpu", "max", "-m", "1024", "-display", "none", "-monitor", "none", "-no-reboot", "-nic", "user"])
+            .args(["-accel", "kvm", "-cpu", "max", "-m", "1024", "-display", "none", "-monitor", "none", "-no-reboot", "-nic", "user,model=virtio-net-pci"])
+            .args(crate::images::boot_args(&res().join("images"), "x86_64", false))
             .arg("-drive")
             .arg(format!("file={},if=virtio", disk.display()))
             .arg("-serial")
@@ -307,7 +309,7 @@ mod tests {
         }
         let (mut vm, mut con, work) = boot("setup").await;
         con.run("mkdir -p /tmp/setup", |_| {}).await.unwrap();
-        for f in ["setup.sh", "agentd.sh", "agentd.initd"] {
+        for f in ["setup.sh", "agentd.sh", "agentd.initd", "ccaf-init.sh"] {
             con.put(&format!("/tmp/setup/{f}"), &std::fs::read(res().join("agentd").join(f)).unwrap()).await.unwrap();
         }
         let code = within(1500, "setup", con.run(&script_cmd("/tmp/setup/setup.sh"), |l| eprintln!("{l}"))).await.unwrap();

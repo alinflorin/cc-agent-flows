@@ -1,4 +1,4 @@
-// Copies the plain Alpine image for the target's architecture from vendor/images (committed to the
+// Copies the plain Alpine image (disk, kernel and initramfs) for the target's architecture from vendor/images (committed to the
 // repo) into src-tauri/resources/images, where tauri.conf.json bundles it. No network needed.
 //
 //   node scripts/images/fetch.mjs [target-triple] [--required]
@@ -22,21 +22,23 @@ const triple =
   /^host: (.+)$/m.exec(execFileSync("rustc", ["-vV"], { encoding: "utf8" }))[1];
 const arch = triple.startsWith("aarch64") ? "aarch64" : "x86_64";
 const name = `alpine-${arch}.qcow2`;
+// the disk, the kernel and the initramfs the VMs boot directly
+const names = [name, `alpine-${arch}.vmlinuz`, `alpine-${arch}.initramfs`];
 const source = join(here, "../../vendor/images", name);
 const file = join(dest, name);
 const marker = `${file}.version`;
 
 try {
-  if (!existsSync(source)) throw new Error(`vendor/images has no ${name}`);
-  const stamp = `${statSync(source).size} ${statSync(source).mtimeMs}`;
+  for (const n of names) if (!existsSync(join(here, "../../vendor/images", n))) throw new Error(`vendor/images has no ${n}`);
+  const stamp = names.map((n) => { const st = statSync(join(here, "../../vendor/images", n)); return `${st.size} ${st.mtimeMs}`; }).join(" ");
   if (existsSync(file) && existsSync(marker) && readFileSync(marker, "utf8") === stamp) {
     console.log(`Image ${name} already in place`);
     process.exit(0);
   }
   // Never leave another architecture's image behind.
   mkdirSync(dest, { recursive: true });
-  for (const f of readdirSync(dest)) if (f.includes(".qcow2")) rmSync(join(dest, f));
-  copyFileSync(source, file);
+  for (const f of readdirSync(dest)) if (f.startsWith("alpine-")) rmSync(join(dest, f));
+  for (const n of names) copyFileSync(join(here, "../../vendor/images", n), join(dest, n));
   writeFileSync(marker, stamp);
 } catch (e) {
   if (required) throw e;

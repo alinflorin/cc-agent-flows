@@ -279,7 +279,7 @@
     "effortDefault": "Implicit",
     "cpus": "CPU-uri",
     "cpusAll": "Toate ale gazdei",
-    "cpusHint": "CPU-uri virtuale ale VM-ului. Gol înseamnă toate nucleele gazdei. Limitează câte nuclee poate folosi, nu cât timp din ele.",
+    "cpusHint": "CPU-uri virtuale ale VM-ului. Gol înseamnă nucleele gazdei, cel mult 4. Limitează câte nuclee poate folosi, nu cât timp din ele.",
     "memory": "Memorie (MB)",
     "memoryHint": "RAM-ul VM-ului, minimum 1024. Implicit 2048.",
     "allowHosts": "Gazde permise",

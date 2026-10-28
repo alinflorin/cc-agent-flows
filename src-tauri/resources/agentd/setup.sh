@@ -23,6 +23,8 @@ EOP
 install -m 755 /tmp/setup/agentd.sh /usr/local/bin/agentd
 install -m 755 /tmp/setup/agentd.initd /etc/init.d/agentd
 rc-update add agentd default
+# the init agent VMs boot with (init=/sbin/ccaf-init): agentd without OpenRC
+install -m 755 /tmp/setup/ccaf-init.sh /sbin/ccaf-init
 
 # Checks: everything agentd needs is there, and nothing that would let an agent be reached or
 # escalate.
@@ -33,6 +35,14 @@ setpriv --reuid agent --regid agent --init-groups --no-new-privs true
 # the ssh *client* is wanted; a server, dropbear and privilege tools are not
 if apk info -e openssh openssh-server dropbear sudo doas >/dev/null || [ -e /usr/sbin/sshd ]; then
 	echo "unexpected ssh server or sudo package"
+	exit 1
+fi
+
+# no way for the agent to become root: no setuid or setgid file at all (busybox's `su` would accept
+# the plain image's empty root password). Logins on the builder's console run as root already.
+find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -exec chmod ug-s {} +
+if [ -n "$(find / -xdev -type f \( -perm -4000 -o -perm -2000 \))" ]; then
+	echo "setuid or setgid files are still there"
 	exit 1
 fi
 
