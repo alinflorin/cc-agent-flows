@@ -3,9 +3,9 @@
 //! content and the "Reset to demo content" buttons write it; each module's `provision_*` takes its
 //! part from here. Parsed once; a mistake in the file panics, which `cargo test` catches.
 
-use crate::images::{self, Doc, Spec};
-use crate::injections::Injection;
-use crate::profiles::Profile;
+use crate::vm::images::{Doc, Spec};
+use crate::config::injections::Injection;
+use crate::config::profiles::{self, Profile};
 use crate::workflow::{Edge, EdgeKind, Node, Workflow};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -38,7 +38,7 @@ struct RawImage {
     description: String,
     parent: String,
     #[serde(default)]
-    env: Vec<images::EnvVar>,
+    env: Vec<profiles::EnvVar>,
     script: String,
     #[serde(default)]
     docs: Vec<Doc>,
@@ -154,6 +154,17 @@ pub fn workflow() -> DemoWorkflow {
     DemoWorkflow { id: w.id.clone(), name: w.name.clone(), workflow: Workflow { nodes, edges } }
 }
 
+/// First-start setup the user accepted: the starter images (building them), profiles, secrets and workflow.
+#[tauri::command]
+pub fn provision_starters(app: tauri::AppHandle) -> Result<(), String> {
+    crate::vm::images::provision_defaults(&app, false)?;
+    crate::config::profiles::provision_defaults(&app, false)?;
+    crate::config::secrets::provision_demo(&app, false)?;
+    crate::config::variables::provision_demo(&app, false)?;
+    crate::config::injections::provision_demo(&app, false)?;
+    crate::workflow::provision_defaults(&app)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,7 +174,7 @@ mod tests {
         let images: Vec<String> = images().into_iter().map(|(id, _)| id).collect();
         let profiles = profiles();
         for (id, p) in &profiles {
-            assert!(p.image == images::BASE || images.contains(&p.image), "profile {id}: unknown image {}", p.image);
+            assert!(p.image == crate::vm::images::BASE || images.contains(&p.image), "profile {id}: unknown image {}", p.image);
         }
         let w = workflow().workflow;
         assert!(w.validate().is_ok() && w.problems(&profiles.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>()).is_empty());

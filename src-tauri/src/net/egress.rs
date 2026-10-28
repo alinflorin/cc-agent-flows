@@ -7,13 +7,12 @@
 //! Hosts a credential injection covers are not tunnelled but handed to `inspect.rs` (TLS
 //! inspection and header injection) after the `200`.
 
-#![allow(dead_code)]
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::inspect::{Inspector, Prefixed};
+use crate::net::inspect::{Inspector, Prefixed};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Semaphore;

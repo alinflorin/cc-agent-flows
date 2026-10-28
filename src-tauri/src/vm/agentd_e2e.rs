@@ -10,8 +10,8 @@ mod e2e {
 
     use tokio::net::unix::pipe;
 
-    use crate::agent::drive;
-    use crate::protocol::{Bootstrap, Final, Outbound, Status, Task, TaskEnv, TunnelKeys};
+    use crate::vm::agent::drive;
+    use crate::vm::protocol::{Bootstrap, Final, Outbound, Status, Task, TaskEnv, TunnelKeys};
 
     fn boot() -> Bootstrap {
         Bootstrap { id: "spiffe://ccaf.local/test/agent-1".into(), claude_token: "sk-test-token".into(), tunnel: None, ca: None }
@@ -24,7 +24,7 @@ mod e2e {
             effort: Some("low".into()),
             session_id: "00000000-0000-4000-8000-000000000000".into(),
             resume: false,
-            schema: crate::protocol::RESULT_SCHEMA.into(),
+            schema: crate::vm::protocol::RESULT_SCHEMA.into(),
             system_prompt: Some("be brief".into()),
             env: vec![
                 TaskEnv { name: "TEAM".into(), value: "it's \"red\" $HOME".into() },

@@ -264,7 +264,7 @@ mod tests {
             .arg("-L")
             .arg(q.join("share/qemu"))
             .args(["-accel", "kvm", "-cpu", "max", "-m", "1024", "-display", "none", "-monitor", "none", "-no-reboot", "-nic", "user,model=virtio-net-pci"])
-            .args(crate::images::boot_args(&res().join("images"), "x86_64", false))
+            .args(crate::vm::machine::boot_args(&res().join("images"), "x86_64", false))
             .arg("-drive")
             .arg(format!("file={},if=virtio", disk.display()))
             .arg("-serial")

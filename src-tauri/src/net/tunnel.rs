@@ -8,7 +8,6 @@
 //! One `Tunnel` per agent run. The client authenticates with the run's own key pair, generated
 //! here and sent to the VM in the bootstrap, so the connection is the run's and nothing else's.
 
-#![allow(dead_code)]
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,7 +18,7 @@ use russh::{Channel, ChannelOpenFailure};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use crate::egress::Proxy;
+use crate::net::egress::Proxy;
 
 /// What the guest asks for with `-L`: the name is a label for the proxy, nothing resolves it.
 pub const PROXY_HOST: &str = "egress";
@@ -149,7 +148,7 @@ pub async fn self_check() -> Result<String, String> {
         }
     }
 
-    let proxy = Proxy::new(crate::egress::Rules::default(), None);
+    let proxy = Proxy::new(crate::net::egress::Rules::default(), None);
     let tunnel = Tunnel::start(proxy, Arc::new(|_| {})).await?;
     let probe = async {
         let stream = tokio::net::TcpStream::connect(("127.0.0.1", tunnel.port)).await.map_err(|e| e.to_string())?;
@@ -213,7 +212,7 @@ mod tests {
                 });
             }
         });
-        let mut proxy = Proxy::new(crate::egress::Rules::new([vec!["localhost".to_string()]]), None);
+        let mut proxy = Proxy::new(crate::net::egress::Rules::new([vec!["localhost".to_string()]]), None);
         let p = Arc::get_mut(&mut proxy).unwrap();
         p.ports = vec![site_port];
         p.guard = false;

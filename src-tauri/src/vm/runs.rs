@@ -19,8 +19,8 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::process::Command;
 use tokio::sync::oneshot;
 
-use crate::builder::Serial;
-use crate::protocol::{Bootstrap, Event, Final, Outbound, Status, Task, TunnelKeys};
+use crate::vm::builder::Serial;
+use crate::vm::protocol::{Bootstrap, Event, Final, Outbound, Status, Task, TunnelKeys};
 
 /// Time on top of the task's timeout for the VM to boot and shut down.
 const GRACE_SECS: u64 = 300;
@@ -33,7 +33,7 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// A unique, file-safe id for a run.
 pub fn new_run_id() -> String {
-    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
+    let ms = crate::util::unix_millis();
     format!("r-{ms:x}-{}", COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
@@ -87,7 +87,7 @@ pub struct Spec {
     /// Hosts the agent may reach besides the global list (Settings > Network): the profile's.
     pub allow_hosts: Vec<String>,
     /// The credential injections the profile switched on, applied by the egress proxy.
-    pub injections: Vec<crate::injections::Active>,
+    pub injections: Vec<crate::config::injections::Active>,
     pub task: Task,
 }
 
@@ -97,8 +97,8 @@ fn resolve_hosts(hosts: &[String], var: &dyn Fn(&str) -> Option<String>) -> Resu
     hosts
         .iter()
         .map(|h| {
-            let h = crate::secrets::resolve(h, "var", var).map_err(|e| format!("allowed host {h}: {e}"))?;
-            crate::profiles::clean_host(&h)
+            let h = crate::config::secrets::resolve(h, "var", var).map_err(|e| format!("allowed host {h}: {e}"))?;
+            crate::config::profiles::clean_host(&h)
         })
         .collect()
 }
@@ -114,10 +114,10 @@ fn vm_state(on_msg: &mut impl FnMut(&Outbound), state: &str) {
 /// (no token, image not built, QEMU missing). `cancel` firing ends the run as failed.
 pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<()>, mut on_msg: impl FnMut(&Outbound)) -> Result<Final, String> {
     let Spec { run_id, image, identity, cpus, memory_mb, allow_hosts, injections, task } = spec;
-    let disk = crate::images::path(app, &image).ok_or_else(|| format!("the image {image} is not built"))?;
-    let vars = crate::variables::all(app);
+    let disk = crate::vm::images::path(app, &image).ok_or_else(|| format!("the image {image} is not built"))?;
+    let vars = crate::config::variables::all(app);
     let allow_hosts = resolve_hosts(&allow_hosts, &|n| vars.get(n).cloned())?;
-    let rules = crate::egress::Rules::new([crate::network::current(app).allow_hosts, allow_hosts]);
+    let rules = crate::net::egress::Rules::new([crate::config::network::current(app).allow_hosts, allow_hosts]);
     // an injection only works on a host the agent may reach: the host is listed in the profile, not added here
     for a in &injections {
         if let Some(r) = a.rules.iter().find(|r| !rules.covers(&r.host)) {
@@ -128,18 +128,18 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
     // token) before any billed work was done, the run starts again on another one.
     let mut tried: Vec<String> = vec![];
     loop {
-        let (account, account_name, token) = crate::accounts::pick(app, &tried)?;
+        let (account, account_name, token) = crate::config::accounts::pick(app, &tried)?;
         tried.push(account.clone());
         on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "account", "account": account_name}) }));
-        let work = app.path().app_data_dir().map_err(|e| e.to_string())?.join("runs").join("tmp").join(format!("{run_id}-{}", tried.len()));
+        let work = crate::util::data_dir(app)?.join("runs").join("tmp").join(format!("{run_id}-{}", tried.len()));
         std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
         let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), &identity, &token, (rules.clone(), injections.clone()), task.clone(), &mut cancel, &mut on_msg).await;
         let _ = std::fs::remove_dir_all(&work);
         let fin = result?;
-        if let Some(why) = crate::accounts::classify(&fin) {
-            crate::accounts::rest(&account, why);
+        if let Some(why) = crate::config::accounts::classify(&fin) {
+            crate::config::accounts::rest(&account, why);
             let free = fin.tokens.is_none_or(|t| t == 0);
-            if free && crate::accounts::pick(app, &tried).is_ok() {
+            if free && crate::config::accounts::pick(app, &tried).is_ok() {
                 on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "account", "account": account_name, "refused": true}) }));
                 continue;
             }
@@ -157,7 +157,7 @@ async fn boot_and_drive(
     size: (Option<u32>, u32),
     identity: &str,
     token: &str,
-    egress: (crate::egress::Rules, Vec<crate::injections::Active>),
+    egress: (crate::net::egress::Rules, Vec<crate::config::injections::Active>),
     task: Task,
     cancel: &mut oneshot::Receiver<()>,
     on_msg: &mut impl FnMut(&Outbound),
@@ -165,7 +165,7 @@ async fn boot_and_drive(
     vm_state(on_msg, "preparing");
     let overlay = work.join("disk.qcow2");
     // Never boot the image itself: a throwaway overlay on top of it.
-    crate::images::qemu_img(
+    crate::vm::machine::qemu_img(
         app,
         &["create", "-q", "-f", "qcow2", "-b", &disk.to_string_lossy(), "-F", "qcow2", &overlay.to_string_lossy()],
     )
@@ -176,10 +176,10 @@ async fn boot_and_drive(
     // starts, which connects to it at once.
     let (egress_tx, mut egress_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let (rules, injections) = egress;
-    let inspector = if injections.is_empty() { None } else { Some(crate::inspect::Inspector::new(injections)?) };
+    let inspector = if injections.is_empty() { None } else { Some(crate::net::inspect::Inspector::new(injections)?) };
     let ca = inspector.as_ref().map(|i| i.ca_pem().to_string());
-    let tunnel = crate::tunnel::Tunnel::start(
-        crate::egress::Proxy::new(rules, inspector),
+    let tunnel = crate::net::tunnel::Tunnel::start(
+        crate::net::egress::Proxy::new(rules, inspector),
         std::sync::Arc::new(move |line| {
             let _ = egress_tx.send(line);
         }),
@@ -189,11 +189,11 @@ async fn boot_and_drive(
     let channel = Serial::named(work, "agent");
     let errlog = work.join("qemu.err");
     let timeout_secs = task.timeout_secs;
-    let mut cmd = crate::images::machine(app, size.1, size.0, true)?;
+    let mut cmd = crate::vm::machine::machine(app, size.1, size.0, true)?;
     cmd.args(["-nic", &sealed_nic(tunnel.port)])
         .args(["-action", "panic=exit-failure", "-serial", "null"])
         .arg("-drive")
-        .arg(crate::images::drive_arg(&overlay))
+        .arg(crate::vm::machine::drive_arg(&overlay))
         .args(["-device", "virtio-serial-pci"])
         .arg("-chardev")
         .arg(format!("{},id=agent", channel.chardev))
@@ -204,7 +204,7 @@ async fn boot_and_drive(
     let mut child = cmd.spawn().map_err(|e| format!("cannot start QEMU: {e}"))?;
     vm_state(on_msg, "starting");
 
-    let stream = match crate::builder::within(30, "the agent channel", channel.connect()).await {
+    let stream = match crate::vm::builder::within(30, "the agent channel", channel.connect()).await {
         Ok(s) => s,
         Err(e) => {
             let _ = child.kill().await;
@@ -215,7 +215,7 @@ async fn boot_and_drive(
     vm_state(on_msg, "booting");
     let mut running = false;
     // The stream stays open inside `drive` until the run is over.
-    let mut rx = crate::agent::drive(stream, Bootstrap {
+    let mut rx = crate::vm::agent::drive(stream, Bootstrap {
             id: identity.to_string(),
             claude_token: token.to_string(),
             tunnel: Some(TunnelKeys { key: tunnel.client_key.clone(), host_key: tunnel.host_key.clone() }),
@@ -293,7 +293,7 @@ fn sealed_nic(port: u16) -> String {
 }
 
 fn runs_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("runs"))
+    Ok(crate::util::data_dir(app)?.join("runs"))
 }
 
 /// Starts an agent of a profile on a prompt; returns the run id at once. Progress arrives as
@@ -303,26 +303,26 @@ pub fn agent_run(app: AppHandle, profile: String, prompt: String) -> Result<Stri
     if prompt.trim().is_empty() || prompt.len() > 100_000 {
         return Err("the prompt must be 1 to 100000 bytes".into());
     }
-    let profiles_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("profiles");
-    let entry = crate::profiles::list(&profiles_dir).into_iter().find(|e| e.id == profile).ok_or("no such profile")?;
+    let profiles_dir = crate::config::profiles::dir(&app)?;
+    let entry = crate::config::profiles::list(&profiles_dir).into_iter().find(|e| e.id == profile).ok_or("no such profile")?;
     // Fail fast with a clear message instead of an event later.
-    if !crate::accounts::usable(&app) {
+    if !crate::config::accounts::usable(&app) {
         return Err("no Claude account is ready: add a setup token in Settings > LLM".into());
     }
-    if crate::images::path(&app, &entry.profile.image).is_none() {
+    if crate::vm::images::path(&app, &entry.profile.image).is_none() {
         return Err(format!("the image {} is not built yet", entry.profile.image));
     }
 
     let run_id = new_run_id();
     let who = identity(&[("profile", &entry.id)], &run_id);
-    let (env, injections) = crate::injections::prepare(&app, &entry.profile.env)?;
+    let (env, injections) = crate::config::injections::prepare(&app, &entry.profile.env)?;
     let task = Task {
         prompt,
         model: entry.profile.model.clone(),
         effort: entry.profile.effort.clone(),
         session_id: uuid_v4(),
         resume: false,
-        schema: crate::protocol::RESULT_SCHEMA.into(),
+        schema: crate::vm::protocol::RESULT_SCHEMA.into(),
         system_prompt: Some(entry.profile.system_prompt.clone()).filter(|s| !s.trim().is_empty()),
         env,
         timeout_secs: 30 * 60,
@@ -366,7 +366,7 @@ pub fn agent_run_cancel(app: AppHandle, run: String) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::TaskEnv;
+    use crate::vm::protocol::TaskEnv;
 
     #[test]
     fn allowed_hosts_take_variables() {
@@ -435,19 +435,19 @@ mod tests {
         // the sealed NIC and the tunnel the app uses, with the global default allowlist
         let seen = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
         let sink = seen.clone();
-        let rules = crate::egress::Rules::new([crate::network::Network::default().allow_hosts]);
-        let tunnel = crate::tunnel::Tunnel::start(crate::egress::Proxy::new(rules, None), std::sync::Arc::new(move |l| sink.lock().unwrap().push(l))).await.unwrap();
+        let rules = crate::net::egress::Rules::new([crate::config::network::Network::default().allow_hosts]);
+        let tunnel = crate::net::tunnel::Tunnel::start(crate::net::egress::Proxy::new(rules, None), std::sync::Arc::new(move |l| sink.lock().unwrap().push(l))).await.unwrap();
         let channel = Serial::named(&work, "agent");
         let t0 = std::time::Instant::now();
         let mut vm = Command::new(q.join("bin/qemu-system-x86_64"))
             .arg("-L")
             .arg(q.join("share/qemu"))
             .args(["-accel", "kvm", "-cpu", "max", "-m", "2048", "-smp", "2", "-M", "pc,usb=off,vmport=off", "-nodefaults", "-no-user-config", "-display", "none", "-monitor", "none"])
-            .args(crate::images::boot_args(&res.join("images"), "x86_64", true))
+            .args(crate::vm::machine::boot_args(&res.join("images"), "x86_64", true))
             .args(["-no-reboot", "-action", "panic=exit-failure", "-serial", "null"])
             .args(["-nic", &sealed_nic(tunnel.port)])
             .arg("-drive")
-            .arg(crate::images::drive_arg(&overlay))
+            .arg(crate::vm::machine::drive_arg(&overlay))
             .args(["-device", "virtio-serial-pci", "-chardev"])
             .arg(format!("{},id=agent", channel.chardev))
             .args(["-device", "virtserialport,chardev=agent,name=agent"])
@@ -464,13 +464,13 @@ mod tests {
             effort: None,
             session_id: uuid_v4(),
             resume: false,
-            schema: crate::protocol::RESULT_SCHEMA.into(),
+            schema: crate::vm::protocol::RESULT_SCHEMA.into(),
             system_prompt: Some("be brief".into()),
             env: vec![TaskEnv { name: "TEAM".into(), value: "red".into() }],
             timeout_secs: 120,
         };
         let who = identity(&[("test", "boot")], "r-test");
-        let mut rx = crate::agent::drive(stream, Bootstrap {
+        let mut rx = crate::vm::agent::drive(stream, Bootstrap {
                 id: who,
                 claude_token: "sk-ant-oat01-fake".into(),
                 tunnel: Some(TunnelKeys { key: tunnel.client_key.clone(), host_key: tunnel.host_key.clone() }),

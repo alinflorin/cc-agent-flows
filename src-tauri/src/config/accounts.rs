@@ -12,11 +12,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
-use crate::protocol::{Final, Status};
+use crate::vm::protocol::{Final, Status};
 
-const SERVICE: &str = "cc-agent-flows";
+use crate::util::KEYRING_SERVICE as SERVICE;
 /// The account that used to be the only one; its token entry is the old one.
 pub const DEFAULT: &str = "default";
 const MAX_ACCOUNTS: usize = 20;
@@ -53,11 +53,11 @@ static COOLING: Mutex<Option<HashMap<String, (u64, Cooldown)>>> = Mutex::new(Non
 static TURN: AtomicUsize = AtomicUsize::new(0);
 
 fn now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    crate::util::unix_secs()
 }
 
 fn file(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("claude-accounts.json"))
+    Ok(crate::util::data_dir(app)?.join("claude-accounts.json"))
 }
 
 fn read(app: &AppHandle) -> Index {
@@ -199,7 +199,7 @@ pub fn accounts_add(app: AppHandle, name: String, token: String) -> Result<Strin
     if index.accounts.len() >= MAX_ACCOUNTS {
         return Err("too many accounts".into());
     }
-    let id = format!("a-{:x}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis()));
+    let id = format!("a-{:x}", crate::util::unix_millis());
     entry(&id)?.set_password(&token).map_err(|e| e.to_string())?;
     index.accounts.push(Meta { id: id.clone(), name, enabled: true });
     write(&app, &index)?;
@@ -256,7 +256,7 @@ mod tests {
     }
 
     fn failed(text: &str) -> Final {
-        crate::runs::failed(text)
+        crate::vm::runs::failed(text)
     }
 
     #[test]

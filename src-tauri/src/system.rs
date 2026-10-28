@@ -17,7 +17,7 @@ fn check(id: &'static str, level: &'static str, detail: impl Into<String>) -> Ch
 
 fn qemu(app: &AppHandle) -> Check {
     let arch = if cfg!(target_arch = "aarch64") { "aarch64" } else { "x86_64" };
-    match crate::qemu::command(app, &format!("qemu-system-{arch}")).arg("--version").output() {
+    match crate::vm::qemu::command(app, &format!("qemu-system-{arch}")).arg("--version").output() {
         Ok(o) if o.status.success() => check("qemu", "ok", String::from_utf8_lossy(&o.stdout).lines().next().unwrap_or_default()),
         Ok(o) => check("qemu", "error", String::from_utf8_lossy(&o.stderr).trim()),
         Err(e) => check("qemu", "error", e.to_string()),
@@ -45,7 +45,7 @@ fn accel() -> Check {
 }
 
 fn image(app: &AppHandle) -> Check {
-    match crate::images::images_list(app.clone()).into_iter().find(|i| i.id == "base") {
+    match crate::vm::images::images_list(app.clone()).into_iter().find(|i| i.id == "base") {
         Some(i) if i.state == "ready" => check("image", "ok", ""),
         Some(i) if i.state == "stale" => check("image", "warn", "stale"),
         Some(i) => check("image", if i.state == "missing" && i.error.is_some() { "error" } else { "warn" }, i.error.unwrap_or_else(|| i.state.to_string())),
@@ -54,17 +54,17 @@ fn image(app: &AppHandle) -> Check {
 }
 
 fn token(app: &AppHandle) -> Check {
-    check("token", if crate::accounts::usable(app) { "ok" } else { "warn" }, "")
+    check("token", if crate::config::accounts::usable(app) { "ok" } else { "warn" }, "")
 }
 
 /// The global allowlist must let the agent reach the Claude API.
 fn network(app: &AppHandle) -> Check {
-    let rules = crate::egress::Rules::new([crate::network::current(app).allow_hosts]);
+    let rules = crate::net::egress::Rules::new([crate::config::network::current(app).allow_hosts]);
     if rules.allows("api.anthropic.com") { check("network", "ok", "") } else { check("network", "error", "api.anthropic.com") }
 }
 
 async fn tunnel() -> Check {
-    match crate::tunnel::self_check().await {
+    match crate::net::tunnel::self_check().await {
         Ok(addr) => check("tunnel", "ok", addr),
         Err(e) => check("tunnel", "error", e),
     }

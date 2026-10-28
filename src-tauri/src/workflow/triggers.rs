@@ -11,9 +11,9 @@ use std::sync::Mutex;
 
 use chrono::{Local, NaiveDateTime, Timelike};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
-use crate::cron::Cron;
+use crate::workflow::cron::Cron;
 use crate::workflow::{self, Node, NodeKind};
 
 /// A trigger node with the workflow it is in and the agent it points to.
@@ -51,7 +51,7 @@ fn key(workflow: &str, node: &str) -> String {
 static FILE: Mutex<()> = Mutex::new(());
 
 fn path(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("triggers.json"))
+    Ok(crate::util::data_dir(app)?.join("triggers.json"))
 }
 
 fn read(app: &AppHandle) -> HashMap<String, Last> {
@@ -70,7 +70,7 @@ fn record(app: &AppHandle, k: &str, f: impl FnOnce(&mut Last)) {
 }
 
 fn now() -> u64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs())
+    crate::util::unix_secs()
 }
 
 /// The request of a session a trigger starts: a cron node's request as written; a webhook's body
@@ -95,7 +95,7 @@ pub fn start_session(app: &AppHandle, f: &Found, payload: &str) -> Result<String
     let source = if f.node.kind == NodeKind::Cron { "cron" } else { "webhook" };
     let sid = workflow::create_triggered_session(&root, &name, &task, &f.workflow, &f.target, source, &f.node.trigger.autonomy)?;
     let _ = app.emit("sessions-changed", ());
-    if let Err(e) = crate::engine::session_start(app.clone(), sid.clone(), None) {
+    if let Err(e) = crate::workflow::engine::session_start(app.clone(), sid.clone(), None) {
         let _ = workflow::delete_session(&root, &sid);
         return Err(e);
     }
@@ -167,7 +167,7 @@ pub struct Info {
 pub fn triggers_status(app: AppHandle) -> Result<Vec<Info>, String> {
     let root = workflow::root(&app)?;
     let last = read(&app);
-    let port = crate::webhook::port(&app);
+    let port = crate::workflow::webhook::port(&app);
     let mut out = vec![];
     for (kind, name) in [(NodeKind::Cron, "cron"), (NodeKind::Webhook, "webhook")] {
         for f in find_all(&root, kind) {

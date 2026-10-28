@@ -229,9 +229,7 @@ pub fn save(user: &Path, id: Option<&str>, profile: &Profile) -> Result<String, 
         }
     };
     let path = user_path(user, &id)?;
-    std::fs::create_dir_all(user).map_err(|e| e.to_string())?;
-    let text = serde_json::to_string_pretty(profile).map_err(|e| e.to_string())?;
-    std::fs::write(&path, text).map_err(|e| e.to_string())?;
+    crate::util::write_json(&path, profile)?;
     Ok(id)
 }
 
@@ -239,9 +237,8 @@ pub fn delete(user: &Path, id: &str) -> Result<(), String> {
     std::fs::remove_file(user_path(user, id)?).map_err(|e| e.to_string())
 }
 
-fn dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    use tauri::Manager;
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("profiles"))
+pub fn dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(crate::util::data_dir(app)?.join("profiles"))
 }
 
 /// Ids of the images that profiles use.
@@ -261,17 +258,6 @@ pub fn provision_defaults(app: &tauri::AppHandle, reset: bool) -> Result<(), Str
         save(&dir, Some(&id), &profile)?;
     }
     Ok(())
-}
-
-/// First-start setup the user accepted: the starter images (building them), profiles, secrets and workflow.
-#[tauri::command]
-pub fn provision_starters(app: tauri::AppHandle) -> Result<(), String> {
-    crate::images::provision_defaults(&app, false)?;
-    provision_defaults(&app, false)?;
-    crate::secrets::provision_demo(&app, false)?;
-    crate::variables::provision_demo(&app, false)?;
-    crate::injections::provision_demo(&app, false)?;
-    crate::workflow::provision_defaults(&app)
 }
 
 /// Page Agent profiles > Reset to demo content.
@@ -417,8 +403,8 @@ mod tests {
         let demo = crate::demo::injections();
         for (id, profile) in crate::demo::profiles() {
             // as at run time, the variables are filled in first
-            let fill = |h: &str| crate::secrets::resolve(h, "var", &|_| Some("me.atlassian.net".to_string())).unwrap();
-            let rules = crate::egress::Rules::new([profile.allow_hosts.iter().map(|h| fill(h)).collect::<Vec<_>>()]);
+            let fill = |h: &str| crate::config::secrets::resolve(h, "var", &|_| Some("me.atlassian.net".to_string())).unwrap();
+            let rules = crate::net::egress::Rules::new([profile.allow_hosts.iter().map(|h| fill(h)).collect::<Vec<_>>()]);
             for v in &profile.env {
                 let name = v.value.strip_prefix("${injection:").and_then(|n| n.strip_suffix('}'));
                 let Some(i) = name.and_then(|n| demo.iter().find(|i| i.name == n)) else { continue };
