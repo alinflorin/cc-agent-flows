@@ -10,7 +10,6 @@ import { Profiles } from "./pages/Profiles";
 import { Runs } from "./pages/Runs";
 import { SessionView } from "./pages/SessionView";
 import { Sessions } from "./pages/Sessions";
-import { Projects } from "./pages/Projects";
 import { Settings } from "./pages/Settings";
 import { Workflow } from "./pages/Workflow";
 import { useFluentTheme } from "./theme";
@@ -30,7 +29,6 @@ const router = createHashRouter([
     children: [
       { path: "/", element: <Home /> },
       { path: "/workflow", element: <Workflow /> },
-      { path: "/projects", element: <Projects /> },
       { path: "/sessions", element: <Sessions /> },
       { path: "/sessions/:sid", element: <SessionView /> },
       { path: "/analytics", element: <Analytics /> },
