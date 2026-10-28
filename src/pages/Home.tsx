@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
 import { Body1, Card, CardHeader, makeStyles, tokens } from "@fluentui/react-components";
-import { Bot24Regular, Folder24Regular } from "@fluentui/react-icons";
+import { Bot24Regular, Chat24Regular, Flow24Regular } from "@fluentui/react-icons";
 import { PageHeader } from "../components/PageHeader";
 
 const useStyles = makeStyles({
@@ -15,7 +15,8 @@ export function Home() {
   const styles = useStyles();
   const navigate = useNavigate();
   const cards = [
-    { to: "/projects", key: "projects", title: t("nav.projects"), icon: <Folder24Regular /> },
+    { to: "/sessions", key: "sessions", title: t("nav.sessions"), icon: <Chat24Regular /> },
+    { to: "/workflow", key: "workflow", title: t("nav.workflow"), icon: <Flow24Regular /> },
     { to: "/profiles", key: "profiles", title: t("nav.profiles"), icon: <Bot24Regular /> },
   ];
   return (

@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
-import { NavCategory, NavCategoryItem, NavDrawer, NavDrawerBody, NavDrawerFooter, NavDrawerHeader, NavItem, NavSubItem, NavSubItemGroup, makeStyles, tokens } from "@fluentui/react-components";
-import { inTauri } from "../prefs";
+import { NavDrawer, NavDrawerBody, NavDrawerFooter, NavDrawerHeader, NavItem, makeStyles, tokens } from "@fluentui/react-components";
 import {
   Bot24Filled,
   Bot24Regular,
+  Chat24Filled,
+  Chat24Regular,
   DataBarVertical24Filled,
   DataBarVertical24Regular,
+  Flowchart24Filled,
+  Flowchart24Regular,
   Home24Filled,
   Home24Regular,
   Info24Filled,
@@ -22,6 +24,8 @@ import {
 } from "@fluentui/react-icons";
 
 const HomeIcon = bundleIcon(Home24Filled, Home24Regular);
+const WorkflowIcon = bundleIcon(Flowchart24Filled, Flowchart24Regular);
+const SessionsIcon = bundleIcon(Chat24Filled, Chat24Regular);
 const ProjectsIcon = bundleIcon(Folder24Filled, Folder24Regular);
 const AnalyticsIcon = bundleIcon(DataBarVertical24Filled, DataBarVertical24Regular);
 const RunsIcon = bundleIcon(Play24Filled, Play24Regular);
@@ -57,30 +61,8 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
   const styles = useStyles();
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
-  const [openCats, setOpenCats] = useState<string[]>([]);
-  // /projects/<id>/sessions/<sid> belongs to that project's Sessions item
-  const [, , pid, section] = pathname.split("/");
-  const selected = pathname.startsWith("/projects/") && pid && section ? `/projects/${pid}/${section}` : pathname;
-
-  const load = useCallback(async () => {
-    if (!inTauri()) return;
-    try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      setProjects(await invoke<{ id: string; name: string }[]>("projects_list"));
-    } catch {
-      setProjects([]);
-    }
-  }, []);
-  useEffect(() => {
-    void load();
-    window.addEventListener("projects-changed", load);
-    return () => window.removeEventListener("projects-changed", load);
-  }, [load]);
-  // the project you are in is open
-  useEffect(() => {
-    if (pathname.startsWith("/projects/") && pid) setOpenCats((o) => (o.includes(pid) ? o : [...o, pid]));
-  }, [pathname, pid]);
+  // /sessions/<id> belongs to Sessions
+  const selected = pathname.startsWith("/sessions") ? "/sessions" : pathname;
 
   return (
     <NavDrawer
@@ -88,10 +70,7 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
       open={open}
       onOpenChange={(_, d) => !d.open && onClose()}
       selectedValue={selected}
-      openCategories={openCats}
-      onNavCategoryItemToggle={(_, d) => setOpenCats((o) => (o.includes(d.value) ? o.filter((v) => v !== d.value) : [...o, d.value]))}
       onNavItemSelect={(_, d) => {
-        if (!d.value.startsWith("/")) return;
         navigate(d.value);
         onClose();
       }}
@@ -107,22 +86,15 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
         <NavItem value="/" icon={<HomeIcon />}>
           {t("nav.home")}
         </NavItem>
+        <NavItem value="/workflow" icon={<WorkflowIcon />}>
+          {t("nav.workflow")}
+        </NavItem>
         <NavItem value="/projects" icon={<ProjectsIcon />}>
           {t("nav.projects")}
         </NavItem>
-        {projects.map((p) => (
-          <NavCategory key={p.id} value={p.id}>
-            <NavCategoryItem>{p.name}</NavCategoryItem>
-            <NavSubItemGroup>
-              <NavSubItem value={`/projects/${p.id}/sessions`}>
-                {t("nav.sessions")}
-              </NavSubItem>
-              <NavSubItem value={`/projects/${p.id}/workflows`}>
-                {t("nav.workflow")}
-              </NavSubItem>
-            </NavSubItemGroup>
-          </NavCategory>
-        ))}
+        <NavItem value="/sessions" icon={<SessionsIcon />}>
+          {t("nav.sessions")}
+        </NavItem>
         <NavItem value="/profiles" icon={<ProfilesIcon />}>
           {t("nav.profiles")}
         </NavItem>

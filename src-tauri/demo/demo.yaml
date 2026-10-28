@@ -236,13 +236,6 @@ profiles:
       - "api.media.atlassian.com"
 
 # The standard workflow: nodes are agents (`profile` is a profile id above), edges are who may hand work to whom; `before` is an order.
-# The demo project (Projects): the standard workflow below belongs to it.
-project:
-  id: "demo"
-  name: "Demo project"
-  description: "Sessions and the standard delivery workflow, to try the app with."
-  system_prompt: ""
-
 workflow:
   id: "standard"
   name: "Standard workflow"
