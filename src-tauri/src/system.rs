@@ -53,12 +53,8 @@ fn image(app: &AppHandle) -> Check {
     }
 }
 
-fn token() -> Check {
-    match crate::secrets::claude_token_status() {
-        Ok(true) => check("token", "ok", ""),
-        Ok(false) => check("token", "warn", ""),
-        Err(e) => check("token", "error", e),
-    }
+fn token(app: &AppHandle) -> Check {
+    check("token", if crate::accounts::usable(app) { "ok" } else { "warn" }, "")
 }
 
 /// The global allowlist must let the agent reach the Claude API.
@@ -78,7 +74,7 @@ async fn tunnel() -> Check {
 pub async fn system_status(app: AppHandle) -> Vec<Check> {
     let blocking = {
         let app = app.clone();
-        tauri::async_runtime::spawn_blocking(move || vec![qemu(&app), accel(), image(&app), token(), network(&app)])
+        tauri::async_runtime::spawn_blocking(move || vec![qemu(&app), accel(), image(&app), token(&app), network(&app)])
     };
     let mut out = blocking.await.unwrap_or_default();
     out.insert(3, tunnel().await);

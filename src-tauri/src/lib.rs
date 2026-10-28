@@ -1,3 +1,4 @@
+mod accounts;
 mod agent;
 mod analytics;
 mod cron;
@@ -126,9 +127,12 @@ pub fn run() {
             engine::session_log,
             runs::agent_run,
             runs::agent_run_cancel,
-            secrets::claude_token_set,
-            secrets::claude_token_status,
-            secrets::claude_token_clear,
+            accounts::accounts_list,
+            accounts::accounts_add,
+            accounts::accounts_set_token,
+            accounts::accounts_update,
+            accounts::accounts_wake,
+            accounts::accounts_remove,
             secrets::secrets_list,
             secrets::secrets_set,
             secrets::secrets_delete,

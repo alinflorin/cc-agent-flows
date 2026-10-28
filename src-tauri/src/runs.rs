@@ -112,12 +112,9 @@ fn vm_state(on_msg: &mut impl FnMut(&Outbound), state: &str) {
 /// Boots a VM of `image`, runs `task` in it and returns how it ended. `on_msg` sees every event and
 /// the final (also a synthesized one), in order. `Err` only for what stops the VM from starting
 /// (no token, image not built, QEMU missing). `cancel` firing ends the run as failed.
-pub async fn run_vm(app: &AppHandle, spec: Spec, cancel: oneshot::Receiver<()>, mut on_msg: impl FnMut(&Outbound)) -> Result<Final, String> {
+pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<()>, mut on_msg: impl FnMut(&Outbound)) -> Result<Final, String> {
     let Spec { run_id, image, identity, cpus, memory_mb, allow_hosts, injections, task } = spec;
-    let token = crate::secrets::claude_token().ok_or("no Claude token is set (Settings > LLM)")?;
     let disk = crate::images::path(app, &image).ok_or_else(|| format!("the image {image} is not built"))?;
-    let work = app.path().app_data_dir().map_err(|e| e.to_string())?.join("runs").join("tmp").join(&run_id);
-    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let vars = crate::variables::all(app);
     let allow_hosts = resolve_hosts(&allow_hosts, &|n| vars.get(n).cloned())?;
     let rules = crate::egress::Rules::new([crate::network::current(app).allow_hosts, allow_hosts]);
@@ -127,11 +124,29 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, cancel: oneshot::Receiver<()>, 
             return Err(format!("the injection {} is for {}, which is not in the profile's allowed hosts (or Settings > Network)", a.name, r.host));
         }
     }
-    let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), &identity, &token, (rules, injections), task, cancel, &mut on_msg).await;
-    let _ = std::fs::remove_dir_all(&work);
-    let fin = result?;
-    on_msg(&Outbound::Final(fin.clone()));
-    Ok(fin)
+    // Each attempt uses the next Claude account. When Claude refuses the account (limit, rejected
+    // token) before any billed work was done, the run starts again on another one.
+    let mut tried: Vec<String> = vec![];
+    loop {
+        let (account, account_name, token) = crate::accounts::pick(app, &tried)?;
+        tried.push(account.clone());
+        on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "account", "account": account_name}) }));
+        let work = app.path().app_data_dir().map_err(|e| e.to_string())?.join("runs").join("tmp").join(format!("{run_id}-{}", tried.len()));
+        std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+        let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), &identity, &token, (rules.clone(), injections.clone()), task.clone(), &mut cancel, &mut on_msg).await;
+        let _ = std::fs::remove_dir_all(&work);
+        let fin = result?;
+        if let Some(why) = crate::accounts::classify(&fin) {
+            crate::accounts::rest(&account, why);
+            let free = fin.cost_usd.is_none_or(|c| c < 0.0001);
+            if free && crate::accounts::pick(app, &tried).is_ok() {
+                on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "account", "account": account_name, "refused": true}) }));
+                continue;
+            }
+        }
+        on_msg(&Outbound::Final(fin.clone()));
+        return Ok(fin);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -144,7 +159,7 @@ async fn boot_and_drive(
     token: &str,
     egress: (crate::egress::Rules, Vec<crate::injections::Active>),
     task: Task,
-    mut cancel: oneshot::Receiver<()>,
+    cancel: &mut oneshot::Receiver<()>,
     on_msg: &mut impl FnMut(&Outbound),
 ) -> Result<Final, String> {
     vm_state(on_msg, "preparing");
@@ -261,7 +276,7 @@ async fn boot_and_drive(
                 exit = Some(status.ok());
             }
             _ = &mut deadline => break failed(format!("the run did not end within {}s, the VM was killed", timeout_secs.saturating_add(GRACE_SECS))),
-            _ = &mut cancel => break failed("cancelled"),
+            _ = &mut *cancel => break failed("cancelled"),
         }
     };
     let _ = child.kill().await;
@@ -291,8 +306,8 @@ pub fn agent_run(app: AppHandle, profile: String, prompt: String) -> Result<Stri
     let profiles_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("profiles");
     let entry = crate::profiles::list(&profiles_dir).into_iter().find(|e| e.id == profile).ok_or("no such profile")?;
     // Fail fast with a clear message instead of an event later.
-    if crate::secrets::claude_token().is_none() {
-        return Err("no Claude token is set (Settings > LLM)".into());
+    if !crate::accounts::usable(&app) {
+        return Err("no Claude account is ready: add a setup token in Settings > LLM".into());
     }
     if crate::images::path(&app, &entry.profile.image).is_none() {
         return Err(format!("the image {} is not built yet", entry.profile.image));

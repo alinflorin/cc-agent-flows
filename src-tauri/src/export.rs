@@ -284,6 +284,7 @@ pub fn audit(app: &AppHandle, sid: &str) -> Result<Value, String> {
     let mut runs: Vec<Value> = vec![];
     let mut timeline: Vec<Value> = vec![];
     let mut network: Vec<Value> = vec![];
+    let mut accounts: Vec<Value> = vec![];
     for e in log_entries(&root, sid, &kinds) {
         let (t, kind) = (e.get("t").and_then(Value::as_u64).unwrap_or(0), s(&e, "kind").to_string());
         let body = e.get("body").cloned().unwrap_or(Value::Null);
@@ -292,6 +293,9 @@ pub fn audit(app: &AppHandle, sid: &str) -> Result<Value, String> {
                 let ev = body.get("event").cloned().unwrap_or(Value::Null);
                 if s(&ev, "type") == "egress" {
                     network.push(json!({"time": time(t), "agent": s(&body, "node"), "call": s(&body, "call"), "line": s(&ev, "text")}));
+                } else if s(&ev, "type") == "account" {
+                    // which Claude account a run used (the name, never the token) and when one was refused
+                    accounts.push(json!({"time": time(t), "agent": s(&body, "node"), "call": s(&body, "call"), "account": s(&ev, "account"), "refused": ev.get("refused").and_then(Value::as_bool).unwrap_or(false)}));
                 }
             }
             "run_start" => {
@@ -328,6 +332,7 @@ pub fn audit(app: &AppHandle, sid: &str) -> Result<Value, String> {
         "agents": agents,
         "runs": runs,
         "network": network,
+        "claude_accounts": accounts,
         "timeline": timeline,
     }))
 }
@@ -356,6 +361,10 @@ fn markdown(a: &Value) -> String {
     for e in a["timeline"].as_array().into_iter().flatten().filter(|e| matches!(s(e, "kind"), "decision" | "decision_rejected")) {
         let d = &e["detail"];
         m.push_str(&format!("- {} {} ({}): {} {}\n", s(e, "time"), s(d, "label"), s(e, "kind"), s(d, "action"), d.get("detail").or(d.get("reason")).map_or(String::new(), |x| x.to_string())));
+    }
+    m.push_str("\n## Claude accounts\n\n");
+    for n in a["claude_accounts"].as_array().into_iter().flatten() {
+        m.push_str(&format!("- {} {}: {}{}\n", s(n, "time"), s(n, "agent"), s(n, "account"), if n["refused"].as_bool() == Some(true) { " (refused by Claude)" } else { "" }));
     }
     m.push_str("\n## Network\n\n");
     for n in a["network"].as_array().into_iter().flatten() {
