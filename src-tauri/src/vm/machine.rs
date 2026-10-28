@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tokio::process::Command;
 
 pub fn arch() -> Result<&'static str, String> {
@@ -16,7 +16,7 @@ pub fn arch() -> Result<&'static str, String> {
 }
 
 pub fn resources(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path().resource_dir().map_err(|e| e.to_string())
+    crate::util::resource_dir(app)
 }
 
 /// The host's logical cores: "no CPU limit" for a VM.
