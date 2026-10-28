@@ -91,8 +91,7 @@
       "network": "Network",
       "secrets": "Secrets",
       "variables": "Variables",
-      "injections": "Injections",
-      "bundles": "Bundles"
+      "injections": "Injections"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -222,28 +221,7 @@
       "placeholderHint": "What the agent sees in its variable. Set it to look like a token if a tool checks the format (for example ghp_…). Default: ccaf-injected.",
       "summary": "{{header}}: {{kind}} from {{secret}}"
     },
-    "notifications": "Desktop notifications when a session needs me or ends",
-    "bundles": {
-      "intro": "Share workflows, agent profiles and images as one file, or bring in a file someone else made. Bundles hold no secrets, variable values or injections, and webhook URLs are not exported (the importer gets new ones): set those up on the machine you import into.",
-      "export": "Export",
-      "workflows": "Workflows",
-      "profiles": "Agent profiles",
-      "images": "Images",
-      "deps": "Include what the selection needs (a workflow's profiles, a profile's image, an image's parents)",
-      "exportNote": "The file contains prompts, environment variables and image scripts in plain text.",
-      "exportButton": "Export to Downloads",
-      "savedTo": "Saved to {{path}}",
-      "import": "Import",
-      "notBundle": "That file is not a CC Agent Flows bundle.",
-      "contains": "This bundle has {{workflows}} workflow(s), {{profiles}} agent profile(s) and {{images}} image(s).",
-      "warnScripts": "{{count}} image(s) have a script. It runs as root in a VM with open internet when the image is built.",
-      "warnHosts": "The profiles may reach these hosts: {{hosts}}.",
-      "warnTrust": "Import only bundles you trust. Images are not built until you build them.",
-      "overwrite": "Replace items that already exist (otherwise they are kept)",
-      "importButton": "Import",
-      "result": "Added {{added}}, replaced {{replaced}}, kept {{skipped}}.",
-      "buildNote": "Imported images are not built yet: build them in Settings > Images."
-    }
+    "notifications": "Desktop notifications when a session needs me or ends"
   },
   "updates": {
     "title": "Updates",
@@ -516,10 +494,6 @@
     "workflow": "Workflow",
     "logs": "Logs",
     "agentState": "Agent",
-    "audit": "Audit record",
-    "auditMd": "Export as Markdown",
-    "auditJson": "Export as JSON",
-    "auditSaved": "Saved to {{path}}",
     "source": {
       "chat": "Chat",
       "cron": "Scheduled",

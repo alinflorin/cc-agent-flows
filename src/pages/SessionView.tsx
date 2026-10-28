@@ -3,8 +3,8 @@ import { Link, useParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow, ReactFlowProvider, useNodesState, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Badge, Body1, Button, Caption1, Field, Input, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger, MessageBar, MessageBarBody, Select, Spinner, Subtitle2, Tab, TabList, Textarea, Title2, makeStyles, mergeClasses, tokens } from "@fluentui/react-components";
-import { ArrowDownload20Regular, Edit20Regular } from "@fluentui/react-icons";
+import { Badge, Body1, Button, Caption1, Field, Input, MessageBar, MessageBarBody, Select, Spinner, Subtitle2, Tab, TabList, Textarea, Title2, makeStyles, mergeClasses, tokens } from "@fluentui/react-components";
+import { Edit20Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 import { activeEdges, clip, digest, nodeStates, nodeVms, type CallInfo, type Digest, type Entry, type NodeState, type Run, type Traffic, type VmState, type VmStats } from "../sessionLog";
@@ -643,13 +643,6 @@ export function SessionView() {
     const text = message.trim();
     if (text) void act("session_message", { text });
   };
-  const exportAudit = async (format: "json" | "md") => {
-    try {
-      notify(t("session.auditSaved", { path: await call<string>("session_audit", { id: sid, format }) }), "success");
-    } catch (e) {
-      notify(String(e), "error");
-    }
-  };
   const pickedCalls = [...d.calls.values()].filter((c) => c.node === picked).sort((a, b) => b.t - a.t);
 
   const reply = (approved: boolean | null) => act("session_reply", { reply: { approved, text: answer } });
@@ -685,19 +678,6 @@ export function SessionView() {
         {canContinue && <Button appearance="primary" onClick={() => act("session_continue")}>{t("session.continue")}</Button>}
         {live && <Button onClick={() => act("session_cancel")}>{t("runs.cancel")}</Button>}
         {session.source !== "chat" && <Badge appearance="tint">{t(`session.source.${session.source}`)}</Badge>}
-        {!canStart && (
-          <Menu>
-            <MenuTrigger disableButtonEnhancement>
-              <Button appearance="subtle" icon={<ArrowDownload20Regular />}>{t("session.audit")}</Button>
-            </MenuTrigger>
-            <MenuPopover>
-              <MenuList>
-                <MenuItem onClick={() => void exportAudit("md")}>{t("session.auditMd")}</MenuItem>
-                <MenuItem onClick={() => void exportAudit("json")}>{t("session.auditJson")}</MenuItem>
-              </MenuList>
-            </MenuPopover>
-          </Menu>
-        )}
         <span className={styles.grow} />
         <Field className={styles.autonomy} orientation="horizontal" label={t("session.workflow")}>
           <Select

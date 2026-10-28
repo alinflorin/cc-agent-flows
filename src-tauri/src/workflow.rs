@@ -429,34 +429,14 @@ impl Workflow {
     }
 }
 
-/// The standard delivery workflow, as an org chart: the orchestrator takes the request to the
+/// The standard delivery workflow, as an org chart (`demo/demo.yaml`): the orchestrator takes the request to the
 /// project manager, who goes through the work items one by one and has the business analyst,
 /// architect, developer, reviewer and tester do each, in that order (the dashed arrows; the engine
 /// holds the project manager to it). Only the root reaches the user: the others'
 /// questions go up the chain (add a user node to give an agent a direct line). How often and in
 /// which loops is up to the agents, as their prompts say.
 pub fn standard_workflow() -> Workflow {
-    fn node(id: &str, label: &str, x: i32, y: i32, profile: &str, prompt: &str) -> Node {
-        Node { id: id.into(), label: label.into(), x, y, kind: NodeKind::Agent, profile: profile.into(), prompt: prompt.into(), max_calls: 2, timeout_mins: 30, trigger: Default::default() }
-    }
-    fn edge(from: &str, to: &str, kind: EdgeKind) -> Edge {
-        let tag = if kind == EdgeKind::Before { "-before" } else { "" };
-        Edge { id: format!("{from}-{to}{tag}"), from: from.into(), to: to.into(), kind }
-    }
-    let mut nodes = vec![
-        node("orch", "Orchestrator", 0, 200, "orchestrator", "You receive the user's request, which is to deliver Jira tickets the user has created. Restate it precisely (which tickets, or which filter, and what done means) and hand it to the project manager. You never create or change tickets yourself. When the project manager reports back, check the report against the request and finish with a short summary for the user, ticket by ticket: delivered, or blocked and why."),
-        node("pm", "Project manager", 280, 200, "project-manager", "Deliver the tickets you are given. If the request names a filter (an epic, a sprint, a query) instead of ids, look the tickets up in Jira yourself, and always read each ticket's status and priority there. Order them by priority, highest first, and finish one ticket before starting the next. Each specialist gets only the ticket id (and the pull request id when it has one): they read the ticket, comments and attachments themselves in Jira. You are the only one who moves tickets across statuses; use `jtk transitions list` for the names. For each ticket: (1) move it to its in-progress status; (2) business analyst: attaches the definition of done; (3) architect: attaches the architecture; (4) developer: implements, raises a pull request and gives you its id; (5) reviewer, with the ticket id and the pull request id: waits for the checks, reviews, marks the pull request and merges it when approved; (6) if the reviewer asks for changes or the checks fail, send the developer back with the ticket id, the pull request id and what has to change, then the reviewer again, at most 3 rounds, then comment on the ticket why it is blocked and go on to the next one; (7) once the pull request is merged, tester, with the ticket id; (8) if the tester finds problems, send the developer back with them (a new pull request), then the reviewer and the tester again, at most 2 rounds, then comment and go on; (9) when the tester is satisfied, move the ticket to its done status. Comment on the ticket when you block or close it. Keep your progress in your notes (tickets done, blocked, remaining) and finish with a summary per ticket."),
-        node("ba", "Business analyst", 560, 0, "business-analyst", "You receive a Jira ticket id. Read the ticket yourself in Jira. Attach the definition of done to it (testable user stories with acceptance criteria, edge cases, what is out of scope) and comment that you did. Do not move the ticket. Report the ticket id and the main points of what you attached."),
-        node("arch", "Architect", 560, 100, "architect", "You receive a Jira ticket id. Read the ticket and the definition of done attached to it yourself in Jira. Design the change and attach the architecture to the ticket (which parts of the code change and how, risks, the order of the work), and comment that you did. Do not write code and do not move the ticket."),
-        node("dev", "Developer", 560, 200, "developer", "You receive a Jira ticket id (and, when sent back, a pull request id and what has to change). Read the ticket, its comments and its attachments yourself in Jira. Work in a feature branch named after the ticket, run the tests, open a pull request that links the ticket and comment its link on the ticket. Report the pull request id to the project manager. When sent back, read the pull request and ticket comments, fix on the same branch (a new branch and pull request if it is already merged) and report again. Do not merge and do not move the ticket."),
-        node("rev", "Reviewer", 560, 300, "reviewer", "You receive a Jira ticket id and a pull request id. Look at the pull request's checks and wait until they finish, then review it against the ticket and its attachments. Leave your comments on the pull request, mark it (approve or request changes) and, when it is approved and the checks pass, merge it. Report your verdict, the changes you ask for and whether it was merged. Do not push to the branch and do not move the ticket."),
-        node("qa", "Tester", 560, 400, "qa", "You receive a Jira ticket id for a change that is already merged. Read the ticket and the definition of done attached to it yourself in Jira. Test the result against the acceptance criteria (wait for the deployment to finish if the change has to be deployed first, the pull request and ticket say where), and report what passed and what failed, with steps to reproduce. Leave the results as a comment on the ticket. Do not move the ticket."),
-    ];
-    nodes.iter_mut().for_each(|n| n.max_calls = if n.id == "orch" || n.id == "pm" { 2 } else { 30 });
-    let mut edges = vec![edge("orch", "pm", EdgeKind::Delegate)];
-    edges.extend(["ba", "arch", "dev", "rev", "qa"].map(|w| edge("pm", w, EdgeKind::Delegate)));
-    edges.extend([("ba", "arch"), ("arch", "dev"), ("dev", "rev"), ("rev", "qa")].map(|(a, b)| edge(a, b, EdgeKind::Before)));
-    Workflow { nodes, edges }
+    crate::demo::workflow().workflow
 }
 
 // ---- storage ----
@@ -744,7 +724,8 @@ pub fn root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 pub fn provision_defaults(app: &tauri::AppHandle) -> Result<(), String> {
     let root = root(app)?;
     if workflows(&root).is_empty() {
-        save_workflow(&root, "standard", "Standard workflow", &standard_workflow(), &Instructions::default())?;
+        let demo = crate::demo::workflow();
+        save_workflow(&root, &demo.id, &demo.name, &demo.workflow, &Instructions::default())?;
     }
     Ok(())
 }

@@ -78,12 +78,6 @@ pub fn resolve(value: &str, kind: &str, lookup: &dyn Fn(&str) -> Option<String>)
     Ok(out)
 }
 
-/// The secrets the demo content comes with, to be replaced with real values.
-pub const DEMO_SECRETS: &[&str] = &[
-    "GITHUB_TOKEN",
-    "JIRA_TOKEN",
-    "GITHUB_READONLY_TOKEN",
-];
 const DUMMY: &str = "dummy";
 
 /// Part of the demo content: adds the demo secrets with a dummy value. One that is already listed
@@ -93,7 +87,7 @@ const DUMMY: &str = "dummy";
 pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
     let path = index_file(app)?;
     let mut index = load_index(&path);
-    for name in DEMO_SECRETS {
+    for name in crate::demo::secrets() {
         if !reset && index.names.iter().any(|n| n == name) {
             continue;
         }
@@ -163,7 +157,7 @@ mod tests {
 
     #[test]
     fn demo_secret_names_are_valid() {
-        assert!(DEMO_SECRETS.iter().all(|n| valid_name(n)));
+        assert!(crate::demo::secrets().iter().all(|n| valid_name(n)));
     }
 
     fn look(n: &str) -> Option<String> {
