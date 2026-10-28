@@ -9,7 +9,6 @@ import { useNotify } from "../notifications";
 import { getPref, setPref } from "../prefs";
 import { useUpdates } from "../updates";
 import { AppearanceFields } from "../components/AppearanceFields";
-import { BundlesSettings } from "./SettingsBundles";
 import { ImagesSettings } from "./SettingsImages";
 import { LlmSettings } from "./SettingsLlm";
 import { NetworkSettings } from "./SettingsNetwork";
@@ -118,9 +117,8 @@ export function Settings() {
         <Tab value="secrets">{t("settings.tabs.secrets")}</Tab>
         <Tab value="variables">{t("settings.tabs.variables")}</Tab>
         <Tab value="injections">{t("settings.tabs.injections")}</Tab>
-        <Tab value="bundles">{t("settings.tabs.bundles")}</Tab>
       </TabList>
-      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : tab === "network" ? <NetworkSettings /> : tab === "secrets" ? <SecretsSettings /> : tab === "variables" ? <VariablesSettings /> : tab === "injections" ? <InjectionsSettings /> : tab === "bundles" ? <BundlesSettings /> : <ImagesSettings />}
+      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : tab === "network" ? <NetworkSettings /> : tab === "secrets" ? <SecretsSettings /> : tab === "variables" ? <VariablesSettings /> : tab === "injections" ? <InjectionsSettings /> : <ImagesSettings />}
     </>
   );
 }

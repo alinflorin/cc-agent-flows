@@ -13,10 +13,6 @@ use serde::Serialize;
 const MAX_VARIABLES: usize = 200;
 const MAX_VALUE: usize = 4096;
 
-/// The variables the demo content comes with: the Atlassian site the demo injections and profiles
-/// point at, placeholders to be edited.
-pub const DEMO_VARIABLES: &[(&str, &str)] = &[("ATLASSIAN_HOST", "your-site.atlassian.net"), ("ATLASSIAN_EMAIL", "you@example.com")];
-
 #[derive(Serialize)]
 pub struct Variable {
     name: String,
@@ -60,11 +56,11 @@ pub fn all(app: &tauri::AppHandle) -> BTreeMap<String, String> {
 pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
     let path = file(app)?;
     let mut map = load(&path);
-    for (name, value) in DEMO_VARIABLES {
+    for (name, value) in crate::demo::variables() {
         if reset {
-            map.insert(name.to_string(), value.to_string());
+            map.insert(name, value);
         } else {
-            map.entry(name.to_string()).or_insert_with(|| value.to_string());
+            map.entry(name).or_insert(value);
         }
     }
     save(&path, &map)
@@ -108,8 +104,8 @@ mod tests {
 
     #[test]
     fn demo_variables_are_valid() {
-        for (n, v) in DEMO_VARIABLES {
-            assert!(check(n, v).is_ok(), "{n}");
+        for (n, v) in crate::demo::variables() {
+            assert!(check(&n, &v).is_ok(), "{n}");
         }
     }
 

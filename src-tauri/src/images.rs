@@ -345,13 +345,13 @@ pub fn images_list(app: AppHandle) -> Vec<Info> {
 /// built disk stale, it is not rebuilt until asked.
 #[tauri::command]
 pub fn images_save(app: AppHandle, id: Option<String>, spec: Spec) -> Result<String, String> {
-    save_spec(&app, id, spec, true)
+    save_spec(&app, id, spec)
 }
 
-/// Writes a custom image's definition (checked); with `build` its build starts at once. If it
+/// Writes a custom image's definition (checked) and starts its build at once. If it
 /// cannot start (the parent is not built, another build is running) it stays missing or out of
 /// date, with its build button.
-pub fn save_spec(app: &AppHandle, id: Option<String>, spec: Spec, build: bool) -> Result<String, String> {
+fn save_spec(app: &AppHandle, id: Option<String>, spec: Spec) -> Result<String, String> {
     spec.validate()?;
     let dir = spec_dir(app)?;
     let id = match id {
@@ -381,9 +381,7 @@ pub fn save_spec(app: &AppHandle, id: Option<String>, spec: Spec, build: bool) -
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let text = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
     std::fs::write(dir.join(format!("{id}.json")), text).map_err(|e| e.to_string())?;
-    if build {
-        let _ = start(app, &id);
-    }
+    let _ = start(app, &id);
     Ok(id)
 }
 
@@ -443,68 +441,6 @@ pub fn ensure_base(app: &AppHandle) {
     let _ = start(app, &first);
 }
 
-/// The images offered on first start (`developer`, `qa`): id and spec, scripts in `default-images/`.
-fn defaults() -> Vec<(&'static str, Spec)> {
-    let text = |t: &str| Doc { kind: DocKind::Text, value: t.into() };
-    let cmd = |c: &str| Doc { kind: DocKind::Command, value: c.into() };
-    let spec = |name: &str, description: &str, parent: &str, env: &[(&str, &str)], script: &str, docs: Vec<Doc>| Spec {
-        name: name.into(),
-        description: description.into(),
-        parent: parent.into(),
-        env: env.iter().map(|(n, v)| EnvVar { name: n.to_string(), value: v.to_string() }).collect(),
-        script: script.into(),
-        docs,
-    };
-    vec![
-        (
-            "manager",
-            spec(
-                "Manager",
-                "The Jira CLI (jtk) on the base image, for agents that plan and coordinate; the other starter images build on it.",
-                BASE,
-                &[],
-                include_str!("../default-images/manager.sh"),
-                vec![
-                    text("## Jira\n\nThe `jtk` CLI is installed and authenticated through the environment; never log in or print the token. If a command fails because of access or configuration, report it instead of working around it."),
-                    cmd("jtk --help"),
-                    cmd("jtk issues --help"),
-                    cmd("jtk issues list --help"),
-                    cmd("jtk issues get --help"),
-                    cmd("jtk issues search --help"),
-                    cmd("jtk issues create --help"),
-                    cmd("jtk transitions do --help"),
-                    cmd("jtk comments add --help"),
-                ],
-            ),
-        ),
-        (
-            "developer",
-            spec(
-                "Developer",
-                "Git, GitHub CLI, Python and Node.js, for agents that write code.",
-                "manager",
-                &[],
-                include_str!("../default-images/developer.sh"),
-                vec![],
-            ),
-        ),
-        (
-            "qa",
-            spec(
-                "Manual QA",
-                "Headless Chromium and agent-browser, for agents that test an app by hand in a browser.",
-                "manager",
-                &[("AGENT_BROWSER_EXECUTABLE_PATH", "/usr/bin/chromium"), ("AGENT_BROWSER_ARGS", "--no-sandbox,--disable-dev-shm-usage")],
-                include_str!("../default-images/qa.sh"),
-                vec![
-                    text("## Browser\n\n`agent-browser` drives a headless Chromium; a background daemon keeps the page between commands. Take a new `snapshot -i` after every page change, element refs (`@e3`) go stale."),
-                    cmd("agent-browser --help"),
-                ],
-            ),
-        ),
-    ]
-}
-
 /// Creates the default images (the ones that do not exist yet) and builds them: now if the base is
 /// built, else after it (while the base builds they follow it as the images built on it).
 ///
@@ -520,13 +456,13 @@ pub fn provision_defaults(app: &AppHandle, reset: bool) -> Result<(), String> {
         }
     }
     let mut created = vec![];
-    for (id, spec) in defaults() {
+    for (id, spec) in crate::demo::images() {
         let file = dir.join(format!("{id}.json"));
         if reset || !file.exists() {
             let text = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
             std::fs::write(&file, text).map_err(|e| e.to_string())?;
-            if !reset || info(app, id, Some(&spec)).state != "ready" {
-                created.push(id.to_string());
+            if !reset || info(app, &id, Some(&spec)).state != "ready" {
+                created.push(id.clone());
             }
         }
     }
@@ -831,8 +767,8 @@ mod tests {
 
     #[test]
     fn default_images_are_valid() {
-        for (id, spec) in defaults() {
-            assert!(valid_id(id));
+        for (id, spec) in crate::demo::images() {
+            assert!(valid_id(&id));
             assert!(spec.validate().is_ok(), "{id}");
         }
     }

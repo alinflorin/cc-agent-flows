@@ -176,39 +176,13 @@ pub fn injections_save(app: tauri::AppHandle, injections: Vec<Injection>) -> Res
     Ok(list)
 }
 
-/// The injections of the demo content, one per demo secret (`secrets::DEMO_SECRETS`), in a
-/// read-write and a read-only variant. The variants differ only in the secret: the token's own
-/// scopes make it read-only (the proxy cannot tell reads from writes by method alone: git fetches
-/// with POST, `gh` and Jira search read with POST). GitHub takes `Basic` because git over HTTPS
-/// needs it and the API accepts a token as the password too; the Atlassian ones name a placeholder
-/// site and e-mail the user must replace (a wildcard over `atlassian.net` would hand the token to
-/// anyone's site).
-pub(crate) fn demo() -> Vec<Injection> {
-    let rule = |host: &str, path: &str| Rule { host: host.into(), path: path.into(), methods: vec![] };
-    let basic = |name: &str, rules: Vec<Rule>, username: &str, secret: &str| Injection {
-        name: name.into(),
-        rules,
-        header: authorization(),
-        kind: Kind::Basic,
-        username: username.into(),
-        secret: secret.into(),
-        placeholder: String::new(),
-    };
-    let mut out = vec![];
-    for suffix in ["", "_READONLY"] {
-        out.push(basic(&format!("GITHUB{suffix}"), vec![rule("github.com", ""), rule("api.github.com", "")], "x-access-token", &format!("GITHUB{suffix}_TOKEN")));
-    }
-    out.push(basic("JIRA", vec![rule("${var:ATLASSIAN_HOST}", "/rest/*")], "${var:ATLASSIAN_EMAIL}", "JIRA_TOKEN"));
-    out
-}
-
 /// Part of the demo content: adds the demo injections that do not exist yet.
 ///
 /// `reset`: the demo injections are written again over the ones with their names, other injections are left alone.
 pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
     let path = file(app)?;
     let mut list = load(&path);
-    for i in demo() {
+    for i in crate::demo::injections() {
         match list.iter_mut().find(|o| o.name == i.name) {
             Some(o) if reset => *o = i,
             Some(_) => {}
@@ -383,10 +357,10 @@ mod tests {
 
     #[test]
     fn demo_injections_are_valid_and_use_demo_secrets() {
-        let list = demo();
+        let list = crate::demo::injections();
         assert_eq!(cleaned(&list).unwrap().len(), 3);
         for i in &list {
-            assert!(crate::secrets::DEMO_SECRETS.contains(&i.secret.as_str()), "{}", i.name);
+            assert!(crate::demo::secrets().contains(&i.secret), "{}", i.name);
         }
         let names: Vec<_> = list.iter().map(|i| i.name.as_str()).collect();
         assert!(names.contains(&"GITHUB_READONLY") && names.contains(&"JIRA"));

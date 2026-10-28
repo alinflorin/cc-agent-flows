@@ -2,13 +2,26 @@
 //! each kind of agent ran, failed and how long it needed. Computed when asked.
 
 use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
 
 use serde::Serialize;
 use serde_json::Value;
 use tauri::AppHandle;
 
-use crate::export::log_entries;
 use crate::workflow;
+
+/// Every entry of a session's log of one of `kinds` (all when empty), in order. Lines are
+/// filtered by text before they are parsed: agent events are most of the file.
+fn log_entries(root: &Path, sid: &str, kinds: &[&str]) -> Vec<Value> {
+    let Ok(path) = workflow::session_file(root, sid, "log.jsonl") else { return vec![] };
+    let Ok(text) = std::fs::read_to_string(path) else { return vec![] };
+    let wanted: Vec<String> = kinds.iter().map(|k| format!("\"kind\":\"{k}\"")).collect();
+    text.lines()
+        .filter(|l| wanted.is_empty() || wanted.iter().any(|w| l.contains(w.as_str())))
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|v| kinds.is_empty() || v.get("kind").and_then(Value::as_str).is_some_and(|k| kinds.contains(&k)))
+        .collect()
+}
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct SessionStat {

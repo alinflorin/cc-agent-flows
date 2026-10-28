@@ -91,8 +91,7 @@
       "network": "Rețea",
       "secrets": "Secrete",
       "variables": "Variabile",
-      "injections": "Injecții",
-      "bundles": "Pachete"
+      "injections": "Injecții"
     },
     "llm": {
       "token": "Setup token Claude Code",
@@ -222,28 +221,7 @@
       "placeholderHint": "Ce vede agentul în variabilă. Dă-i forma unui token dacă o unealtă verifică formatul (de exemplu ghp_…). Implicit: ccaf-injected.",
       "summary": "{{header}}: {{kind}} din {{secret}}"
     },
-    "notifications": "Notificări pe desktop când o sesiune are nevoie de mine sau se termină",
-    "bundles": {
-      "intro": "Partajează workflow-uri, profiluri de agent și imagini într-un singur fișier sau importă un fișier făcut de altcineva. Pachetele nu conțin secrete, valori de variabile sau injecții, iar URL-urile webhook nu se exportă (cine importă primește altele noi): configurează-le pe calculatorul în care imporți.",
-      "export": "Export",
-      "workflows": "Workflow-uri",
-      "profiles": "Profiluri de agent",
-      "images": "Imagini",
-      "deps": "Include ce are nevoie selecția (profilurile unui workflow, imaginea unui profil, părinții unei imagini)",
-      "exportNote": "Fișierul conține prompturi, variabile de mediu și scripturi de imagine în text clar.",
-      "exportButton": "Exportă în Descărcări",
-      "savedTo": "Salvat în {{path}}",
-      "import": "Import",
-      "notBundle": "Fișierul nu este un pachet CC Agent Flows.",
-      "contains": "Pachetul are {{workflows}} workflow-uri, {{profiles}} profiluri de agent și {{images}} imagini.",
-      "warnScripts": "{{count}} imagini au un script. Rulează ca root într-un VM cu internet deschis când imaginea este construită.",
-      "warnHosts": "Profilurile pot accesa aceste gazde: {{hosts}}.",
-      "warnTrust": "Importă doar pachete în care ai încredere. Imaginile nu se construiesc până nu le construiești tu.",
-      "overwrite": "Înlocuiește elementele care există deja (altfel rămân cele existente)",
-      "importButton": "Importă",
-      "result": "Adăugate {{added}}, înlocuite {{replaced}}, păstrate {{skipped}}.",
-      "buildNote": "Imaginile importate nu sunt construite încă: construiește-le în Setări > Imagini."
-    }
+    "notifications": "Notificări pe desktop când o sesiune are nevoie de mine sau se termină"
   },
   "updates": {
     "title": "Actualizări",
@@ -518,10 +496,6 @@
     "workflow": "Workflow",
     "logs": "Jurnal",
     "agentState": "Agent",
-    "audit": "Registru de audit",
-    "auditMd": "Exportă ca Markdown",
-    "auditJson": "Exportă ca JSON",
-    "auditSaved": "Salvat în {{path}}",
     "source": {
       "chat": "Chat",
       "cron": "Programată",

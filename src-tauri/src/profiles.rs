@@ -249,113 +249,16 @@ pub fn used_images(app: &tauri::AppHandle) -> Vec<String> {
     dir(app).map(|d| list(&d).into_iter().map(|e| e.profile.image).collect()).unwrap_or_default()
 }
 
-/// The demo profiles' credentials, as injections (see `injections::demo`): only the developer
-/// and the reviewer (who also merges) write to GitHub (the others get the read-only variant); Jira has one token.
-fn demo_env(id: &str) -> Vec<EnvVar> {
-    let var = |name: &str, injection: &str| EnvVar { name: name.into(), value: format!("${{injection:{injection}}}") };
-    let github = match id {
-        "developer" | "reviewer" => Some("GITHUB"),
-        "architect" | "qa" => Some("GITHUB_READONLY"),
-        _ => None,
-    };
-    let atlassian = matches!(id, "project-manager" | "business-analyst" | "architect" | "developer" | "reviewer" | "qa");
-    let mut env = vec![];
-    if let Some(g) = github {
-        env.push(var("GH_TOKEN", g));
-    }
-    if atlassian {
-        env.push(var("JIRA_API_TOKEN", "JIRA"));
-        // jtk reads these; the site and e-mail are the demo variables (Settings > Variables), shared with the injections
-        env.push(EnvVar { name: "ATLASSIAN_URL".into(), value: "https://${var:ATLASSIAN_HOST}".into() });
-        env.push(EnvVar { name: "ATLASSIAN_EMAIL".into(), value: "${var:ATLASSIAN_EMAIL}".into() });
-    }
-    env
-}
-
-/// The allowed hosts of a starter profile: the registries the developer tools need once the network is sealed, the hosts of the injections it uses (`demo_env`; nothing adds them) and Atlassian's media host, where Jira attachments (`jtk`) are served.
-fn demo_hosts(id: &str) -> Vec<String> {
-    let mut hosts: Vec<&str> = vec![];
-    if matches!(id, "developer" | "architect" | "reviewer" | "qa") {
-        hosts.extend(["github.com", "api.github.com", "*.githubusercontent.com", "registry.npmjs.org", "pypi.org", "files.pythonhosted.org"]);
-    }
-    if matches!(id, "project-manager" | "business-analyst" | "architect" | "developer" | "reviewer" | "qa") {
-        hosts.extend(["${var:ATLASSIAN_HOST}", "api.media.atlassian.com"]);
-    }
-    hosts.into_iter().map(String::from).collect()
-}
-
-/// The starter profiles: the ones that work on code (developer, architect, reviewer) on the `developer` image, `qa` on its own, the rest on the base image; existing ones are left alone.
+/// The starter profiles (`demo/demo.yaml`): the ones that work on code (developer, architect, reviewer) on the `developer` image, `qa` on its own, the rest on the base image; existing ones are left alone.
 ///
 /// `reset`: the starter profiles are written again over what is there (the edits of the user are lost, other profiles are left alone).
 pub fn provision_defaults(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
     let dir = dir(app)?;
-    let starters = [
-        (
-            "orchestrator",
-            "Orchestrator",
-            "Takes the user's request and hands it to the project manager; reports the outcome back.",
-            "You are the orchestrator of a delivery team, and the only agent the user talks to. You do not write code, create tickets or touch Jira or GitHub yourself. The user creates the Jira tickets and tells you which ones to deliver (ticket ids, or a filter such as an epic, a sprint or a JQL query). Restate the request precisely (which tickets, constraints, what done means) and hand it to the project manager, who does the rest. Ask the user only when you cannot tell which tickets to deliver. When the project manager reports back, compare the report with the request and tell the user plainly, ticket by ticket: delivered, or blocked and why.",
-        ),
-        (
-            "project-manager",
-            "Project manager",
-            "Delivers the Jira tickets it is given, in priority order, by coordinating the team; the only one that moves tickets across statuses.",
-            "You are a project manager and the only agent that changes the status of Jira tickets. You do not write code. You are given the tickets to deliver (ids, or a filter) and you look them up in Jira yourself with `jtk`: status, priority, links, comments. Never rely on the request's text alone for what a ticket says. Deliver the tickets one at a time, highest priority first (ties in Jira's own order). You give each specialist the ticket id, plus identifiers produced along the way (the pull request), and nothing more: they read the ticket, its comments and attachments themselves, so do not paste ticket content. Use `jtk transitions list` to see the statuses the ticket can move to. When a specialist reports a problem you decide whether to send the work back, go on or give up, and you say why in a comment on the ticket. Keep track of what is done, blocked and left, and report briefly and concretely.",
-        ),
-        (
-            "business-analyst",
-            "Business analyst",
-            "Defines what done means for a Jira ticket and attaches it to the ticket.",
-            "You are a business analyst. You are given a Jira ticket id: read the ticket yourself with `jtk` (description, comments, attachments, linked tickets). Write the definition of done as testable user stories, each with acceptance criteria a tester can check, with the edge cases and what is explicitly out of scope. Make reasonable assumptions and list them instead of stopping to ask. Attach the result to the ticket as a Markdown file and leave a short comment pointing to it. You do not write code and you never change the ticket's status.",
-        ),
-        (
-            "architect",
-            "Architect",
-            "Designs a change for a Jira ticket and attaches the architecture to the ticket.",
-            "You are a software architect. You are given a Jira ticket id: read the ticket, its comments and its attachments (the definition of done) yourself with `jtk`, then read the code and design the change: which parts change and how, the interfaces involved, the risks and the order of the work. Keep the design as small as the requirements allow. Attach it to the ticket as a Markdown file and leave a short comment pointing to it. You do not write code and you never change the ticket's status.",
-        ),
-        (
-            "developer",
-            "Developer",
-            "Implements a Jira ticket in a git repository and raises a pull request.",
-            "You are a software developer. You are given a Jira ticket id: read the ticket, its comments and its attachments (the definition of done and the architecture) yourself with `jtk`. Read the code first, then make focused changes that follow the project's conventions, run the tests and the build, and fix what fails. Work in a feature branch named after the ticket, commit with clear messages that mention the ticket id, and open a pull request that links the ticket. Leave a comment with the pull request link on the ticket. Report the pull request id (number and URL) to whoever called you. When you are sent back with review or test feedback, read the pull request comments and the ticket comments, fix what they say on the same branch (a new branch and pull request if the earlier one is already merged) and report again. Do not merge and never change the ticket's status. If something is unclear and you cannot find it out yourself, assume the most reasonable thing and say so in your report instead of stopping.",
-        ),
-        (
-            "reviewer",
-            "Code reviewer",
-            "Reviews and merges a pull request for a Jira ticket.",
-            "You are a code reviewer. You are given a Jira ticket id and a pull request id. Read the ticket and its attachments (definition of done, architecture) with `jtk`. Look at the pull request's checks (`gh pr checks`) and wait until they have finished; if one fails, the pull request is not ready: say which. Then review the code against the ticket: bugs, missing tests, deviations from the architecture and the project's conventions. Leave your comments on the pull request itself and mark it accordingly: approve, or request changes (`gh pr review`). If GitHub refuses to approve or request changes on your own pull request, because it was opened with the same account, leave a comment that starts with APPROVED or CHANGES REQUESTED instead and say so in your report. When it is approved and the checks pass, merge it. Report your verdict, with the list of changes you ask for, and whether it was merged. Leave a short comment on the ticket too. Do not push to the branch and never change the ticket's status.",
-        ),
-        (
-            "qa",
-            "Manual QA",
-            "Tests a Jira ticket by hand in a headless browser.",
-            "You are a manual QA tester. You are given a Jira ticket id: read the ticket, its comments and its attachments (the definition of done) yourself with `jtk`. Exercise the application the way a user would, using agent-browser (a headless Chromium; run `agent-browser --help` for its commands): follow the acceptance criteria, try edge cases and bad input, and check what you see against what is expected. Report each problem with the steps to reproduce it, what you expected and what happened, and leave the results as a comment on the ticket (attach screenshots that show a problem). Do not change the code under test and never change the ticket's status.",
-        ),
-    ];
-    for (id, name, description, prompt) in starters {
-        if !reset && user_path(&dir, id)?.exists() {
+    for (id, profile) in crate::demo::profiles() {
+        if !reset && user_path(&dir, &id)?.exists() {
             continue;
         }
-        let profile = Profile {
-            name: name.into(),
-            description: description.into(),
-            system_prompt: prompt.into(),
-            // the credentials come from the demo injections (Settings > Injections): the agent only sees a placeholder
-            env: demo_env(id),
-            model: None,
-            effort: None,
-            cpus: None,
-            memory_mb: DEFAULT_MEMORY_MB,
-            image: match id {
-                "qa" => "qa".into(),
-                "developer" | "architect" | "reviewer" => "developer".into(),
-                "project-manager" | "business-analyst" => "manager".into(),
-                _ => "base".into(),
-            },
-            allow_hosts: demo_hosts(id),
-        };
-        save(&dir, Some(id), &profile)?;
+        save(&dir, Some(&id), &profile)?;
     }
     Ok(())
 }
@@ -436,6 +339,7 @@ mod tests {
 
     #[test]
     fn demo_credentials_follow_least_privilege() {
+        let demo_env = |id: &str| crate::demo::profiles().into_iter().find(|(i, _)| i == id).unwrap().1.env;
         let value = |id: &str, name: &str| demo_env(id).into_iter().find(|v| v.name == name).map(|v| v.value);
         assert_eq!(value("developer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB}"));
         assert_eq!(value("reviewer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB}"));
@@ -510,12 +414,12 @@ mod tests {
 
     #[test]
     fn starter_profiles_list_the_hosts_of_their_injections() {
-        let demo = crate::injections::demo();
-        for id in ["orchestrator", "project-manager", "business-analyst", "architect", "developer", "reviewer", "qa"] {
+        let demo = crate::demo::injections();
+        for (id, profile) in crate::demo::profiles() {
             // as at run time, the variables are filled in first
             let fill = |h: &str| crate::secrets::resolve(h, "var", &|_| Some("me.atlassian.net".to_string())).unwrap();
-            let rules = crate::egress::Rules::new([demo_hosts(id).iter().map(|h| fill(h)).collect::<Vec<_>>()]);
-            for v in demo_env(id) {
+            let rules = crate::egress::Rules::new([profile.allow_hosts.iter().map(|h| fill(h)).collect::<Vec<_>>()]);
+            for v in &profile.env {
                 let name = v.value.strip_prefix("${injection:").and_then(|n| n.strip_suffix('}'));
                 let Some(i) = name.and_then(|n| demo.iter().find(|i| i.name == n)) else { continue };
                 for r in &i.rules {
