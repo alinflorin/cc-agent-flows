@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Body1, Button, Field, Textarea, makeStyles, tokens } from "@fluentui/react-components";
+import { Body1, Button, Field, Input, Textarea, makeStyles, tokens } from "@fluentui/react-components";
 import { SettingsIntro } from "../components/SettingsIntro";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
@@ -33,12 +33,17 @@ export function NetworkSettings() {
   // `hosts` is what is in the box (one entry per line), `saved` what is stored.
   const [hosts, setHosts] = useState<string[]>(DEFAULT_HOSTS);
   const [saved, setSaved] = useState<string[]>(DEFAULT_HOSTS);
+  const [hook, setHook] = useState<{ port: number; error: string | null } | null>(null);
+  const [port, setPort] = useState("");
 
   const load = useCallback(async () => {
     try {
       const n = await call<Network>("network_get");
       setHosts(n.allow_hosts);
       setSaved(n.allow_hosts);
+      const h = await call<{ port: number; error: string | null }>("webhook_get");
+      setHook(h);
+      setPort(String(h.port));
     } catch (e) {
       notify(String(e), "error");
     }
@@ -54,6 +59,18 @@ export function NetworkSettings() {
       setHosts(n.allow_hosts);
       setSaved(n.allow_hosts);
       notify(t("settings.saved"), "success");
+    } catch (e) {
+      notify(String(e), "error");
+    }
+  };
+
+  const saveHook = async () => {
+    try {
+      const h = await call<{ port: number; error: string | null }>("webhook_set", { port: Number(port) });
+      setHook(h);
+      notify(t("settings.saved"), "success");
+      // the listener binds a moment later: ask again for a busy port
+      setTimeout(() => void call<{ port: number; error: string | null }>("webhook_get").then(setHook), 600);
     } catch (e) {
       notify(String(e), "error");
     }
@@ -81,6 +98,14 @@ export function NetworkSettings() {
           {t("settings.network.defaults")}
         </Button>
       </div>
+      <Field label={t("settings.network.webhookPort")} hint={t("settings.network.webhookPortHint")} validationState={hook?.error ? "error" : "none"} validationMessage={hook?.error ?? undefined}>
+        <div className={styles.actions}>
+          <Input type="number" min={1024} max={65535} disabled={!desktop} value={port} onChange={(_, d) => setPort(d.value)} />
+          <Button disabled={!desktop || !hook || port === String(hook.port)} onClick={() => void saveHook()}>
+            {t("common.save")}
+          </Button>
+        </div>
+      </Field>
     </div>
   );
 }

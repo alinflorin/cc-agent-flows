@@ -6,6 +6,8 @@ import {
   Bot24Regular,
   Chat24Filled,
   Chat24Regular,
+  DataBarVertical24Filled,
+  DataBarVertical24Regular,
   Flowchart24Filled,
   Flowchart24Regular,
   Home24Filled,
@@ -22,6 +24,7 @@ import {
 const HomeIcon = bundleIcon(Home24Filled, Home24Regular);
 const WorkflowIcon = bundleIcon(Flowchart24Filled, Flowchart24Regular);
 const SessionsIcon = bundleIcon(Chat24Filled, Chat24Regular);
+const AnalyticsIcon = bundleIcon(DataBarVertical24Filled, DataBarVertical24Regular);
 const RunsIcon = bundleIcon(Play24Filled, Play24Regular);
 const ProfilesIcon = bundleIcon(Bot24Filled, Bot24Regular);
 const AboutIcon = bundleIcon(Info24Filled, Info24Regular);
@@ -91,6 +94,9 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
         </NavItem>
         <NavItem value="/runs" icon={<RunsIcon />}>
           {t("nav.runs")}
+        </NavItem>
+        <NavItem value="/analytics" icon={<AnalyticsIcon />}>
+          {t("nav.analytics")}
         </NavItem>
         <NavItem value="/about" icon={<AboutIcon />}>
           {t("nav.about")}

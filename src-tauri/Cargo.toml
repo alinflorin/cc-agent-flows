@@ -1,6 +1,6 @@
 [package]
 name = "cc-agent-flows"
-version = "0.5.1"
+version = "0.6.0"
 description = "CC Agent Flows desktop app"
 authors = ["Alin-Florin Ciu"]
 edition = "2024"
@@ -34,7 +34,13 @@ hyper-util = { version = "0.1.21", features = ["tokio"] }
 http-body-util = "0.1.5"
 bytes = "1.12.1"
 webpki-roots = "1.0.11"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+tauri-plugin-notification = "2.8.0"
+
+[dev-dependencies]
+# generates src/generated/*.ts from protocol.rs (`cargo test export_bindings`)
+ts-rs = { version = "12", features = ["serde-json-impl"] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

@@ -30,12 +30,32 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { Add20Regular, Delete20Regular, Flowchart20Regular, Person20Regular, Save20Regular, ShieldCheckmark20Regular } from "@fluentui/react-icons";
+import { Add20Regular, Chat20Regular, Clock20Regular, Copy20Regular, Delete20Regular, Flowchart20Regular, Person20Regular, PlugConnected20Regular, Save20Regular, Send20Regular, ShieldCheckmark20Regular } from "@fluentui/react-icons";
 import { useNotify } from "../notifications";
 
-type Kind = "agent" | "ask" | "approve";
+type Kind = "agent" | "ask" | "approve" | "chat" | "cron" | "webhook";
+const TRIGGERS: Kind[] = ["chat", "cron", "webhook"];
+const isTrigger = (k: Kind) => TRIGGERS.includes(k);
+const ICON: Partial<Record<Kind, string>> = { ask: "👤", approve: "👤", chat: "💬", cron: "⏰", webhook: "🔗" };
+interface TriggerCfg {
+  cron: string;
+  token: string;
+  autonomy: "" | "ask" | "never";
+}
+/** What the backend says about a cron or webhook node. */
+interface TriggerInfo {
+  workflow: string;
+  node: string;
+  kind: "cron" | "webhook";
+  next: string | null;
+  url: string | null;
+  last_run: number | null;
+  last_session: string | null;
+  last_error: string | null;
+}
 interface Agent {
   kind: Kind;
+  trigger: TriggerCfg;
   profile: string;
   prompt: string;
   max_calls: number;
@@ -101,6 +121,9 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground1,
   },
   human: { borderLeft: `4px solid ${tokens.colorPaletteMarigoldBorderActive}` },
+  trig: { borderLeft: `4px solid ${tokens.colorPaletteGreenBorderActive}` },
+  row: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "center" },
+  mono: { fontFamily: tokens.fontFamilyMonospace, fontSize: tokens.fontSizeBase200, overflowWrap: "anywhere" },
   selected: { border: `2px solid ${tokens.colorBrandStroke1}`, borderLeft: `4px solid ${tokens.colorBrandBackground}` },
   warn: { border: `1px solid ${tokens.colorPaletteYellowBorder2}`, borderLeft: `4px solid ${tokens.colorBrandBackground}` },
 });
@@ -109,19 +132,20 @@ function AgentNodeView({ data, selected }: NodeProps<ANode>) {
   const { t } = useTranslation();
   const styles = useStyles();
   const human = data.agent.kind !== "agent";
+  const trigger = isTrigger(data.agent.kind);
   const cls = [styles.node];
-  if (human) cls.push(styles.human);
+  if (human) cls.push(trigger ? styles.trig : styles.human);
   if (data.problem) cls.push(styles.warn);
   if (selected) cls.push(styles.selected);
   return (
     <div className={cls.join(" ")}>
-      <Handle type="target" position={Position.Left} />
+      {!trigger && <Handle type="target" position={Position.Left} />}
       {!human && <Handle type="target" id="order-in" position={Position.Top} style={{ width: 8, height: 8, background: "#fff", border: "1.5px solid #888" }} />}
       <Body1 block>
-        <b>{human ? `👤 ${data.label || t("wf.kind.you")}` : data.label || data.profileName || data.agent.profile}</b>
+        <b>{human ? `${ICON[data.agent.kind]} ${data.label || t(trigger ? `wf.kind.${data.agent.kind}` : "wf.kind.you")}` : data.label || data.profileName || data.agent.profile}</b>
       </Body1>
-      {(human || (data.label && data.label !== (data.profileName || data.agent.profile))) && (
-        <Caption1 block>{human ? t(`wf.kind.${data.agent.kind}`) : data.profileName || data.agent.profile}</Caption1>
+      {((human && !(trigger && !data.label)) || (data.label && data.label !== (data.profileName || data.agent.profile))) && (
+        <Caption1 block>{human ? (trigger && data.agent.kind === "cron" && data.agent.trigger.cron ? data.agent.trigger.cron : t(`wf.kind.${data.agent.kind}`)) : data.profileName || data.agent.profile}</Caption1>
       )}
       {data.root && <Caption1 block>★ {t("wf.root")}</Caption1>}
       {data.agent.kind !== "ask" && <Handle type="source" position={Position.Right} />}
@@ -148,6 +172,20 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
   const [dirty, setDirty] = useState(false);
   const [instructions, setInstructions] = useState("");
   const [name, setName] = useState("");
+  const [infos, setInfos] = useState<TriggerInfo[]>([]);
+  const [preview, setPreview] = useState<string[] | string>([]);
+  const [sample, setSample] = useState('{"event": "example"}');
+
+  const loadInfos = useCallback(async () => {
+    try {
+      setInfos(await call<TriggerInfo[]>("triggers_status"));
+    } catch {
+      setInfos([]);
+    }
+  }, []);
+  useEffect(() => {
+    void loadInfos();
+  }, [loadInfos, id]);
 
   const mkEdge = useCallback(
     (id: string, source: string, target: string, kind: "delegate" | "before"): AEdge => ({
@@ -169,7 +207,9 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
     (v: View, markDirty: boolean) => {
       setNodes(
         v.workflow.nodes.map((n): ANode => {
-          const { id, label, x, y, ...agent } = n;
+          const { id, label, x, y, ...rest } = n;
+          const base: TriggerCfg = { cron: "", token: "", autonomy: "" };
+          const agent: Agent = { ...rest, trigger: { ...base, ...rest.trigger } };
           return { id, type: "agent", position: { x, y }, data: { label, agent } };
         }),
       );
@@ -201,16 +241,21 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
   const onConnect = useCallback(
     (c: Connection) => {
       if (!c.source || !c.target || c.source === c.target) return;
+      const kindOf = (i: string) => nodes.find((n) => n.id === i)?.data.agent.kind;
+      const [from, to] = [kindOf(c.source), kindOf(c.target)];
+      if (!from || !to) return;
+      if (isTrigger(to)) return notify(t("wf.noIntoTrigger"), "error");
+      if (isTrigger(from) && (to !== "agent" || edges.some((e) => e.source === c.source))) return notify(t("wf.triggerOneAgent"), "error");
       setEdges((es) => (es.some((e) => e.source === c.source && e.target === c.target) ? es : [...es, mkEdge(crypto.randomUUID(), c.source, c.target, c.sourceHandle === "order-out" || c.targetHandle === "order-in" ? "before" : "delegate")]));
       setDirty(true);
     },
-    [setEdges, mkEdge],
+    [setEdges, mkEdge, nodes, edges, notify, t],
   );
 
   const add = (kind: Kind = "agent") => {
     const id = crypto.randomUUID().slice(0, 8);
     const at = nodes.reduce((m, n) => Math.max(m, n.position.x), 0);
-    const agent: Agent = { kind, profile: kind === "agent" ? (profiles[0]?.id ?? "") : "", prompt: "", max_calls: 20, timeout_mins: 30 };
+    const agent: Agent = { kind, profile: kind === "agent" ? (profiles[0]?.id ?? "") : "", prompt: "", max_calls: 20, timeout_mins: 30, trigger: { cron: kind === "cron" ? "0 9 * * 1-5" : "", token: "", autonomy: "never" } };
     setNodes((ns) => [...ns, { id, type: "agent", position: { x: at + 40, y: 200 }, data: { label: "", agent } }]);
     setDirty(true);
   };
@@ -245,6 +290,7 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
       setDirty(false);
       notify(t("wf.saved"), "success");
       onSaved(v.id);
+      void loadInfos();
     } catch (e) {
       notify(String(e), "error");
     }
@@ -263,7 +309,7 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
   const roots = useMemo(() => {
     // an agent is called by an agent that points to it, or by a gate that leads to it (its caller points to the gate)
     const kindOf = new Map(nodes.map((n) => [n.id, n.data.agent.kind]));
-    const called = new Set(edges.filter((e) => (e.data?.kind ?? "delegate") === "delegate" && kindOf.get(e.source) !== "ask" && kindOf.get(e.target) === "agent").map((e) => e.target));
+    const called = new Set(edges.filter((e) => (e.data?.kind ?? "delegate") === "delegate" && ["agent", "approve"].includes(kindOf.get(e.source) ?? "") && kindOf.get(e.target) === "agent").map((e) => e.target));
     return nodes.filter((n) => n.data.agent.kind === "agent" && !called.has(n.id)).map((n) => n.id);
   }, [nodes, edges]);
   const shown = useMemo(
@@ -307,6 +353,15 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
         </Button>
         <Button icon={<ShieldCheckmark20Regular />} onClick={() => add("approve")}>
           {t("wf.addApprove")}
+        </Button>
+        <Button icon={<Chat20Regular />} onClick={() => add("chat")}>
+          {t("wf.addChat")}
+        </Button>
+        <Button icon={<Clock20Regular />} onClick={() => add("cron")}>
+          {t("wf.addCron")}
+        </Button>
+        <Button icon={<PlugConnected20Regular />} onClick={() => add("webhook")}>
+          {t("wf.addWebhook")}
         </Button>
         <span className={styles.grow} />
         <Button icon={<Flowchart20Regular />} onClick={useStandard}>
@@ -389,7 +444,88 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
           ) : !selected || !agent ? (
             <Caption1>{t("wf.pick")}</Caption1>
           ) : (
-            agent.kind !== "agent" ? (
+            isTrigger(agent.kind) ? (
+              <>
+                <Subtitle2>{t(`wf.kind.${agent.kind}`)}</Subtitle2>
+                <Caption1>{t(`wf.kindHint.${agent.kind}`)}</Caption1>
+                <Field label={t("wf.label")}>
+                  <Input value={selected.data.label} maxLength={120} placeholder={t(`wf.kind.${agent.kind}`)} onChange={(_, d) => patchData(selected.id, (x) => ({ ...x, label: d.value }))} />
+                </Field>
+                {agent.kind === "cron" && (
+                  <Field label={t("wf.cron")} hint={typeof preview === "string" ? undefined : t("wf.cronHint")} validationMessage={typeof preview === "string" ? preview : undefined}>
+                    <Input
+                      className={styles.mono}
+                      value={agent.trigger.cron}
+                      onChange={(_, d) => {
+                        patchAgent(selected.id, { trigger: { ...agent.trigger, cron: d.value } });
+                        call<string[]>("cron_preview", { cron: d.value }).then(setPreview, (e) => setPreview(String(e)));
+                      }}
+                      onFocus={() => call<string[]>("cron_preview", { cron: agent.trigger.cron }).then(setPreview, (e) => setPreview(String(e)))}
+                    />
+                  </Field>
+                )}
+                {agent.kind === "cron" && Array.isArray(preview) && preview.length > 0 && (
+                  <Caption1 block>
+                    {t("wf.cronNext")}: {preview.join(" · ")}
+                  </Caption1>
+                )}
+                {agent.kind !== "chat" && (
+                  <Field label={agent.kind === "cron" ? t("wf.cronRequest") : t("wf.webhookText")} hint={agent.kind === "cron" ? t("wf.cronRequestHint") : t("wf.webhookTextHint")}>
+                    <Textarea rows={5} value={agent.prompt} onChange={(_, d) => patchAgent(selected.id, { prompt: d.value })} />
+                  </Field>
+                )}
+                {agent.kind !== "chat" && (
+                  <Field label={t("wf.triggerAutonomy")} hint={t("wf.triggerAutonomyHint")}>
+                    <Select value={agent.trigger.autonomy || "never"} onChange={(_, d) => patchAgent(selected.id, { trigger: { ...agent.trigger, autonomy: d.value as "ask" | "never" } })}>
+                      <option value="never">{t("session.autonomy.never")}</option>
+                      <option value="ask">{t("session.autonomy.ask")}</option>
+                    </Select>
+                  </Field>
+                )}
+                {(() => {
+                  const info = infos.find((i) => i.workflow === id && i.node === selected.id);
+                  if (agent.kind === "chat") return null;
+                  if (!info || dirty) return <Caption1>{t("wf.saveFirst")}</Caption1>;
+                  return (
+                    <>
+                      {info.url && (
+                        <Field label={t("wf.webhookUrl")} hint={t("wf.webhookUrlHint")}>
+                          <div className={styles.row}>
+                            <span className={styles.mono}>{info.url}</span>
+                            <Button appearance="subtle" icon={<Copy20Regular />} aria-label={t("common.copy")} onClick={() => void navigator.clipboard.writeText(info.url ?? "")} />
+                          </div>
+                        </Field>
+                      )}
+                      {info.kind === "webhook" && (
+                        <Field label={t("wf.webhookSample")}>
+                          <Textarea rows={3} value={sample} onChange={(_, d) => setSample(d.value)} />
+                        </Field>
+                      )}
+                      <Button
+                        icon={<Send20Regular />}
+                        onClick={async () => {
+                          try {
+                            await call<string>("trigger_fire", { workflow: id, node: selected.id, payload: info.kind === "webhook" ? sample : null });
+                            notify(t("wf.fired"), "success");
+                          } catch (e) {
+                            notify(String(e), "error");
+                          }
+                          void loadInfos();
+                        }}
+                      >
+                        {info.kind === "webhook" ? t("wf.webhookTest") : t("wf.cronRunNow")}
+                      </Button>
+                      {info.next && <Caption1 block>{t("wf.cronNextRun", { when: info.next })}</Caption1>}
+                      {info.last_run && <Caption1 block>{t("wf.lastRun", { when: new Date(info.last_run * 1000).toLocaleString() })}</Caption1>}
+                      {info.last_error && <Caption1 block style={{ color: tokens.colorPaletteRedForeground1 }}>{info.last_error}</Caption1>}
+                    </>
+                  );
+                })()}
+                <Button icon={<Delete20Regular />} onClick={() => remove(selected.id)}>
+                  {t("wf.removeNode")}
+                </Button>
+              </>
+            ) : agent.kind !== "agent" ? (
               <>
                 <Subtitle2>{t(`wf.kind.${agent.kind}`)}</Subtitle2>
                 <Caption1>{t(`wf.kindHint.${agent.kind}`)}</Caption1>

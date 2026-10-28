@@ -4,7 +4,8 @@
   "common": {
     "save": "Salvează",
     "reset": "Resetează",
-    "cancel": "Anulează"
+    "cancel": "Anulează",
+    "copy": "Copiază"
   },
   "validation": {
     "required": "Acest câmp este obligatoriu.",
@@ -18,7 +19,8 @@
     "profiles": "Profiluri de agent",
     "runs": "Rulări",
     "workflow": "Workflow",
-    "sessions": "Sesiuni"
+    "sessions": "Sesiuni",
+    "analytics": "Statistici"
   },
   "theme": {
     "label": "Temă",
@@ -89,7 +91,8 @@
       "network": "Rețea",
       "secrets": "Secrete",
       "variables": "Variabile",
-      "injections": "Injecții"
+      "injections": "Injecții",
+      "bundles": "Pachete"
     },
     "llm": {
       "token": "Setup token Claude Code",
@@ -146,7 +149,9 @@
       "intro": "Gazdele de internet la care toți agenții pot ajunge prin HTTPS. Un profil poate permite și altele, peste acestea. Agenții nu au alt acces la rețea.",
       "allowHosts": "Gazde permise",
       "allowHostsHint": "Câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Tot ce nu e listat aici sau în profilul agentului este blocat. Valorile implicite sunt ce îi trebuie lui Claude Code ca să funcționeze; o listă goală taie agenții de la API-ul Claude.",
-      "defaults": "Restaurează valorile implicite"
+      "defaults": "Restaurează valorile implicite",
+      "webhookPort": "Portul webhook",
+      "webhookPortHint": "Nodurile webhook ale unui workflow ascultă pe acest port, doar pe acest calculator (127.0.0.1). Ca să le atingi din exterior, redirecționează portul sau folosește un tunel; secretul din fiecare URL este ce autorizează un apel."
     },
     "secrets": {
       "intro": "Valori cu nume, păstrate în depozitul de credențiale al sistemului, niciodată în fișiere în clar. Le folosești în variabilele de mediu ale unui profil ca ${secret:NUME}. Valoarea se citește când pornește o rulare și ajunge în mediul agentului, deci folosește tokenuri cu drepturi cât mai mici și doar la profilurile care au nevoie.",
@@ -199,6 +204,28 @@
       "placeholder": "Placeholder",
       "placeholderHint": "Ce vede agentul în variabilă. Dă-i forma unui token dacă o unealtă verifică formatul (de exemplu ghp_…). Implicit: ccaf-injected.",
       "summary": "{{header}}: {{kind}} din {{secret}}"
+    },
+    "notifications": "Notificări pe desktop când o sesiune are nevoie de mine sau se termină",
+    "bundles": {
+      "intro": "Partajează workflow-uri, profiluri de agent și imagini într-un singur fișier sau importă un fișier făcut de altcineva. Pachetele nu conțin secrete, valori de variabile sau injecții, iar URL-urile webhook nu se exportă (cine importă primește altele noi): configurează-le pe calculatorul în care imporți.",
+      "export": "Export",
+      "workflows": "Workflow-uri",
+      "profiles": "Profiluri de agent",
+      "images": "Imagini",
+      "deps": "Include ce are nevoie selecția (profilurile unui workflow, imaginea unui profil, părinții unei imagini)",
+      "exportNote": "Fișierul conține prompturi, variabile de mediu și scripturi de imagine în text clar.",
+      "exportButton": "Exportă în Descărcări",
+      "savedTo": "Salvat în {{path}}",
+      "import": "Import",
+      "notBundle": "Fișierul nu este un pachet CC Agent Flows.",
+      "contains": "Pachetul are {{workflows}} workflow-uri, {{profiles}} profiluri de agent și {{images}} imagini.",
+      "warnScripts": "{{count}} imagini au un script. Rulează ca root într-un VM cu internet deschis când imaginea este construită.",
+      "warnHosts": "Profilurile pot accesa aceste gazde: {{hosts}}.",
+      "warnTrust": "Importă doar pachete în care ai încredere. Imaginile nu se construiesc până nu le construiești tu.",
+      "overwrite": "Înlocuiește elementele care există deja (altfel rămân cele existente)",
+      "importButton": "Importă",
+      "result": "Adăugate {{added}}, înlocuite {{replaced}}, păstrate {{skipped}}.",
+      "buildNote": "Imaginile importate nu sunt construite încă: construiește-le în Setări > Imagini."
     }
   },
   "updates": {
@@ -240,7 +267,8 @@
     "memoryHint": "RAM-ul VM-ului, minimum 1024. Implicit 2048.",
     "allowHosts": "Gazde permise",
     "allowHostsHint": "Gazdele de internet la care agentul poate ajunge prin HTTPS, câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Merge și o ${var:NUME} (Setări > Variabile). Gazdele din Setări > Rețea sunt mereu permise; restul sunt blocate. Pune în listă host-ul fiecărei injecții pe care o folosește agentul: nu îl adaugă nimic.",
-    "envValue": "Valoare, ${secret:NUME}, ${injection:NUME} sau ${var:NUME}"
+    "envValue": "Valoare, ${secret:NUME}, ${injection:NUME} sau ${var:NUME}",
+    "secretWarning": "{{names}} primește un secret în text clar: valoarea ajunge în mediul VM-ului, unde agentul (și orice rulează el) o poate citi și trimite. Preferă o injecție (Setări > Injecții): VM-ul vede doar un înlocuitor, iar proxy-ul adaugă credențialul real."
   },
   "welcome": {
     "title": "Bun venit",
@@ -297,7 +325,10 @@
       "unreachable": "„{{node}}” nu poate fi atins din rădăcină.",
       "unknown_profile": "„{{node}}” folosește un profil de agent care nu există.",
       "human_unused": "„{{node}}” nu are nicio săgeată spre el.",
-      "gate_no_target": "Poarta de aprobare „{{node}}” nu duce nicăieri: trage o săgeată de la ea la un agent."
+      "gate_no_target": "Poarta de aprobare „{{node}}” nu duce nicăieri: trage o săgeată de la ea la un agent.",
+      "trigger_no_target": "Un declanșator nu arată spre niciun agent.",
+      "cron_no_request": "Un program are nevoie de cererea cu care pornește sesiunile.",
+      "no_chat_entry": "Nodul de chat nu arată spre niciun agent."
     },
     "addAsk": "Adaugă utilizator (întreabă)",
     "addApprove": "Adaugă poartă de aprobare",
@@ -306,11 +337,17 @@
     "kind": {
       "you": "Tu",
       "ask": "Utilizatorul răspunde la întrebări",
-      "approve": "Utilizatorul aprobă predările"
+      "approve": "Utilizatorul aprobă predările",
+      "chat": "Chat",
+      "cron": "Program",
+      "webhook": "Webhook"
     },
     "kindHint": {
       "ask": "Un agent cu o săgeată spre acest nod își poate pune întrebările direct utilizatorului, în loc să le treacă mai sus, la cel care l-a chemat.",
-      "approve": "Pune-l pe drumul dintre doi agenți (A, poartă, B): de fiecare dată când A vrea să dea de lucru lui B, utilizatorul aprobă sau respinge. Se cere chiar dacă sesiunea nu lasă agenții să întrebe."
+      "approve": "Pune-l pe drumul dintre doi agenți (A, poartă, B): de fiecare dată când A vrea să dea de lucru lui B, utilizatorul aprobă sau respinge. Se cere chiar dacă sesiunea nu lasă agenții să întrebe.",
+      "chat": "Mesajul de chat al utilizatorului pornește sesiunea. Îndreaptă-l spre agentul care primește mesajele (fără nod de chat, le primește rădăcina).",
+      "cron": "Pornește o sesiune după un program, cu cererea de mai jos, pentru agentul spre care arată. Aplicația trebuie să ruleze la acel moment.",
+      "webhook": "Pornește o sesiune când URL-ul său primește o cerere. Corpul, exact cum sosește, devine cererea agentului spre care arată."
     },
     "edgeKind": "Săgeată",
     "edgeKinds": {
@@ -328,7 +365,30 @@
     "workflow": "Workflow",
     "new": "Workflow nou",
     "delete": "Șterge",
-    "newName": "Workflow nou"
+    "newName": "Workflow nou",
+    "addChat": "Adaugă chat",
+    "addCron": "Adaugă program",
+    "addWebhook": "Adaugă webhook",
+    "noIntoTrigger": "Nimic nu duce la un declanșator.",
+    "triggerOneAgent": "Un declanșator dă cererea unui singur agent.",
+    "cron": "Program (cron)",
+    "cronHint": "minut oră zi-din-lună lună zi-din-săptămână, în ora locală. De exemplu 0 9 * * 1-5 este 09:00 în zilele lucrătoare; și @hourly, @daily, @weekly.",
+    "cronNext": "Următoarele",
+    "cronRequest": "Cerere",
+    "cronRequestHint": "Ce i se cere sesiunii de fiecare dată.",
+    "webhookText": "Text înaintea conținutului",
+    "webhookTextHint": "Instrucțiuni opționale puse înaintea corpului, de exemplu „Tratează acest eveniment.” Corpul însuși este transmis neschimbat.",
+    "triggerAutonomy": "Întrebări",
+    "triggerAutonomyHint": "Nimeni nu urmărește aceste sesiuni, deci alegerea obișnuită este ca agenții să decidă singuri.",
+    "saveFirst": "Salvează workflow-ul ca să vezi detaliile și să-l încerci.",
+    "webhookUrl": "URL",
+    "webhookUrlHint": "Trimite-i o cerere (orice metodă). Tratează-l ca pe o parolă: oricine are URL-ul poate porni sesiuni (care costă bani).",
+    "webhookSample": "Corp de probă",
+    "webhookTest": "Trimite proba",
+    "cronRunNow": "Rulează acum",
+    "fired": "Sesiune pornită.",
+    "cronNextRun": "Următoarea rulare: {{when}}",
+    "lastRun": "Ultima pornire: {{when}}"
   },
   "runs": {
     "title": "Rulează un agent",
@@ -438,7 +498,24 @@
     },
     "workflow": "Workflow",
     "logs": "Jurnal",
-    "agentState": "Agent"
+    "agentState": "Agent",
+    "audit": "Registru de audit",
+    "auditMd": "Exportă ca Markdown",
+    "auditJson": "Exportă ca JSON",
+    "auditSaved": "Salvat în {{path}}",
+    "source": {
+      "chat": "Chat",
+      "cron": "Programată",
+      "webhook": "Webhook"
+    },
+    "followUp": "Scrie agenților. Enter trimite, Shift+Enter adaugă o linie.",
+    "followUpQueued": "Sesiunea lucrează. Mesajul tău este tratat când se termină tura curentă.",
+    "notify": {
+      "approve": "{{label}} are nevoie de aprobarea ta",
+      "questions": "{{label}} are întrebări pentru tine",
+      "done": "Sesiunea s-a terminat",
+      "failed": "Sesiunea a eșuat"
+    }
   },
   "app": {
     "desktopOnly": "Disponibil doar în aplicația desktop."
@@ -453,5 +530,39 @@
     "secrets": "GITHUB_TOKEN, GITHUB_READONLY_TOKEN și JIRA_TOKEN primesc din nou valoarea dummy. Dacă ai pus tokenuri reale sub aceste nume, se pierd. Celelalte secrete nu sunt atinse.",
     "variables": "ATLASSIAN_HOST și ATLASSIAN_EMAIL primesc din nou valorile placeholder. Dacă le-ai completat cu ale tale, se pierd. Celelalte variabile nu sunt atinse.",
     "injections": "Injecțiile GITHUB, GITHUB_READONLY și JIRA sunt scrise din nou așa cum au fost create prima dată; modificările tale la ele se pierd. Celelalte injecții nu sunt atinse."
+  },
+  "analytics": {
+    "intro": "Cost, timp și eșecuri pentru sesiunile tale, din jurnalele lor.",
+    "range": "Perioadă",
+    "last": "Ultimele {{days}} zile",
+    "all": "Tot timpul",
+    "refresh": "Reîmprospătează",
+    "sessions": "Sesiuni",
+    "finished": "Terminate",
+    "cost": "Cost",
+    "avgCost": "Cost pe sesiune",
+    "runs": "Rulări de agenți",
+    "failRate": "Rulări eșuate",
+    "perDay": "Cost pe zi",
+    "none": "Nicio sesiune în această perioadă.",
+    "runsN_one": "{{count}} rulare",
+    "runsN_other": "{{count}} rulări",
+    "sessionsN_one": "{{count}} sesiune",
+    "sessionsN_other": "{{count}} sesiuni",
+    "perAgent": "Pe profil de agent",
+    "allTime": "Pe toate sesiunile.",
+    "costliest": "Cele mai costisitoare sesiuni",
+    "col": {
+      "agent": "Profil",
+      "runs": "Rulări",
+      "failed": "Eșuate",
+      "avg": "Medie",
+      "longest": "Cea mai lungă",
+      "cost": "Cost",
+      "session": "Sesiune",
+      "status": "Stare",
+      "turns": "Ture",
+      "duration": "Durată"
+    }
   }
 }

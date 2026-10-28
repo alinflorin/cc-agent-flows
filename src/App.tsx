@@ -4,6 +4,7 @@ import { FluentProvider, makeStaticStyles } from "@fluentui/react-components";
 import { Layout } from "./components/Layout";
 import { NotificationsProvider } from "./notifications";
 import { About } from "./pages/About";
+import { Analytics } from "./pages/Analytics";
 import { Home } from "./pages/Home";
 import { Profiles } from "./pages/Profiles";
 import { Runs } from "./pages/Runs";
@@ -30,6 +31,7 @@ const router = createHashRouter([
       { path: "/workflow", element: <Workflow /> },
       { path: "/sessions", element: <Sessions /> },
       { path: "/sessions/:sid", element: <SessionView /> },
+      { path: "/analytics", element: <Analytics /> },
       { path: "/runs", element: <Runs /> },
       { path: "/profiles", element: <Profiles /> },
       { path: "/about", element: <About /> },

@@ -4,7 +4,8 @@
   "common": {
     "save": "Save",
     "reset": "Reset",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "copy": "Copy"
   },
   "validation": {
     "required": "This field is required.",
@@ -18,7 +19,8 @@
     "profiles": "Agent profiles",
     "runs": "Runs",
     "workflow": "Workflow",
-    "sessions": "Sessions"
+    "sessions": "Sessions",
+    "analytics": "Analytics"
   },
   "theme": {
     "label": "Theme",
@@ -89,7 +91,8 @@
       "network": "Network",
       "secrets": "Secrets",
       "variables": "Variables",
-      "injections": "Injections"
+      "injections": "Injections",
+      "bundles": "Bundles"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -146,7 +149,9 @@
       "intro": "Internet hosts every agent may reach over HTTPS. A profile can allow more on top of these. Agents have no other network access.",
       "allowHosts": "Allowed hosts",
       "allowHostsHint": "One per line: a name (github.com) or all the subdomains of one (*.github.com). Everything not listed here or in the agent's profile is blocked. The defaults are what Claude Code needs to work; an empty list cuts the agents off from the Claude API.",
-      "defaults": "Restore defaults"
+      "defaults": "Restore defaults",
+      "webhookPort": "Webhook port",
+      "webhookPortHint": "Webhook nodes of a workflow listen on this port, on this computer only (127.0.0.1). To reach them from outside, forward the port or use a tunnel; the secret in each URL is what authorizes a call."
     },
     "secrets": {
       "intro": "Named values kept in the OS credential store, never in plain files. Use them in an agent profile's environment variables as ${secret:NAME}. The value is read when a run starts and reaches the agent's environment, so use tokens with the least privilege and only for the profiles that need them.",
@@ -199,6 +204,28 @@
       "placeholder": "Placeholder",
       "placeholderHint": "What the agent sees in its variable. Set it to look like a token if a tool checks the format (for example ghp_…). Default: ccaf-injected.",
       "summary": "{{header}}: {{kind}} from {{secret}}"
+    },
+    "notifications": "Desktop notifications when a session needs me or ends",
+    "bundles": {
+      "intro": "Share workflows, agent profiles and images as one file, or bring in a file someone else made. Bundles hold no secrets, variable values or injections, and webhook URLs are not exported (the importer gets new ones): set those up on the machine you import into.",
+      "export": "Export",
+      "workflows": "Workflows",
+      "profiles": "Agent profiles",
+      "images": "Images",
+      "deps": "Include what the selection needs (a workflow's profiles, a profile's image, an image's parents)",
+      "exportNote": "The file contains prompts, environment variables and image scripts in plain text.",
+      "exportButton": "Export to Downloads",
+      "savedTo": "Saved to {{path}}",
+      "import": "Import",
+      "notBundle": "That file is not a CC Agent Flows bundle.",
+      "contains": "This bundle has {{workflows}} workflow(s), {{profiles}} agent profile(s) and {{images}} image(s).",
+      "warnScripts": "{{count}} image(s) have a script. It runs as root in a VM with open internet when the image is built.",
+      "warnHosts": "The profiles may reach these hosts: {{hosts}}.",
+      "warnTrust": "Import only bundles you trust. Images are not built until you build them.",
+      "overwrite": "Replace items that already exist (otherwise they are kept)",
+      "importButton": "Import",
+      "result": "Added {{added}}, replaced {{replaced}}, kept {{skipped}}.",
+      "buildNote": "Imported images are not built yet: build them in Settings > Images."
     }
   },
   "updates": {
@@ -240,7 +267,8 @@
     "memoryHint": "RAM of the VM, at least 1024. Default 2048.",
     "allowHosts": "Allowed hosts",
     "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). A ${var:NAME} (Settings > Variables) works too. The hosts in Settings > Network are always allowed; everything else is blocked. List the host of every injection the agent uses: nothing adds it.",
-    "envValue": "Value, ${secret:NAME}, ${injection:NAME} or ${var:NAME}"
+    "envValue": "Value, ${secret:NAME}, ${injection:NAME} or ${var:NAME}",
+    "secretWarning": "{{names}} gets a secret in plain text: the value reaches the VM's environment, where the agent (and anything it runs) can read and send it. Prefer an injection (Settings > Injections): the VM then only sees a placeholder and the proxy adds the real credential."
   },
   "welcome": {
     "title": "Welcome",
@@ -297,7 +325,10 @@
       "unreachable": "\"{{node}}\" cannot be reached from the root.",
       "unknown_profile": "\"{{node}}\" uses an agent profile that does not exist.",
       "human_unused": "\"{{node}}\" has no arrow pointing to it.",
-      "gate_no_target": "The approval gate \"{{node}}\" leads nowhere: draw an arrow from it to an agent."
+      "gate_no_target": "The approval gate \"{{node}}\" leads nowhere: draw an arrow from it to an agent.",
+      "trigger_no_target": "A trigger points to no agent.",
+      "cron_no_request": "A schedule needs the request it starts sessions with.",
+      "no_chat_entry": "The chat node points to no agent."
     },
     "addAsk": "Add user (asks)",
     "addApprove": "Add approval gate",
@@ -306,11 +337,17 @@
     "kind": {
       "you": "You",
       "ask": "The user answers questions",
-      "approve": "The user approves handovers"
+      "approve": "The user approves handovers",
+      "chat": "Chat",
+      "cron": "Schedule",
+      "webhook": "Webhook"
     },
     "kindHint": {
       "ask": "An agent with an arrow to this node may put its questions to the user directly, instead of passing them up to whoever called it.",
-      "approve": "Put it on the way between two agents (A to gate to B): each time A wants to hand work to B, the user approves or rejects. Asked even when the session never lets agents ask questions."
+      "approve": "Put it on the way between two agents (A to gate to B): each time A wants to hand work to B, the user approves or rejects. Asked even when the session never lets agents ask questions.",
+      "chat": "The user's chat message starts the session. Point it at the agent that should receive the messages (without a chat node, the root does).",
+      "cron": "Starts a session on a schedule, with the request below, for the agent this points to. The app must be running at that time.",
+      "webhook": "Starts a session when its URL gets a request. The body, exactly as it arrives, becomes the request of the agent this points to."
     },
     "edgeKind": "Arrow",
     "edgeKinds": {
@@ -328,7 +365,30 @@
     "workflow": "Workflow",
     "new": "New workflow",
     "delete": "Delete",
-    "newName": "New workflow"
+    "newName": "New workflow",
+    "addChat": "Add chat",
+    "addCron": "Add schedule",
+    "addWebhook": "Add webhook",
+    "noIntoTrigger": "Nothing leads to a trigger.",
+    "triggerOneAgent": "A trigger hands the request to one agent.",
+    "cron": "Schedule (cron)",
+    "cronHint": "minute hour day-of-month month day-of-week, in local time. For example 0 9 * * 1-5 is 09:00 on weekdays; also @hourly, @daily, @weekly.",
+    "cronNext": "Next",
+    "cronRequest": "Request",
+    "cronRequestHint": "What the session is asked to do each time.",
+    "webhookText": "Text before the payload",
+    "webhookTextHint": "Optional instructions placed before the body, for example \"Handle this event.\" The body itself is passed on unchanged.",
+    "triggerAutonomy": "Questions",
+    "triggerAutonomyHint": "Nobody watches these sessions, so the usual choice is that agents decide on their own.",
+    "saveFirst": "Save the workflow to see the details and try it.",
+    "webhookUrl": "URL",
+    "webhookUrlHint": "Send a request to it (any method). Treat it like a password: anyone with the URL can start sessions (which cost money).",
+    "webhookSample": "Sample body",
+    "webhookTest": "Send sample",
+    "cronRunNow": "Run now",
+    "fired": "Session started.",
+    "cronNextRun": "Next run: {{when}}",
+    "lastRun": "Last start: {{when}}"
   },
   "runs": {
     "title": "Run an agent",
@@ -436,7 +496,24 @@
     },
     "workflow": "Workflow",
     "logs": "Logs",
-    "agentState": "Agent"
+    "agentState": "Agent",
+    "audit": "Audit record",
+    "auditMd": "Export as Markdown",
+    "auditJson": "Export as JSON",
+    "auditSaved": "Saved to {{path}}",
+    "source": {
+      "chat": "Chat",
+      "cron": "Scheduled",
+      "webhook": "Webhook"
+    },
+    "followUp": "Write to the agents. Enter sends, Shift+Enter adds a line.",
+    "followUpQueued": "The session is working. Your message is handled when this turn ends.",
+    "notify": {
+      "approve": "{{label}} needs your approval",
+      "questions": "{{label}} has questions for you",
+      "done": "The session is done",
+      "failed": "The session failed"
+    }
   },
   "app": {
     "desktopOnly": "Only available in the desktop app."
@@ -451,5 +528,39 @@
     "secrets": "GITHUB_TOKEN, GITHUB_READONLY_TOKEN and JIRA_TOKEN are set to the dummy value again. If you stored real tokens under these names, they are lost. Other secrets are not touched.",
     "variables": "ATLASSIAN_HOST and ATLASSIAN_EMAIL are set to their placeholder values again. If you entered your own, they are lost. Other variables are not touched.",
     "injections": "The injections GITHUB, GITHUB_READONLY and JIRA are written again as they were first created; your edits to them are lost. Other injections are not touched."
+  },
+  "analytics": {
+    "intro": "Cost, time and failures over your sessions, from their logs.",
+    "range": "Period",
+    "last": "Last {{days}} days",
+    "all": "All time",
+    "refresh": "Refresh",
+    "sessions": "Sessions",
+    "finished": "Finished",
+    "cost": "Cost",
+    "avgCost": "Cost per session",
+    "runs": "Agent runs",
+    "failRate": "Runs that failed",
+    "perDay": "Cost per day",
+    "none": "No sessions in this period.",
+    "runsN_one": "{{count}} run",
+    "runsN_other": "{{count}} runs",
+    "sessionsN_one": "{{count}} session",
+    "sessionsN_other": "{{count}} sessions",
+    "perAgent": "By agent profile",
+    "allTime": "Over all sessions.",
+    "costliest": "Costliest sessions",
+    "col": {
+      "agent": "Profile",
+      "runs": "Runs",
+      "failed": "Failed",
+      "avg": "Average",
+      "longest": "Longest",
+      "cost": "Cost",
+      "session": "Session",
+      "status": "Status",
+      "turns": "Turns",
+      "duration": "Duration"
+    }
   }
 }

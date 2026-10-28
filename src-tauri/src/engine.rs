@@ -45,8 +45,12 @@ const MAX_DEPTH: usize = 8;
 const MAX_ROUNDS: u32 = 60;
 /// Agents one decision may call at once.
 const MAX_PARALLEL_CALLS: usize = 5;
-/// VMs running at the same time.
+/// VMs running at the same time for one session.
 const MAX_VMS: usize = 4;
+/// VMs running at the same time in the whole app, whatever the sessions.
+const MAX_TOTAL_VMS: usize = 8;
+/// Sessions that may run (or wait for the user) at the same time.
+const MAX_SESSIONS: usize = 5;
 /// Questions that may reach the user in one run of the session; later ones are refused.
 const MAX_USER_QUESTIONS: u32 = 10;
 /// Attempts a coordinator gets to give a decision the graph allows.
@@ -104,6 +108,9 @@ pub struct State {
     /// The root's final report.
     #[serde(default)]
     pub result: Option<String>,
+    /// Turns that ended: the first request and then each follow-up message, one after the other.
+    #[serde(default)]
+    pub turns: u32,
 }
 
 impl State {
@@ -156,6 +163,14 @@ pub trait Host: Send + Sync + 'static {
     fn checkpoint(&self, state: &State, status: &str);
     /// Whether the agents may reach the user: `ask` or `never` (read each time, the user may change it).
     fn autonomy(&self) -> String;
+    /// The agent that gets the session's request, when it is not the workflow's root.
+    fn entry(&self) -> Option<String> {
+        None
+    }
+    /// The user's `i`-th message after the first one (0-based), if it has been sent.
+    fn follow_up(&self, _i: usize) -> Option<String> {
+        None
+    }
 }
 
 /// A result as the agent that called sees it.
@@ -404,7 +419,8 @@ type Res<T> = Result<T, Stop>;
 struct Ctx<H: Host> {
     host: Arc<H>,
     wf: Workflow,
-    task: String,
+    /// The goal of the turn being run (the user's request, with the earlier turns for a follow-up).
+    task: std::sync::RwLock<String>,
     cancel: watch::Receiver<bool>,
     state: Mutex<State>,
     visits: Mutex<HashMap<String, u32>>,
@@ -575,11 +591,12 @@ fn request(n: &Node, call: &str, depth: usize, prompt: String, schema: &str) -> 
 }
 
 async fn worker<H: Host>(ctx: Arc<Ctx<H>>, n: Node, path: String, asked: String, depth: usize) -> Res<Reported> {
-    let mut asked = if depth == 0 { ctx.task.clone() } else { asked };
+    let task = ctx.task.read().unwrap().clone();
+    let mut asked = if depth == 0 { task.clone() } else { asked };
     let mut round = 0;
     loop {
         let key = if round == 0 { path.clone() } else { format!("{path}~{round}") };
-        let (f, _) = ctx.run(request(&n, &key, depth, worker_prompt(&ctx.task, &n, &asked), crate::protocol::RESULT_SCHEMA)).await?;
+        let (f, _) = ctx.run(request(&n, &key, depth, worker_prompt(&task, &n, &asked), crate::protocol::RESULT_SCHEMA)).await?;
         let r = reported(&n, &f);
         // The root, or an agent linked to the user's node, puts its blocking questions to the user.
         if (depth == 0 || ctx.wf.ask_node(&n.id).is_some()) && r.status == "needs_input" && round < MAX_ROUNDS {
@@ -597,6 +614,7 @@ async fn worker<H: Host>(ctx: Arc<Ctx<H>>, n: Node, path: String, asked: String,
 }
 
 async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: String, asked: String, depth: usize) -> Res<Reported> {
+    let task = ctx.task.read().unwrap().clone();
     let is_root = depth == 0;
     let may_ask = is_root || ctx.wf.ask_node(&n.id).is_some();
     let mut finished: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -617,7 +635,7 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
             let key = format!("{path}:{round}:{attempt}");
             let prompt = coordinator_prompt(
                 &n,
-                &TurnContext { task: &ctx.task, asked: (!is_root).then_some(asked.as_str()), notes: &notes, log: &log, inbox: &inbox, options: &opts, is_root, may_ask, can_ask_user, feedback: feedback.as_deref() },
+                &TurnContext { task: &task, asked: (!is_root).then_some(asked.as_str()), notes: &notes, log: &log, inbox: &inbox, options: &opts, is_root, may_ask, can_ask_user, feedback: feedback.as_deref() },
             );
             let (f, replayed) = ctx.run(request(&n, &key, depth, prompt, COORDINATOR_SCHEMA)).await?;
             if f.status == Status::Failed {
@@ -719,13 +737,13 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
 
 /// Runs the session until it ends. `state` is the journal of an earlier run (empty for a new one).
 pub async fn drive<H: Host>(host: Arc<H>, wf: Workflow, task: String, state: State, cancel: watch::Receiver<bool>, replies: mpsc::Receiver<Reply>) -> (Ended, State) {
-    let Some(root) = wf.root().map(|n| n.id.clone()) else {
-        return (Ended::Failed("the workflow needs exactly one root agent: one that no other agent hands work to".into()), state);
+    let Some(root) = host.entry().filter(|e| wf.nodes.iter().any(|n| n.id == *e)).or_else(|| wf.chat_entry().map(|n| n.id.clone())) else {
+        return (Ended::Failed("the workflow has no agent to start with: one that no other agent hands work to, or the one a trigger points to".into()), state);
     };
     let ctx = Arc::new(Ctx {
         host,
         wf,
-        task,
+        task: std::sync::RwLock::new(task.clone()),
         cancel,
         state: Mutex::new(state),
         visits: Mutex::new(HashMap::new()),
@@ -733,17 +751,59 @@ pub async fn drive<H: Host>(host: Arc<H>, wf: Workflow, task: String, state: Sta
         vms: Semaphore::new(MAX_VMS),
         asked_user: AtomicU32::new(0),
     });
-    let res = call(ctx.clone(), root, "r".into(), String::new(), 0, None).await;
-    let ended = match res {
-        Ok(r) => {
-            ctx.state.lock().unwrap().result = Some(r.summary.clone());
-            if r.status == "done" { Ended::Done } else { Ended::Failed(r.summary) }
+    // The first turn is the user's request; each message they send afterwards is a turn of its own,
+    // run by the root again with the earlier turns in front of it. Every turn has its own path in
+    // the journal, so a resumed session replays them in order.
+    let mut done: Vec<(String, String)> = vec![];
+    let mut message = task.clone();
+    let mut turn = 0usize;
+    let ended = loop {
+        if turn > 0 {
+            *ctx.task.write().unwrap() = follow_up_goal(&task, &done, &message);
+            ctx.host.log("turn", json!({"turn": turn, "message": message}));
         }
-        Err(Stop::Cancelled) => Ended::Cancelled,
-        Err(Stop::Fail(e)) => Ended::Failed(e),
+        ctx.visits.lock().unwrap().clear();
+        let path = if turn == 0 { "r".to_string() } else { format!("t{turn}") };
+        match call(ctx.clone(), root.clone(), path, String::new(), 0, None).await {
+            Ok(r) => {
+                {
+                    let mut s = ctx.state.lock().unwrap();
+                    s.result = Some(r.summary.clone());
+                    s.turns = s.turns.max(turn as u32 + 1);
+                }
+                if r.status != "done" {
+                    break Ended::Failed(r.summary);
+                }
+                done.push((message.clone(), r.summary));
+            }
+            Err(Stop::Cancelled) => break Ended::Cancelled,
+            Err(Stop::Fail(e)) => break Ended::Failed(e),
+        }
+        match ctx.host.follow_up(turn) {
+            Some(m) => {
+                message = m;
+                turn += 1;
+            }
+            None => break Ended::Done,
+        }
     };
     let state = ctx.state.lock().unwrap().clone();
     (ended, state)
+}
+
+/// What the root is told on a follow-up turn: the first request, what came of each turn so far,
+/// and the new message.
+fn follow_up_goal(task: &str, done: &[(String, String)], message: &str) -> String {
+    let mut s = format!("{}\n\nThis session is a conversation and the user has written again. What came of the earlier turns:", clip(task, 4_000));
+    for (i, (ask, result)) in done.iter().enumerate() {
+        if i == 0 {
+            s.push_str(&format!("\n\nResult of the request above: {}", clip(result, 3_000)));
+        } else {
+            s.push_str(&format!("\n\nFollow-up {i}: {}\nResult: {}", clip(ask, 2_000), clip(result, 3_000)));
+        }
+    }
+    s.push_str(&format!("\n\nThe user now writes (handle this one; build on the earlier work, do not redo it unless asked): {}", clip(message, 4_000)));
+    s
 }
 
 // ---- the real host ----
@@ -757,6 +817,15 @@ struct Live {
 #[derive(Default)]
 pub struct Sessions(Mutex<HashMap<String, Live>>);
 
+/// VMs running in the whole app: sessions share them, a run waits for a free one.
+pub struct VmSlots(Semaphore);
+
+impl Default for VmSlots {
+    fn default() -> Self {
+        VmSlots(Semaphore::new(MAX_TOTAL_VMS))
+    }
+}
+
 fn key(sid: &str) -> String {
     sid.to_string()
 }
@@ -769,6 +838,7 @@ struct RealHost {
     profiles: HashMap<String, Profile>,
     cancel: watch::Receiver<bool>,
     log_file: Mutex<Option<std::fs::File>>,
+    entry: Option<String>,
 }
 
 impl RealHost {
@@ -814,6 +884,16 @@ impl Host for RealHost {
                 let _ = tx.send(());
             }
         });
+        let slots = self.app.state::<VmSlots>();
+        let mut gone = self.cancel.clone();
+        let permit = tokio::select! {
+            p = slots.0.acquire() => p.ok(),
+            _ = gone.wait_for(|v| *v) => None,
+        };
+        let Some(_permit) = permit else {
+            forward.abort();
+            return failed("cancelled while waiting for a free VM");
+        };
         let res = crate::runs::run_vm(&self.app, spec, rx, |m| self.on_msg((&req.node, &req.call, req.depth), m)).await;
         forward.abort();
         res.unwrap_or_else(failed)
@@ -844,9 +924,17 @@ impl Host for RealHost {
     fn autonomy(&self) -> String {
         crate::workflow::read_session(&self.root, &self.sid).map_or_else(|_| "ask".into(), |s| s.autonomy)
     }
+
+    fn follow_up(&self, i: usize) -> Option<String> {
+        crate::workflow::read_session(&self.root, &self.sid).ok()?.messages.get(i).cloned()
+    }
+
+    fn entry(&self) -> Option<String> {
+        self.entry.clone()
+    }
 }
 
-fn read_state(root: &std::path::Path, sid: &str) -> Option<State> {
+pub fn read_state(root: &std::path::Path, sid: &str) -> Option<State> {
     serde_json::from_str(&std::fs::read_to_string(crate::workflow::session_file(root, sid, "state.json").ok()?).ok()?).ok()
 }
 
@@ -879,11 +967,20 @@ fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
     let root = crate::workflow::root(&app)?;
     let session = crate::workflow::read_session(&root, &sid)?;
     let k = key(&sid);
-    if app.state::<Sessions>().0.lock().unwrap().contains_key(&k) {
-        return Err("the session is already running".into());
+    {
+        let live = app.state::<Sessions>();
+        let live = live.0.lock().unwrap();
+        if live.contains_key(&k) {
+            return Err("the session is already running".into());
+        }
+        if live.len() >= MAX_SESSIONS {
+            return Err(format!("{MAX_SESSIONS} sessions are running already, wait for one to end"));
+        }
     }
+    // A finished session is continued by a message from the user (a new turn).
     match (session.status.as_str(), fresh) {
         ("new", true) | ("interrupted" | "failed" | "cancelled", false) => {}
+        ("done", false) if session.messages.len() + 1 > read_state(&root, &sid).map_or(0, |s| s.turns as usize) => {}
         _ => return Err(format!("a session that is {} cannot be {}", session.status, if fresh { "started" } else { "continued" })),
     }
     let (wf, instructions, profiles) = prepare(&app, &session.workflow)?;
@@ -899,12 +996,13 @@ fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
         .and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
     let host = Arc::new(RealHost {
         app: app.clone(),
-        root,
-        sid,
+        root: root.clone(),
+        sid: sid.clone(),
         instructions,
         profiles,
         cancel: cancel_rx.clone(),
         log_file: Mutex::new(log_file),
+        entry: session.entry.clone(),
     });
     let task = session.task;
     tauri::async_runtime::spawn(async move {
@@ -921,7 +1019,19 @@ fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
         };
         // `checkpoint` writes the state and status; the final status is logged by it too
         host.checkpoint(&state, status);
-        host.app.state::<Sessions>().0.lock().unwrap().remove(&k);
+        // A message that arrived as the session ended starts the next turn. Checked while holding
+        // the lock `session_message` takes, so a message is never left unanswered.
+        let more = {
+            let live = host.app.state::<Sessions>();
+            let mut live = live.0.lock().unwrap();
+            let more = status == "done" && crate::workflow::read_session(&root, &sid).is_ok_and(|s| s.messages.len() + 1 > state.turns as usize);
+            live.remove(&k);
+            more
+        };
+        if more && let Err(e) = launch(host.app.clone(), sid.clone(), false) && !e.contains("already running") {
+            host.log("error", json!({"reason": format!("could not answer the last message: {e}")}));
+            let _ = crate::workflow::set_session_status(&root, &sid, "failed");
+        }
     });
     Ok(())
 }
@@ -968,11 +1078,32 @@ pub fn session_reply(app: AppHandle, id: String, reply: Reply) -> Result<(), Str
     l.reply.try_send(reply).map_err(|_| "the session is not waiting for an answer".to_string())
 }
 
+/// A message from the user after the first one: starts a new turn of a finished session, or is
+/// queued behind the work of a running one (the root answers it when the turn before it ends).
+#[tauri::command]
+pub fn session_message(app: AppHandle, id: String, text: String) -> Result<(), String> {
+    let root = crate::workflow::root(&app)?;
+    let live = app.state::<Sessions>();
+    {
+        let live = live.0.lock().unwrap();
+        crate::workflow::add_session_message(&root, &id, &text)?;
+        if live.contains_key(&key(&id)) {
+            return Ok(());
+        }
+    }
+    let n = crate::workflow::read_session(&root, &id)?.messages.len();
+    launch(app, id.clone(), false).inspect_err(|_| {
+        // not started (limits, a missing token...): the message is not kept
+        let _ = crate::workflow::drop_session_message(&root, &id, n);
+    })
+}
+
 #[derive(Serialize)]
 pub struct SessionView {
     pub session: crate::workflow::Session,
     pub pending: Option<Pending>,
     pub live: bool,
+    pub messages: Vec<String>,
     pub cost_usd: f64,
     pub result: Option<String>,
 }
@@ -983,7 +1114,7 @@ pub fn session_get(app: AppHandle, id: String) -> Result<SessionView, String> {
     let session = crate::workflow::read_session(&root, &id)?;
     let state = read_state(&root, &id).unwrap_or_default();
     let live = app.state::<Sessions>().0.lock().unwrap().contains_key(&key(&id));
-    Ok(SessionView { session, pending: state.pending.filter(|_| live), live, cost_usd: state.cost_usd, result: state.result })
+    Ok(SessionView { messages: session.messages.clone(), session, pending: state.pending.filter(|_| live), live, cost_usd: state.cost_usd, result: state.result })
 }
 
 /// The session's log (the last entries when it is long).
@@ -1009,13 +1140,15 @@ mod tests {
         /// (node, call key, prompt) of every run, in the order they started.
         seen: Mutex<Vec<(String, String, String)>>,
         autonomy: Mutex<String>,
+        /// The user's messages after the first.
+        messages: Mutex<Vec<String>>,
         /// Keeps the cancel channel open.
         gone: Mutex<Option<watch::Sender<bool>>>,
     }
 
     impl Fake {
         fn new(f: impl FnMut(&AgentReq) -> Final + Send + 'static) -> Arc<Self> {
-            Arc::new(Fake { script: Mutex::new(Box::new(f)), seen: Mutex::new(vec![]), autonomy: Mutex::new("ask".into()), gone: Mutex::new(None) })
+            Arc::new(Fake { script: Mutex::new(Box::new(f)), seen: Mutex::new(vec![]), autonomy: Mutex::new("ask".into()), messages: Mutex::new(vec![]), gone: Mutex::new(None) })
         }
         fn nodes(&self) -> Vec<String> {
             self.seen.lock().unwrap().iter().map(|s| s.0.clone()).collect()
@@ -1034,6 +1167,9 @@ mod tests {
         fn checkpoint(&self, _: &State, _: &str) {}
         fn autonomy(&self) -> String {
             self.autonomy.lock().unwrap().clone()
+        }
+        fn follow_up(&self, i: usize) -> Option<String> {
+            self.messages.lock().unwrap().get(i).cloned()
         }
     }
 
@@ -1079,14 +1215,14 @@ mod tests {
             .iter()
             .flat_map(|(a, b)| [*a, *b])
             .filter(|i| seen.insert(*i))
-            .map(|id| Node { id: id.into(), label: id.into(), x: 0, y: 0, kind: NodeKind::Agent, profile: "dev".into(), prompt: String::new(), max_calls: 20, timeout_mins: 30 })
+            .map(|id| Node { id: id.into(), label: id.into(), x: 0, y: 0, kind: NodeKind::Agent, profile: "dev".into(), prompt: String::new(), max_calls: 20, timeout_mins: 30, trigger: Default::default() })
             .collect();
         Workflow { nodes, edges: edges.iter().map(|(a, b)| Edge { id: format!("{a}-{b}"), from: (*a).into(), to: (*b).into(), kind: EdgeKind::Delegate }).collect() }
     }
 
     /// `wf` with the user's node `id` of `kind`, wired with delegate edges `from -> id` and `id -> to`.
     fn with_human(mut wf: Workflow, id: &str, kind: NodeKind, from: &str, to: Option<&str>) -> Workflow {
-        wf.nodes.push(Node { id: id.into(), label: id.into(), x: 0, y: 0, kind, profile: String::new(), prompt: String::new(), max_calls: 20, timeout_mins: 30 });
+        wf.nodes.push(Node { id: id.into(), label: id.into(), x: 0, y: 0, kind, profile: String::new(), prompt: String::new(), max_calls: 20, timeout_mins: 30, trigger: Default::default() });
         let edge = |a: &str, b: &str| Edge { id: format!("{a}-{b}"), from: a.into(), to: b.into(), kind: EdgeKind::Delegate };
         wf.edges.push(edge(from, id));
         if let Some(to) = to {
@@ -1134,6 +1270,30 @@ mod tests {
         let ba = host.prompt(3);
         assert!(ba.contains("build a thing") && ba.contains("write the requirements") && !ba.contains("PROJ-2"));
         assert_eq!(state.cost_usd, 7.5);
+    }
+
+    #[tokio::test]
+    async fn a_follow_up_message_is_another_turn_of_the_root() {
+        let wf = chart(&[("root", "dev")]);
+        let mut n = 0;
+        let host = Fake::new(move |_| {
+            n += 1;
+            finish(&format!("answer {n}"))
+        });
+        host.messages.lock().unwrap().push("now fix the typo".into());
+        let (ended, state) = run(&host, &wf, vec![]).await;
+        assert_eq!(ended, Ended::Done);
+        assert_eq!((state.turns, state.result.as_deref()), (2, Some("answer 2")));
+        assert!(host.prompt(0).contains("build a thing") && !host.prompt(0).contains("fix the typo"));
+        let second = host.prompt(1);
+        assert!(second.contains("build a thing") && second.contains("answer 1") && second.contains("now fix the typo"));
+        // resumed with one more message: the earlier turns are replayed, only the new one runs
+        host.messages.lock().unwrap().push("and update the docs".into());
+        let before = host.seen.lock().unwrap().len();
+        let (ended, state) = run_with(&host, &wf, state, vec![]).await;
+        assert_eq!(ended, Ended::Done);
+        assert_eq!((host.seen.lock().unwrap().len() - before, state.turns), (1, 3));
+        assert!(host.prompt(before).contains("and update the docs") && host.prompt(before).contains("answer 2"));
     }
 
     #[tokio::test]
