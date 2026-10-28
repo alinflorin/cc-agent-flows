@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
-use crate::profiles::{EnvVar, clean_host};
-use crate::protocol::TaskEnv;
+use crate::config::profiles::{EnvVar, clean_host};
+use crate::vm::protocol::TaskEnv;
 
 const MAX_INJECTIONS: usize = 100;
 const MAX_RULES: usize = 20;
@@ -76,7 +76,7 @@ fn authorization() -> String {
 
 impl Injection {
     pub fn validate(&self) -> Result<(), String> {
-        if !crate::secrets::valid_name(&self.name) {
+        if !crate::config::secrets::valid_name(&self.name) {
             return Err(format!("{:?} is not a valid injection name (letters, digits, underscore)", self.name));
         }
         if self.rules.is_empty() || self.rules.len() > MAX_RULES {
@@ -109,7 +109,7 @@ impl Injection {
         if self.kind == Kind::Basic && (self.username.is_empty() || (self.username.contains(':') && !has_var(&self.username)) || self.username.chars().any(|c| c.is_control())) {
             return Err(format!("{}: Basic needs a user name without a colon", self.name));
         }
-        if !crate::secrets::valid_name(&self.secret) {
+        if !crate::config::secrets::valid_name(&self.secret) {
             return Err(format!("{}: pick a secret", self.name));
         }
         if self.placeholder.len() > 300 || self.placeholder.chars().any(|c| c.is_control()) {
@@ -152,8 +152,7 @@ fn cleaned(list: &[Injection]) -> Result<Vec<Injection>, String> {
 }
 
 fn file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    use tauri::Manager;
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("injections.json"))
+    Ok(crate::util::data_dir(app)?.join("injections.json"))
 }
 
 pub fn load(path: &Path) -> Vec<Injection> {
@@ -222,14 +221,14 @@ impl Active {
     /// Whether this injection applies to a request. `host` is lowercase without a port.
     pub fn applies(&self, host: &str, method: &str, path: &str) -> bool {
         self.rules.iter().any(|r| {
-            crate::egress::host_matches(&r.host, host)
+            crate::net::egress::host_matches(&r.host, host)
                 && (r.methods.is_empty() || r.methods.iter().any(|m| m == method))
                 && path_matches(&r.path, path)
         })
     }
 
     pub fn covers_host(&self, host: &str) -> bool {
-        self.rules.iter().any(|r| crate::egress::host_matches(&r.host, host))
+        self.rules.iter().any(|r| crate::net::egress::host_matches(&r.host, host))
     }
 }
 
@@ -291,15 +290,15 @@ pub fn build(list: &[Injection], vars: &[EnvVar], secret: &dyn Fn(&str) -> Optio
     let used: std::cell::RefCell<Vec<&Injection>> = Default::default();
     let mut env = vec![];
     for v in vars {
-        let value = crate::secrets::resolve(&v.value, "injection", &|n| {
+        let value = crate::config::secrets::resolve(&v.value, "injection", &|n| {
             let i = list.iter().find(|i| i.name == n)?;
             if !used.borrow().iter().any(|u| u.name == i.name) {
                 used.borrow_mut().push(i);
             }
             Some(i.placeholder().to_string())
         })
-        .and_then(|s| crate::secrets::resolve(&s, "secret", secret))
-        .and_then(|s| crate::secrets::resolve(&s, "var", var))
+        .and_then(|s| crate::config::secrets::resolve(&s, "secret", secret))
+        .and_then(|s| crate::config::secrets::resolve(&s, "var", var))
         .map_err(|e| format!("{}: {e}", v.name))?;
         env.push(TaskEnv { name: v.name.clone(), value });
     }
@@ -315,7 +314,7 @@ pub fn build(list: &[Injection], vars: &[EnvVar], secret: &dyn Fn(&str) -> Optio
 /// The injection with its `${var:NAME}` references (hosts, path patterns, user name) filled in,
 /// and checked as a whole now that the values are known.
 fn resolved(i: &Injection, var: &dyn Fn(&str) -> Option<String>) -> Result<Injection, String> {
-    let fill = |s: &str| crate::secrets::resolve(s, "var", var);
+    let fill = |s: &str| crate::config::secrets::resolve(s, "var", var);
     let mut i = i.clone();
     for r in &mut i.rules {
         r.host = fill(&r.host)?;
@@ -327,8 +326,8 @@ fn resolved(i: &Injection, var: &dyn Fn(&str) -> Option<String>) -> Result<Injec
 
 /// [`build`] with the saved injections, the credential store and the saved variables.
 pub fn prepare(app: &tauri::AppHandle, vars: &[EnvVar]) -> Result<(Vec<TaskEnv>, Vec<Active>), String> {
-    let variables = crate::variables::all(app);
-    build(&load(&file(app)?), vars, &crate::secrets::secret_value, &|n| variables.get(n).cloned())
+    let variables = crate::config::variables::all(app);
+    build(&load(&file(app)?), vars, &crate::config::secrets::secret_value, &|n| variables.get(n).cloned())
 }
 
 #[cfg(test)]

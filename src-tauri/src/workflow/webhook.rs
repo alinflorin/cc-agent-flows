@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Manager};
 
-use crate::triggers;
+use crate::workflow::triggers;
 use crate::workflow::{self, NodeKind};
 
 pub const DEFAULT_PORT: u16 = 7878;
@@ -43,7 +43,7 @@ pub struct Webhook {
 }
 
 fn config_path(app: &AppHandle) -> Option<std::path::PathBuf> {
-    app.path().app_data_dir().ok().map(|d| d.join("webhook.json"))
+    crate::util::data_dir(app).ok().map(|d| d.join("webhook.json"))
 }
 
 pub fn port(app: &AppHandle) -> u16 {
@@ -61,7 +61,7 @@ fn reply(status: StatusCode, body: serde_json::Value) -> Response<Full<Bytes>> {
 static RATE: Mutex<(u64, u32)> = Mutex::new((0, 0));
 
 fn allowed_now() -> bool {
-    let minute = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() / 60);
+    let minute = crate::util::unix_secs() / 60;
     let mut r = RATE.lock().unwrap();
     if r.0 != minute {
         *r = (minute, 0);

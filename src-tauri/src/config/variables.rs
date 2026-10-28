@@ -20,8 +20,7 @@ pub struct Variable {
 }
 
 fn file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    use tauri::Manager;
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("variables.json"))
+    Ok(crate::util::data_dir(app)?.join("variables.json"))
 }
 
 fn load(path: &Path) -> BTreeMap<String, String> {
@@ -36,7 +35,7 @@ fn save(path: &Path, map: &BTreeMap<String, String>) -> Result<(), String> {
 }
 
 fn check(name: &str, value: &str) -> Result<(), String> {
-    if !crate::secrets::valid_name(name) {
+    if !crate::config::secrets::valid_name(name) {
         return Err("the name must be letters, digits and underscores, not starting with a digit (at most 64)".into());
     }
     if value.is_empty() || value.len() > MAX_VALUE || value.chars().any(|c| c.is_control()) {

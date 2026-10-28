@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::profiles::clean_host;
+use crate::config::profiles::clean_host;
 
 /// What Claude Code needs to work: the API and its telemetry endpoint.
 pub const DEFAULT_ALLOW_HOSTS: &[&str] = &["api.anthropic.com", "statsig.anthropic.com"];
@@ -43,8 +43,7 @@ impl Network {
 }
 
 fn file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    use tauri::Manager;
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("network.json"))
+    Ok(crate::util::data_dir(app)?.join("network.json"))
 }
 
 /// The saved settings, or the defaults when there are none (or the file is unreadable).
@@ -59,10 +58,7 @@ pub fn current(app: &tauri::AppHandle) -> Network {
 
 pub fn save(path: &Path, network: &Network) -> Result<Network, String> {
     let network = network.cleaned()?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(path, serde_json::to_string_pretty(&network).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    crate::util::write_json(path, &network)?;
     Ok(network)
 }
 

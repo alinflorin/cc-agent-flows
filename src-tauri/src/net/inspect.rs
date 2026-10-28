@@ -10,7 +10,6 @@
 //! refused. The request's `Host` and the TLS SNI must be the host the guest asked for in its
 //! `CONNECT`, so an allowed tunnel cannot be used to reach another site with the token.
 
-#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -32,7 +31,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
-use crate::injections::Active;
+use crate::config::injections::Active;
 
 type Body = BoxBody<Bytes, hyper::Error>;
 
@@ -240,8 +239,8 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for Prefixed<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::egress::{Proxy, Rules};
-    use crate::injections::Rule;
+    use crate::net::egress::{Proxy, Rules};
+    use crate::config::injections::Rule;
     use base64::Engine;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;

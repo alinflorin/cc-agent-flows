@@ -10,7 +10,7 @@ use keyring::Entry;
 use serde::{Deserialize, Serialize};
 
 
-const SERVICE: &str = "cc-agent-flows";
+use crate::util::KEYRING_SERVICE as SERVICE;
 const MAX_SECRETS: usize = 200;
 const MAX_VALUE: usize = 16 * 1024;
 
@@ -20,8 +20,7 @@ struct Index {
 }
 
 fn index_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    use tauri::Manager;
-    Ok(app.path().app_data_dir().map_err(|e| e.to_string())?.join("secrets.json"))
+    Ok(crate::util::data_dir(app)?.join("secrets.json"))
 }
 
 fn load_index(path: &Path) -> Index {
