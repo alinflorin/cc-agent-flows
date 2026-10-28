@@ -47,6 +47,28 @@ export function Sessions() {
     if (desktop) void load();
   }, [desktop, load]);
 
+  // sessions started by a cron or webhook node, and status changes, show up without a reload
+  useEffect(() => {
+    if (!desktop) return;
+    let gone = false;
+    const offs: (() => void)[] = [];
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      const subs = [
+        await listen("sessions-changed", () => void load()),
+        await listen<{ entry: { kind: string } }>("session-log", ({ payload }) => {
+          if (payload.entry.kind === "status") void load();
+        }),
+      ];
+      if (gone) subs.forEach((u) => u());
+      else offs.push(...subs);
+    })();
+    return () => {
+      gone = true;
+      offs.forEach((u) => u());
+    };
+  }, [desktop, load]);
+
   const create = async () => {
     try {
       navigate(`/sessions/${await call<string>("sessions_create")}`);

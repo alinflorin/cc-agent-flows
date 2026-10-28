@@ -11,7 +11,7 @@ use std::sync::Mutex;
 
 use chrono::{Local, NaiveDateTime, Timelike};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::cron::Cron;
 use crate::workflow::{self, Node, NodeKind};
@@ -94,6 +94,7 @@ pub fn start_session(app: &AppHandle, f: &Found, payload: &str) -> Result<String
     let name = format!("{label} · {}", Local::now().format("%Y-%m-%d %H:%M"));
     let source = if f.node.kind == NodeKind::Cron { "cron" } else { "webhook" };
     let sid = workflow::create_triggered_session(&root, &name, &task, &f.workflow, &f.target, source, &f.node.trigger.autonomy)?;
+    let _ = app.emit("sessions-changed", ());
     if let Err(e) = crate::engine::session_start(app.clone(), sid.clone(), None) {
         let _ = workflow::delete_session(&root, &sid);
         return Err(e);
