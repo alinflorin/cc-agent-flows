@@ -35,7 +35,49 @@
   },
   "about": {
     "version": "Versiunea {{version}}",
-    "tagline": "Aplicație desktop construită cu Tauri și Fluent UI."
+    "tagline": "Aplicație desktop construită cu Tauri și Fluent UI.",
+    "readiness": "Starea sistemului",
+    "refresh": "Verifică din nou",
+    "checking": "Se verifică…",
+    "allOk": "Gata să ruleze agenți",
+    "notReady": "Ceva necesită atenție",
+    "checks": {
+      "qemu": "QEMU",
+      "accel": "Accelerare hardware",
+      "image": "Imaginea de bază",
+      "tunnel": "Server de tunel SSH",
+      "token": "Token Claude",
+      "network": "Lista de hosturi permise"
+    },
+    "status": {
+      "qemu": {
+        "ok": "Rulează ({{detail}})",
+        "error": "Nu poate rula: {{detail}}"
+      },
+      "accel": {
+        "ok": "{{detail}} disponibil",
+        "warn": "Indisponibilă ({{detail}}); VM-urile ar folosi emulare foarte lentă",
+        "info": "{{detail}}"
+      },
+      "image": {
+        "ok": "Construită și la zi",
+        "warn": "Nu e gata ({{detail}}); vezi Setări > Imagini",
+        "error": "Eșuat: {{detail}}"
+      },
+      "tunnel": {
+        "ok": "Acceptă cheia rulării și refuză hosturile nelistate ({{detail}})",
+        "error": "Eșuat: {{detail}}"
+      },
+      "token": {
+        "ok": "Setat",
+        "warn": "Nesetat; adaugă unul în Setări > LLM",
+        "error": "Magazinul de credențiale nu e disponibil: {{detail}}"
+      },
+      "network": {
+        "ok": "api.anthropic.com este permis",
+        "error": "api.anthropic.com nu este permis (Setări > Rețea)"
+      }
+    }
   },
   "settings": {
     "title": "Setări",
@@ -281,7 +323,12 @@
     },
     "intro": "Agenții și cine poate da de lucru cui. O sesiune rulează acest workflow pentru o cerere pe care o scrii în chat.",
     "instructions": "Instrucțiuni pentru toți agenții",
-    "instructionsHint": "Se adaugă la promptul de sistem al fiecărui agent, înaintea celui din profilul lui."
+    "instructionsHint": "Se adaugă la promptul de sistem al fiecărui agent, înaintea celui din profilul lui.",
+    "name": "Nume",
+    "workflow": "Workflow",
+    "new": "Workflow nou",
+    "delete": "Șterge",
+    "newName": "Workflow nou"
   },
   "runs": {
     "title": "Rulează un agent",
@@ -327,7 +374,7 @@
       "traffic": "Trafic"
     },
     "node": {
-      "idle": "inactiv",
+      "idle": "nepornit",
       "running": "lucrează",
       "busy": "așteaptă agenții chemați",
       "waiting": "te așteaptă",
@@ -386,8 +433,12 @@
       "alive_other": "{{count}} VM-uri pornite",
       "cpu": "CPU",
       "mem": "RAM",
-      "usageTitle": "CPU și memoria pe care VM-ul le ia de la acest calculator (procesul QEMU)"
-    }
+      "usageTitle": "CPU și memoria pe care VM-ul le ia de la acest calculator (procesul QEMU)",
+      "none": "VM nepornit"
+    },
+    "workflow": "Workflow",
+    "logs": "Jurnal",
+    "agentState": "Agent"
   },
   "app": {
     "desktopOnly": "Disponibil doar în aplicația desktop."

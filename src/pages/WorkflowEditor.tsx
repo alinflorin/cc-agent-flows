@@ -52,9 +52,16 @@ interface Problem {
   node: string | null;
 }
 interface View {
+  id: string;
+  name: string;
   workflow: Workflow;
   problems: Problem[];
   system_prompt: string;
+}
+interface Entry {
+  id: string;
+  name: string;
+  agents: number;
 }
 interface ProfileInfo {
   id: string;
@@ -130,7 +137,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   return invoke<T>(cmd, args);
 }
 
-function Editor() {
+function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) {
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
@@ -140,6 +147,7 @@ function Editor() {
   const [problems, setProblems] = useState<Problem[]>([]);
   const [dirty, setDirty] = useState(false);
   const [instructions, setInstructions] = useState("");
+  const [name, setName] = useState("");
 
   const mkEdge = useCallback(
     (id: string, source: string, target: string, kind: "delegate" | "before"): AEdge => ({
@@ -168,6 +176,7 @@ function Editor() {
       setEdges(v.workflow.edges.map((e) => mkEdge(e.id, e.from, e.to, e.kind)));
       setProblems(v.problems);
       setInstructions(v.system_prompt);
+      if (v.name) setName(v.name);
       setDirty(markDirty);
     },
     [setNodes, setEdges, mkEdge],
@@ -177,12 +186,17 @@ function Editor() {
     void (async () => {
       try {
         setProfiles(await call<ProfileInfo[]>("profiles_list"));
-        load(await call<View>("workflow_get"), false);
+        if (id) load(await call<View>("workflow_get", { id }), false);
+        else {
+          load({ id: "", name: "", workflow: { nodes: [], edges: [] }, problems: [], system_prompt: "" }, false);
+          setName(t("wf.newName"));
+          setDirty(true);
+        }
       } catch (e) {
         notify(String(e), "error");
       }
     })();
-  }, [load, notify]);
+  }, [id, load, notify, t]);
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -226,10 +240,11 @@ function Editor() {
       edges: edges.map((e) => ({ id: e.id, from: e.source, to: e.target, kind: e.data?.kind ?? "delegate" })),
     };
     try {
-      const v = await call<View>("workflow_save", { workflow, systemPrompt: instructions });
+      const v = await call<View>("workflow_save", { id, name, workflow, systemPrompt: instructions });
       setProblems(v.problems);
       setDirty(false);
       notify(t("wf.saved"), "success");
+      onSaved(v.id);
     } catch (e) {
       notify(String(e), "error");
     }
@@ -238,7 +253,7 @@ function Editor() {
   const useStandard = async () => {
     try {
       const v = await call<View>("workflow_standard");
-      load(v, true);
+      load({ ...v, name: "", system_prompt: instructions }, true);
     } catch (e) {
       notify(String(e), "error");
     }
@@ -297,10 +312,21 @@ function Editor() {
         <Button icon={<Flowchart20Regular />} onClick={useStandard}>
           {t("wf.loadStandard")}
         </Button>
-        <Button appearance="primary" icon={<Save20Regular />} disabled={!dirty} onClick={save}>
+        <Button appearance="primary" icon={<Save20Regular />} disabled={!dirty || !name.trim()} onClick={save}>
           {t("common.save")}
         </Button>
       </div>
+
+      <Field label={t("wf.name")}>
+        <Input
+          value={name}
+          maxLength={120}
+          onChange={(_, d) => {
+            setName(d.value);
+            setDirty(true);
+          }}
+        />
+      </Field>
 
       <Field label={t("wf.instructions")} hint={t("wf.instructionsHint")}>
         <Textarea
@@ -425,9 +451,58 @@ function Editor() {
 }
 
 export function WorkflowEditor() {
+  const { t } = useTranslation();
+  const notify = useNotify();
+  const [list, setList] = useState<Entry[] | null>(null);
+  const [id, setId] = useState("");
+
+  const refresh = useCallback(
+    async (select?: string) => {
+      try {
+        const l = await call<Entry[]>("workflows_list");
+        setList(l);
+        setId((cur) => (select !== undefined ? select : l.some((w) => w.id === cur) ? cur : (l[0]?.id ?? "")));
+      } catch (e) {
+        notify(String(e), "error");
+      }
+    },
+    [notify],
+  );
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const remove = async () => {
+    try {
+      await call("workflow_delete", { id });
+      await refresh("");
+      setId("");
+      await refresh();
+    } catch (e) {
+      notify(String(e), "error");
+    }
+  };
+
+  if (!list) return null;
   return (
     <ReactFlowProvider>
-      <Editor />
+      <div style={{ display: "flex", gap: tokens.spacingHorizontalS, alignItems: "center", marginBottom: tokens.spacingVerticalM }}>
+        <Select aria-label={t("wf.workflow")} style={{ minWidth: 260 }} value={id} onChange={(_, d) => setId(d.value)}>
+          {!id && <option value="">{t("wf.newName")}</option>}
+          {list.map((w) => (
+            <option key={w.id} value={w.id}>
+              {w.name}
+            </option>
+          ))}
+        </Select>
+        <Button icon={<Add20Regular />} disabled={!id} onClick={() => setId("")}>
+          {t("wf.new")}
+        </Button>
+        <Button icon={<Delete20Regular />} disabled={!id} onClick={remove}>
+          {t("wf.delete")}
+        </Button>
+      </div>
+      <Editor key={id || "new"} id={id} onSaved={(saved) => void refresh(saved)} />
     </ReactFlowProvider>
   );
 }

@@ -59,7 +59,7 @@ const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM },
   row: { marginTop: "auto", display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-start" },
   grow: { flex: 1, minWidth: 0 },
-  rule: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) 108px auto", gap: tokens.spacingHorizontalS, alignItems: "start" },
+  rule: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) 140px auto", gap: tokens.spacingHorizontalS, alignItems: "start" },
   mono: { fontFamily: tokens.fontFamilyMonospace },
 });
 
@@ -162,11 +162,11 @@ export function InjectionsSettings() {
             <DialogContent style={{ overflowX: "hidden" }}>
               {v && (
                 <div className={styles.form}>
-                  <Field label={t("settings.injections.name")} hint={t("settings.injections.nameHint")}>
+                  <Field required label={t("settings.injections.name")} hint={t("settings.injections.nameHint")}>
                     <Input className={styles.mono} value={v.name} disabled={editing?.at !== null} onChange={(_, d) => set({ name: d.value })} />
                   </Field>
 
-                  <Field label={t("settings.injections.rules")} hint={t("settings.injections.rulesHint")}>
+                  <Field required label={t("settings.injections.rules")} hint={t("settings.injections.rulesHint")}>
                     <div className={styles.form}>
                       {v.rules.map((r, i) => (
                         <div key={i} className={styles.rule}>
@@ -231,7 +231,7 @@ export function InjectionsSettings() {
                     </Field>
                   )}
 
-                  <Field label={t("settings.injections.secret")} hint={secrets.length === 0 ? t("settings.injections.noSecrets") : undefined}>
+                  <Field required label={t("settings.injections.secret")} hint={secrets.length === 0 ? t("settings.injections.noSecrets") : undefined}>
                     <Dropdown value={v.secret} selectedOptions={[v.secret]} onOptionSelect={(_, d) => set({ secret: d.optionValue ?? "" })}>
                       {secrets.map((n) => (
                         <Option key={n} value={n}>
