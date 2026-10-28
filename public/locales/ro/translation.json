@@ -20,7 +20,8 @@
     "runs": "Rulări",
     "workflow": "Workflow",
     "sessions": "Sesiuni",
-    "analytics": "Statistici"
+    "analytics": "Statistici",
+    "projects": "Proiecte"
   },
   "theme": {
     "label": "Temă",
@@ -253,7 +254,7 @@
     "modelHint": "Gol folosește valoarea implicită din Claude Code.",
     "modelDefault": "Implicit",
     "effort": "Efort de gândire",
-    "effortHint": "Cât gândește agentul înainte să răspundă. Mai mare înseamnă mai lent și mai scump.",
+    "effortHint": "Cât gândește agentul înainte să răspundă. Mai mare înseamnă mai lent și mai mulți tokeni.",
     "effortDefault": "Implicit",
     "cpus": "CPU-uri",
     "cpusAll": "Toate ale gazdei",
@@ -295,7 +296,11 @@
       "interrupted": "Întreruptă"
     },
     "untitled": "Fără titlu",
-    "intro": "O sesiune rulează workflow-ul pentru o cerere pe care o scrii în chat."
+    "intro": "O sesiune rulează workflow-ul pentru o cerere pe care o scrii în chat.",
+    "allProjects": "Toate proiectele",
+    "filterProject": "Filtrează după proiect",
+    "noProject": "Fără proiect",
+    "project": "Proiect"
   },
   "wf": {
     "saved": "Workflow salvat.",
@@ -379,7 +384,7 @@
     "triggerAutonomyHint": "Nimeni nu urmărește aceste sesiuni, deci alegerea obișnuită este ca agenții să decidă singuri.",
     "saveFirst": "Salvează workflow-ul ca să vezi detaliile și să-l încerci.",
     "webhookUrl": "URL",
-    "webhookUrlHint": "Trimite-i o cerere (orice metodă). Tratează-l ca pe o parolă: oricine are URL-ul poate porni sesiuni (care costă bani).",
+    "webhookUrlHint": "Trimite-i o cerere (orice metodă). Tratează-l ca pe o parolă: oricine are URL-ul poate porni sesiuni.",
     "webhookSample": "Corp de probă",
     "webhookTest": "Trimite proba",
     "cronRunNow": "Rulează acum",
@@ -508,7 +513,8 @@
       "questions": "{{label}} are întrebări pentru tine",
       "done": "Sesiunea s-a terminat",
       "failed": "Sesiunea a eșuat"
-    }
+    },
+    "tokens": "{{n}} tokeni"
   },
   "app": {
     "desktopOnly": "Disponibil doar în aplicația desktop."
@@ -525,18 +531,16 @@
     "injections": "Injecțiile GITHUB, GITHUB_READONLY și JIRA sunt scrise din nou așa cum au fost create prima dată; modificările tale la ele se pierd. Celelalte injecții nu sunt atinse."
   },
   "analytics": {
-    "intro": "Cost, timp și eșecuri pentru sesiunile tale, din jurnalele lor.",
+    "intro": "Tokeni, timp și eșecuri pentru sesiunile tale, din jurnalele lor.",
     "range": "Perioadă",
     "last": "Ultimele {{days}} zile",
     "all": "Tot timpul",
     "refresh": "Reîmprospătează",
     "sessions": "Sesiuni",
     "finished": "Terminate",
-    "cost": "Cost",
-    "avgCost": "Cost pe sesiune",
     "runs": "Rulări de agenți",
     "failRate": "Rulări eșuate",
-    "perDay": "Cost pe zi",
+    "perDay": "Tokeni pe zi",
     "none": "Nicio sesiune în această perioadă.",
     "runsN_one": "{{count}} rulare",
     "runsN_other": "{{count}} rulări",
@@ -544,18 +548,38 @@
     "sessionsN_other": "{{count}} sesiuni",
     "perAgent": "Pe profil de agent",
     "allTime": "Pe toate sesiunile.",
-    "costliest": "Cele mai costisitoare sesiuni",
     "col": {
       "agent": "Profil",
       "runs": "Rulări",
       "failed": "Eșuate",
       "avg": "Medie",
       "longest": "Cea mai lungă",
-      "cost": "Cost",
       "session": "Sesiune",
       "status": "Stare",
       "turns": "Ture",
-      "duration": "Durată"
-    }
+      "duration": "Durată",
+      "tokens": "Tokeni"
+    },
+    "tokens": "Tokeni",
+    "avgTokens": "Tokeni pe sesiune",
+    "heaviest": "Sesiunile cu cei mai mulți tokeni"
+  },
+  "projects": {
+    "title": "Proiecte",
+    "new": "Proiect nou",
+    "edit": "Editează proiectul",
+    "empty": "Niciun proiect încă.",
+    "name": "Nume",
+    "description": "Descriere",
+    "noDescription": "Fără descriere",
+    "systemPrompt": "Prompt de sistem",
+    "systemPromptHint": "Primit de fiecare agent din sesiunile proiectului, după instrucțiunile workflow-ului și înaintea promptului profilului.",
+    "sessions_one": "{{count}} sesiune",
+    "sessions_few": "{{count}} sesiuni",
+    "sessions_other": "{{count}} de sesiuni",
+    "delete": "Șterge proiectul",
+    "open": "Sesiuni",
+    "save": "Salvează",
+    "cancel": "Anulează"
   }
 }

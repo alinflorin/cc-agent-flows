@@ -48,7 +48,7 @@ echo '{"type":"system","subtype":"init"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"working \"quoted\" ünï"}]}}'
 echo 'not json at all'
 echo "hello" > made-by-claude.txt
-echo '{"type":"result","is_error":false,"result":"free text","structured_output":{"status":"needs_input","summary":"half done","questions":["which db?"]},"total_cost_usd":0.25,"session_id":"sess-1"}'
+echo '{"type":"result","is_error":false,"result":"free text","structured_output":{"status":"needs_input","summary":"half done","questions":["which db?"]},"usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":25,"output_tokens":75},"session_id":"sess-1"}'
 "#;
 
     /// Never finishes: the script has to kill it, and the process it leaves behind.
@@ -155,7 +155,7 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
         assert_eq!(fin.result, "half done");
         assert_eq!(fin.questions, ["which db?"]);
         assert_eq!(fin.session_id.as_deref(), Some("sess-1"));
-        assert_eq!(fin.cost_usd, Some(0.25));
+        assert_eq!(fin.tokens, Some(250));
         assert_eq!(fin.exit_code, Some(0));
         assert_eq!(fin.output.as_ref().unwrap()["summary"], "half done", "the structured answer is passed on");
         assert!(run.dir.join("work/made-by-claude.txt").is_file(), "claude ran in the workspace");

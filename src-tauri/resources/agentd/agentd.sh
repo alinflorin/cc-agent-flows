@@ -250,7 +250,7 @@ else
 			result: (($s.summary | strings) // (.result | strings) // ""),
 			questions: [($s.questions // [])[]? | strings],
 			session_id: ((.session_id | strings) // $sid),
-			cost_usd: ((.total_cost_usd | numbers) // null),
+			tokens: (if (.usage | type) == "object" then ([.usage.input_tokens, .usage.cache_creation_input_tokens, .usage.cache_read_input_tokens, .usage.output_tokens] | map(numbers) | add) else null end),
 			output: (if (.structured_output | type) == "object" then .structured_output else null end),
 			exit_code: $code}}')
 fi

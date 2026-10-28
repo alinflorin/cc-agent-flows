@@ -12,7 +12,11 @@ result: string, questions: Array<string>,
 /**
  * The Claude session, to resume it on the next run.
  */
-session_id: string | null, cost_usd: number | null, 
+session_id: string | null, 
+/**
+ * Tokens the run used (input, cache and output together), if Claude reported them.
+ */
+tokens: bigint | null, 
 /**
  * The structured answer (matching the task's schema), for conditions and the coordinator.
  * Untrusted: the app validates it.

@@ -20,11 +20,11 @@ interface Pending {
 }
 
 interface View {
-  session: { name: string; task: string; status: string; workflow: string; autonomy: "ask" | "never"; source: "chat" | "cron" | "webhook" };
+  session: { name: string; task: string; status: string; workflow: string; project?: string | null; autonomy: "ask" | "never"; source: "chat" | "cron" | "webhook" };
   messages: string[];
   pending: Pending | null;
   live: boolean;
-  cost_usd: number;
+  tokens: number;
   result: string | null;
 }
 
@@ -136,6 +136,8 @@ const useStyles = makeStyles({
   human: { borderTopStyle: "dashed", borderRightStyle: "dashed", borderBottomStyle: "dashed", borderLeftStyle: "dashed" },
 });
 
+const fmtTokens = (n: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n);
+
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
@@ -150,7 +152,7 @@ type LiveData = {
   human: boolean;
   state: NodeState;
   calls: number;
-  cost: number;
+  tokens: number;
   picked: boolean;
   vm: { state: VmState; count: number; use: VmStats | null } | null;
 };
@@ -265,9 +267,9 @@ function LiveNodeView({ data }: NodeProps<LiveNode>) {
       {data.sub && data.sub !== data.label && <Caption1 block>{data.sub}</Caption1>}
       <div className={styles.vmRow}>
         <AgentPill state={data.state} />
-        {(data.calls > 0 || data.cost > 0) && (
+        {(data.calls > 0 || data.tokens > 0) && (
           <span className={styles.usage}>
-            {[data.calls > 0 ? t("session.callsCount", { count: data.calls }) : "", data.cost > 0 ? `$${data.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ")}
+            {[data.calls > 0 ? t("session.callsCount", { count: data.calls }) : "", data.tokens > 0 ? t("session.tokens", { n: fmtTokens(data.tokens) }) : ""].filter(Boolean).join(" · ")}
           </span>
         )}
       </div>
@@ -294,9 +296,9 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
   const kinds = useMemo(() => new Map(wf.nodes.map((n) => [n.id, n.kind as string])), [wf]);
   const active = useMemo(() => activeEdges(d, wf.edges, kinds), [d, wf, kinds]);
   const stats = useMemo(() => {
-    const out = new Map<string, { calls: number; cost: number }>();
-    for (const c of d.calls.values()) out.set(c.node, { calls: (out.get(c.node)?.calls ?? 0) + 1, cost: out.get(c.node)?.cost ?? 0 });
-    for (const r of d.runs.values()) out.set(r.node, { calls: out.get(r.node)?.calls ?? 0, cost: (out.get(r.node)?.cost ?? 0) + r.cost });
+    const out = new Map<string, { calls: number; tokens: number }>();
+    for (const c of d.calls.values()) out.set(c.node, { calls: (out.get(c.node)?.calls ?? 0) + 1, tokens: out.get(c.node)?.tokens ?? 0 });
+    for (const r of d.runs.values()) out.set(r.node, { calls: out.get(r.node)?.calls ?? 0, tokens: (out.get(r.node)?.tokens ?? 0) + r.tokens });
     return out;
   }, [d]);
 
@@ -319,7 +321,7 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
           human: n.kind !== "agent",
           state: states.get(n.id) ?? "idle",
           calls: stats.get(n.id)?.calls ?? 0,
-          cost: stats.get(n.id)?.cost ?? 0,
+          tokens: stats.get(n.id)?.tokens ?? 0,
           picked: picked === n.id,
           vm: vms.get(n.id) ?? null,
         },
@@ -440,7 +442,7 @@ function CallCard({ c, d, names }: { c: CallInfo; d: Digest; names: Record<strin
               {r.status === "running" ? <Spinner size="extra-tiny" /> : <Badge size="small" appearance="tint" color={statusColor(r.status)}>{t(`runs.status.${r.status}`, r.status)}</Badge>}
               <Caption1>{t("session.run")} {n + 1}</Caption1>
               <VmPill state={r.vm} />
-              {r.cost > 0 && <Caption1 className={styles.muted}>${r.cost.toFixed(2)}</Caption1>}
+              {r.tokens > 0 && <Caption1 className={styles.muted}>{t("session.tokens", { n: fmtTokens(r.tokens) })}</Caption1>}
             </div>
             {r.vm !== "off" && r.stats.length > 0 && (
               <>
@@ -537,6 +539,7 @@ export function SessionView() {
   const [view, setView] = useState<View | null>(null);
   const [wf, setWf] = useState<{ nodes: WNode[]; edges: WEdge[] } | null>(null);
   const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [log, setLog] = useState<Entry[]>([]);
   const [answer, setAnswer] = useState("");
   const [message, setMessage] = useState("");
@@ -560,6 +563,7 @@ export function SessionView() {
     void (async () => {
       try {
         setWorkflows(await call<{ id: string; name: string }[]>("workflows_list"));
+        setProjects(await call<{ id: string; name: string }[]>("projects_list"));
       } catch (e) {
         notify(String(e), "error");
       }
@@ -670,7 +674,7 @@ export function SessionView() {
       </div>
       <div className={styles.bar}>
         <Badge appearance="filled" color={statusColor(session.status)}>{t(`sessions.status.${session.status}`, session.status)}</Badge>
-        {view.cost_usd > 0 && <Caption1>${view.cost_usd.toFixed(2)}</Caption1>}
+        {view.tokens > 0 && <Caption1>{t("session.tokens", { n: fmtTokens(view.tokens) })}</Caption1>}
         {vmAlive > 0 && <Caption1>{t("session.vm.alive", { count: vmAlive })}</Caption1>}
         {canContinue && <Button appearance="primary" onClick={() => act("session_continue")}>{t("session.continue")}</Button>}
         {live && <Button onClick={() => act("session_cancel")}>{t("runs.cancel")}</Button>}
@@ -692,6 +696,16 @@ export function SessionView() {
             {workflows.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field className={styles.autonomy} orientation="horizontal" label={t("sessions.project")}>
+          <Select value={session.project ?? ""} onChange={(_, x) => act("sessions_project", { project: x.value || null })}>
+            <option value="">{t("sessions.noProject")}</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
               </option>
             ))}
           </Select>

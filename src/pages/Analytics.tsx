@@ -14,7 +14,7 @@ interface SessionStat {
   status: string;
   created: number;
   duration_secs: number;
-  cost_usd: number;
+  tokens: number;
   runs: number;
   failed_runs: number;
   turns: number;
@@ -23,7 +23,7 @@ interface AgentStat {
   profile: string;
   runs: number;
   failed: number;
-  cost_usd: number;
+  tokens: number;
   total_secs: number;
   avg_secs: number;
   longest_secs: number;
@@ -32,13 +32,13 @@ interface DayStat {
   day: string;
   sessions: number;
   runs: number;
-  cost_usd: number;
+  tokens: number;
 }
 interface Data {
   sessions: SessionStat[];
   agents: AgentStat[];
   days: DayStat[];
-  total_cost_usd: number;
+  total_tokens: number;
   total_runs: number;
   failed_runs: number;
 }
@@ -59,10 +59,10 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   return invoke<T>(cmd, args);
 }
 
-const usd = (n: number) => `$${n.toFixed(2)}`;
+const tok = (n: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n);
 const dur = (s: number) => (s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m` : s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);
 
-/** Cost, time and failures over all the sessions, from their logs. */
+/** Tokens, time and failures over all the sessions, from their logs. */
 export function Analytics() {
   const { t } = useTranslation();
   const styles = useStyles();
@@ -92,7 +92,7 @@ export function Analytics() {
     return {
       sessions,
       days,
-      cost: sessions.reduce((a, s) => a + s.cost_usd, 0),
+      tokens: sessions.reduce((a, s) => a + s.tokens, 0),
       runs: sessions.reduce((a, s) => a + s.runs, 0),
       failed: sessions.reduce((a, s) => a + s.failed_runs, 0),
       done: sessions.filter((s) => s.status === "done").length,
@@ -100,9 +100,9 @@ export function Analytics() {
   }, [data, range]);
 
   if (!desktop) return (<><PageHeader title={t("nav.analytics")} /><Body1 block>{t("app.desktopOnly")}</Body1></>);
-  const maxDay = Math.max(0.0001, ...(view?.days.map((d) => d.cost_usd) ?? [0]));
-  const maxAgent = Math.max(0.0001, ...(data?.agents.map((a) => a.cost_usd) ?? [0]));
-  const slowest = [...(view?.sessions ?? [])].sort((a, b) => b.cost_usd - a.cost_usd).slice(0, 10);
+  const maxDay = Math.max(1, ...(view?.days.map((d) => d.tokens) ?? [0]));
+  const maxAgent = Math.max(1, ...(data?.agents.map((a) => a.tokens) ?? [0]));
+  const heaviest = [...(view?.sessions ?? [])].sort((a, b) => b.tokens - a.tokens).slice(0, 10);
 
   return (
     <>
@@ -127,8 +127,8 @@ export function Analytics() {
             {[
               [t("analytics.sessions"), String(view.sessions.length)],
               [t("analytics.finished"), String(view.done)],
-              [t("analytics.cost"), usd(view.cost)],
-              [t("analytics.avgCost"), view.sessions.length ? usd(view.cost / view.sessions.length) : "–"],
+              [t("analytics.tokens"), tok(view.tokens)],
+              [t("analytics.avgTokens"), view.sessions.length ? tok(view.tokens / view.sessions.length) : "–"],
               [t("analytics.runs"), String(view.runs)],
               [t("analytics.failRate"), view.runs ? `${Math.round((view.failed / view.runs) * 100)}%` : "–"],
             ].map(([label, value]) => (
@@ -146,7 +146,7 @@ export function Analytics() {
             ) : (
               <div className={styles.bars}>
                 {view.days.map((d) => (
-                  <div key={d.day} className={styles.bar} style={{ height: `${Math.max(2, (d.cost_usd / maxDay) * 100)}%` }} title={`${d.day}: ${usd(d.cost_usd)}, ${t("analytics.runsN", { count: d.runs })}, ${t("analytics.sessionsN", { count: d.sessions })}`} />
+                  <div key={d.day} className={styles.bar} style={{ height: `${Math.max(2, (d.tokens / maxDay) * 100)}%` }} title={`${d.day}: ${tok(d.tokens)}, ${t("analytics.runsN", { count: d.runs })}, ${t("analytics.sessionsN", { count: d.sessions })}`} />
                 ))}
               </div>
             )}
@@ -157,7 +157,7 @@ export function Analytics() {
             <Table size="small" aria-label={t("analytics.perAgent")}>
               <TableHeader>
                 <TableRow>
-                  {["agent", "runs", "failed", "avg", "longest", "cost"].map((c) => <TableHeaderCell key={c}>{t(`analytics.col.${c}`)}</TableHeaderCell>)}
+                  {["agent", "runs", "failed", "avg", "longest", "tokens"].map((c) => <TableHeaderCell key={c}>{t(`analytics.col.${c}`)}</TableHeaderCell>)}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -169,8 +169,8 @@ export function Analytics() {
                     <TableCell>{dur(a.avg_secs)}</TableCell>
                     <TableCell>{dur(a.longest_secs)}</TableCell>
                     <TableCell>
-                      {usd(a.cost_usd)}
-                      <div className={styles.bar2} style={{ width: `${(a.cost_usd / maxAgent) * 100}%` }} />
+                      {tok(a.tokens)}
+                      <div className={styles.bar2} style={{ width: `${(a.tokens / maxAgent) * 100}%` }} />
                     </TableCell>
                   </TableRow>
                 ))}
@@ -180,22 +180,22 @@ export function Analytics() {
           </section>
 
           <section className={styles.section}>
-            <Subtitle2>{t("analytics.costliest")}</Subtitle2>
-            <Table size="small" aria-label={t("analytics.costliest")}>
+            <Subtitle2>{t("analytics.heaviest")}</Subtitle2>
+            <Table size="small" aria-label={t("analytics.heaviest")}>
               <TableHeader>
                 <TableRow>
-                  {["session", "status", "turns", "runs", "duration", "cost"].map((c) => <TableHeaderCell key={c}>{t(`analytics.col.${c}`)}</TableHeaderCell>)}
+                  {["session", "status", "turns", "runs", "duration", "tokens"].map((c) => <TableHeaderCell key={c}>{t(`analytics.col.${c}`)}</TableHeaderCell>)}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {slowest.map((s) => (
+                {heaviest.map((s) => (
                   <TableRow key={s.id} className={styles.row} onClick={() => navigate(`/sessions/${s.id}`)}>
                     <TableCell><TableCellLayout>{s.name || s.task.slice(0, 60) || t("sessions.untitled")}</TableCellLayout></TableCell>
                     <TableCell>{t(`sessions.status.${s.status}`, s.status)}</TableCell>
                     <TableCell>{s.turns}</TableCell>
                     <TableCell>{s.runs}{s.failed_runs ? ` (${s.failed_runs} ✗)` : ""}</TableCell>
                     <TableCell>{dur(s.duration_secs)}</TableCell>
-                    <TableCell>{usd(s.cost_usd)}</TableCell>
+                    <TableCell>{tok(s.tokens)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

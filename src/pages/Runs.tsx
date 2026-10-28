@@ -12,7 +12,7 @@ interface ProfileInfo {
 
 type Msg =
   | { kind: "event"; body: { seq: number; event: Record<string, any> } }
-  | { kind: "final"; body: { status: string; result: string; questions: string[]; cost_usd: number | null } };
+  | { kind: "final"; body: { status: string; result: string; questions: string[]; tokens: number | null } };
 
 interface Line {
   key: string;

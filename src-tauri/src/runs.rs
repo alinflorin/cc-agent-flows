@@ -66,7 +66,7 @@ pub fn uuid_v4() -> String {
 }
 
 pub fn failed(reason: impl Into<String>) -> Final {
-    Final { status: Status::Failed, result: reason.into(), questions: vec![], session_id: None, cost_usd: None, output: None, exit_code: None }
+    Final { status: Status::Failed, result: reason.into(), questions: vec![], session_id: None, tokens: None, output: None, exit_code: None }
 }
 
 fn tail(path: &Path) -> String {
@@ -138,7 +138,7 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
         let fin = result?;
         if let Some(why) = crate::accounts::classify(&fin) {
             crate::accounts::rest(&account, why);
-            let free = fin.cost_usd.is_none_or(|c| c < 0.0001);
+            let free = fin.tokens.is_none_or(|t| t == 0);
             if free && crate::accounts::pick(app, &tried).is_ok() {
                 on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "account", "account": account_name, "refused": true}) }));
                 continue;

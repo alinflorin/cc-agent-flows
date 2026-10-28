@@ -26,7 +26,7 @@ const STATS_KEPT = 40;
 
 export const VM_STATES: VmState[] = ["queued", "preparing", "starting", "booting", "running", "off"];
 
-/** One sample of what a VM costs the host (QEMU's process): `cpu` in % of one core, memory in MB. */
+/** One sample of what a VM takes from the host (QEMU's process): `cpu` in % of one core, memory in MB. */
 export interface VmStats {
   cpu: number;
   mem: number;
@@ -39,7 +39,7 @@ export interface Run {
   call: string;
   node: string;
   status: "running" | "done" | "needs_input" | "failed";
-  cost: number;
+  tokens: number;
   summary: string;
   questions: string[];
   assumptions: string[];
@@ -135,7 +135,7 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
         const path = pathOf(b.call);
         const c = callOf(path, b.node, e.t);
         if (!c.runs.includes(b.call)) c.runs.push(b.call);
-        runs.set(b.call, { key: b.call, call: path, node: b.node, status: "running", cost: 0, summary: "", questions: [], assumptions: [], pieces: [], traffic: [], vm: "queued", vmLog: [{ state: "queued", t: e.t }], stats: [], t: e.t });
+        runs.set(b.call, { key: b.call, call: path, node: b.node, status: "running", tokens: 0, summary: "", questions: [], assumptions: [], pieces: [], traffic: [], vm: "queued", vmLog: [{ state: "queued", t: e.t }], stats: [], t: e.t });
         break;
       }
       case "run_end": {
@@ -144,7 +144,7 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
           r.vm = "off";
           r.vmLog.push({ state: "off", t: e.t });
         }
-        if (r) Object.assign(r, { status: b.status, cost: b.cost_usd ?? 0, summary: b.summary ?? "", questions: b.questions ?? [], assumptions: b.assumptions ?? [] });
+        if (r) Object.assign(r, { status: b.status, tokens: b.tokens ?? 0, summary: b.summary ?? "", questions: b.questions ?? [], assumptions: b.assumptions ?? [] });
         break;
       }
       case "agent": {
