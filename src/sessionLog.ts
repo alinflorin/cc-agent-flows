@@ -67,7 +67,7 @@ export interface CallInfo {
   depth: number;
   parent: string | null;
   asked: string;
-  status: "open" | "done" | "failed" | "needs_input";
+  status: "open" | "done" | "failed" | "needs_input" | "unmet";
   summary: string;
   questions: string[];
   t: number;

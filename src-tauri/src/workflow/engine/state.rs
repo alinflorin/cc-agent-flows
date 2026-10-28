@@ -115,7 +115,7 @@ pub trait Host: Send + Sync + 'static {
 #[derive(Debug, Clone)]
 pub struct Reported {
     pub label: String,
-    /// `done | failed | needs_input | rejected | user`
+    /// `done | failed | unmet (finished without meeting the goal) | needs_input | rejected | user`
     pub status: String,
     pub summary: String,
     pub questions: Vec<String>,

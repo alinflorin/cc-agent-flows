@@ -5,7 +5,11 @@ import { getPref, inTauri, setPref } from "../prefs";
 import { useNotify } from "../notifications";
 import { AppearanceFields } from "./AppearanceFields";
 
-const useStyles = makeStyles({ fields: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, marginTop: tokens.spacingVerticalM } });
+const useStyles = makeStyles({
+  // The buttons wrap instead of leaving the dialog when a translation is long.
+  actions: { flexWrap: "wrap", justifyContent: "flex-end", minWidth: 0 },
+  fields: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, marginTop: tokens.spacingVerticalM },
+});
 
 /** Shown once, on the first start of the desktop app. Step 1: language and theme. Step 2: the demo content (starter images, agent profiles and the standard workflow). */
 export function Welcome() {
@@ -55,7 +59,7 @@ export function Welcome() {
               <Body1 block>{t("welcome.text")}</Body1>
             )}
           </DialogContent>
-          <DialogActions>
+          <DialogActions className={styles.actions}>
             {step === 1 ? (
               <Button appearance="primary" onClick={() => setStep(2)}>
                 {t("welcome.next")}
