@@ -1,6 +1,6 @@
 [package]
 name = "cc-agent-flows"
-version = "0.7.0"
+version = "0.7.1"
 description = "CC Agent Flows desktop app"
 authors = ["Alin-Florin Ciu"]
 edition = "2024"
