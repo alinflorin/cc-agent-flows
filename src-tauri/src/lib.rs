@@ -54,6 +54,18 @@ pub fn run() {
     #[cfg(unix)]
     adopt_shell_path();
     let builder = tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .clear_targets()
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("app".into()) }),
+                ])
+                .max_file_size(2_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::new().build());
@@ -66,6 +78,7 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             can_self_update,
+            system::app_log_open,
             vm::qemu::qemu_version,
             system::system_status,
             vm::images::images_list,

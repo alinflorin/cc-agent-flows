@@ -80,3 +80,15 @@ pub async fn system_status(app: AppHandle) -> Vec<Check> {
     out.insert(3, tunnel().await);
     out
 }
+
+/// Opens the app's log file (`app.log` in the log directory) with the system's default program.
+#[tauri::command]
+pub fn app_log_open(app: AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    use tauri_plugin_opener::OpenerExt;
+    let path = app.path().app_log_dir().map_err(|e| e.to_string())?.join("app.log");
+    if !path.exists() {
+        return Err(format!("no log yet: {}", path.display()));
+    }
+    app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())
+}
