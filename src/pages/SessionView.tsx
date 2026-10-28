@@ -20,7 +20,7 @@ interface Pending {
 }
 
 interface View {
-  session: { name: string; task: string; status: string; workflow: string; project?: string | null; autonomy: "ask" | "never"; source: "chat" | "cron" | "webhook" };
+  session: { name: string; task: string; status: string; workflow: string; autonomy: "ask" | "never"; source: "chat" | "cron" | "webhook" };
   messages: string[];
   pending: Pending | null;
   live: boolean;
@@ -532,14 +532,13 @@ function Timeline({ items, onPick }: { items: Digest["timeline"]; onPick: (node:
 }
 
 export function SessionView() {
-  const { sid = "" } = useParams();
+  const { pid = "", sid = "" } = useParams();
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
   const [view, setView] = useState<View | null>(null);
   const [wf, setWf] = useState<{ nodes: WNode[]; edges: WEdge[] } | null>(null);
   const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
-  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
   const [log, setLog] = useState<Entry[]>([]);
   const [answer, setAnswer] = useState("");
   const [message, setMessage] = useState("");
@@ -562,8 +561,7 @@ export function SessionView() {
     let gone = false;
     void (async () => {
       try {
-        setWorkflows(await call<{ id: string; name: string }[]>("workflows_list"));
-        setProjects(await call<{ id: string; name: string }[]>("projects_list"));
+        setWorkflows(await call<{ id: string; name: string }[]>("workflows_list", { project: pid }));
       } catch (e) {
         notify(String(e), "error");
       }
@@ -582,7 +580,7 @@ export function SessionView() {
       gone = true;
       off?.();
     };
-  }, [sid, refresh, notify]);
+  }, [sid, pid, refresh, notify]);
 
   const wfId = view?.session.workflow;
   useEffect(() => {
@@ -651,7 +649,7 @@ export function SessionView() {
   return (
     <>
       <div className={styles.head}>
-        <Caption1><Link to="/sessions">{t("session.back")}</Link></Caption1>
+        <Caption1><Link to={`/projects/${pid}/sessions`}>{t("session.back")}</Link></Caption1>
         {title === null ? (
           <div className={styles.title}>
             <Title2 as="h1" className={session.name || session.task ? undefined : styles.muted}>{session.name || (session.task.length > 60 ? `${session.task.slice(0, 60)}…` : session.task) || t("sessions.untitled")}</Title2>
@@ -696,16 +694,6 @@ export function SessionView() {
             {workflows.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field className={styles.autonomy} orientation="horizontal" label={t("sessions.project")}>
-          <Select value={session.project ?? ""} onChange={(_, x) => act("sessions_project", { project: x.value || null })}>
-            <option value="">{t("sessions.noProject")}</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
               </option>
             ))}
           </Select>

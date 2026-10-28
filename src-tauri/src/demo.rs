@@ -6,6 +6,7 @@
 use crate::images::{self, Doc, Spec};
 use crate::injections::Injection;
 use crate::profiles::Profile;
+use crate::projects::Project;
 use crate::workflow::{Edge, EdgeKind, Node, Workflow};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -78,6 +79,7 @@ struct Raw {
     injections: Vec<Injection>,
     images: Vec<Item<RawImage>>,
     profiles: Vec<Item<Profile>>,
+    project: Item<Project>,
     workflow: RawWorkflow,
 }
 
@@ -123,6 +125,12 @@ pub fn images() -> Vec<(String, Spec)> {
 /// The starter profiles, as (id, profile).
 pub fn profiles() -> Vec<(String, Profile)> {
     raw().profiles.iter().map(|p| (p.id.clone(), p.value.clone())).collect()
+}
+
+/// The demo project, as (id, project); the standard workflow lives in it.
+pub fn project() -> (String, Project) {
+    let p = &raw().project;
+    (p.id.clone(), p.value.clone())
 }
 
 pub fn workflow() -> DemoWorkflow {
