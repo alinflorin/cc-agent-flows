@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button, makeStyles, tokens } from "@fluentui/react-components";
 import { Navigation24Regular } from "@fluentui/react-icons";
 import { useIsMobile } from "../useIsMobile";
+import { Notifier } from "./Notifier";
 import { Sidebar } from "./Sidebar";
 import { Welcome } from "./Welcome";
 
@@ -34,6 +35,7 @@ export function Layout() {
   return (
     <div className={styles.root}>
       <Welcome />
+      <Notifier />
       {/* Hidden on mobile; the overlay version only exists while open. */}
       {(!mobile || menuOpen) && <Sidebar overlay={mobile} open={mobile ? menuOpen : true} onClose={() => setMenuOpen(false)} />}
       <div className={styles.column}>

@@ -6,8 +6,10 @@ import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
 import { Button, Subtitle1, Switch, Tab, TabList, makeStyles, tokens } from "@fluentui/react-components";
 import { useNotify } from "../notifications";
+import { getPref, setPref } from "../prefs";
 import { useUpdates } from "../updates";
 import { AppearanceFields } from "../components/AppearanceFields";
+import { BundlesSettings } from "./SettingsBundles";
 import { ImagesSettings } from "./SettingsImages";
 import { LlmSettings } from "./SettingsLlm";
 import { NetworkSettings } from "./SettingsNetwork";
@@ -28,7 +30,7 @@ function GeneralSettings() {
   const notify = useNotify();
   const updates = useUpdates();
 
-  const schema = z.object({ autoUpdate: z.boolean() });
+  const schema = z.object({ autoUpdate: z.boolean(), notifications: z.boolean() });
   type Values = z.infer<typeof schema>;
 
   const {
@@ -38,11 +40,12 @@ function GeneralSettings() {
     formState: { isDirty },
   } = useForm<Values>({
     resolver: zodResolver(schema),
-    defaultValues: { autoUpdate: updates.autoUpdate },
+    defaultValues: { autoUpdate: updates.autoUpdate, notifications: getPref<boolean>("notifications") !== false },
   });
 
   const onSubmit = (v: Values) => {
     updates.setAutoUpdate(v.autoUpdate);
+    setPref("notifications", v.notifications);
     reset(v);
     notify(t("settings.saved"), "success");
   };
@@ -62,6 +65,13 @@ function GeneralSettings() {
               checked={field.value}
               onChange={(_, d) => field.onChange(d.checked)}
             />
+          )}
+        />
+        <Controller
+          control={control}
+          name="notifications"
+          render={({ field }) => (
+            <Switch label={t("settings.notifications")} checked={field.value} onChange={(_, d) => field.onChange(d.checked)} />
           )}
         />
         <div className={styles.actions}>
@@ -108,8 +118,9 @@ export function Settings() {
         <Tab value="secrets">{t("settings.tabs.secrets")}</Tab>
         <Tab value="variables">{t("settings.tabs.variables")}</Tab>
         <Tab value="injections">{t("settings.tabs.injections")}</Tab>
+        <Tab value="bundles">{t("settings.tabs.bundles")}</Tab>
       </TabList>
-      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : tab === "network" ? <NetworkSettings /> : tab === "secrets" ? <SecretsSettings /> : tab === "variables" ? <VariablesSettings /> : tab === "injections" ? <InjectionsSettings /> : <ImagesSettings />}
+      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : tab === "network" ? <NetworkSettings /> : tab === "secrets" ? <SecretsSettings /> : tab === "variables" ? <VariablesSettings /> : tab === "injections" ? <InjectionsSettings /> : tab === "bundles" ? <BundlesSettings /> : <ImagesSettings />}
     </>
   );
 }

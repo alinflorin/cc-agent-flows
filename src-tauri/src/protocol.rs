@@ -43,6 +43,7 @@ pub struct TunnelKeys {
 }
 
 /// A variable for the `claude` process (from the agent profile). `agentd` skips reserved names.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export, export_to = "../../src/generated/"))]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TaskEnv {
     pub name: String,
@@ -51,12 +52,14 @@ pub struct TaskEnv {
 }
 
 /// Messages from the app to the agent.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export, export_to = "../../src/generated/"))]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "body", rename_all = "snake_case")]
 pub enum Inbound {
     Task(Task),
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export, export_to = "../../src/generated/"))]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Task {
     pub prompt: String,
@@ -81,6 +84,7 @@ pub struct Task {
     pub env: Vec<TaskEnv>,
     /// Hard limit for the `claude` run.
     #[serde(default = "default_timeout")]
+    #[cfg_attr(test, ts(type = "number"))]
     pub timeout_secs: u64,
 }
 
@@ -93,6 +97,7 @@ fn default_timeout() -> u64 {
 }
 
 /// Messages from the agent to the app.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export, export_to = "../../src/generated/"))]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "body", rename_all = "snake_case")]
 pub enum Outbound {
@@ -105,12 +110,16 @@ pub enum Outbound {
 /// One line of `claude --output-format stream-json`, numbered. `event` is replaced by
 /// `{"truncated": true, ...}` when it would not fit in a message, or `{"type": "raw", ...}` when
 /// it was not JSON.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export, export_to = "../../src/generated/"))]
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Event {
+    #[cfg_attr(test, ts(type = "number"))]
     pub seq: u64,
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub event: Value,
 }
 
+#[cfg_attr(test, derive(ts_rs::TS), ts(export, export_to = "../../src/generated/"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
@@ -120,6 +129,7 @@ pub enum Status {
 }
 
 /// The one message that ends a run.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export, export_to = "../../src/generated/"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Final {
     pub status: Status,
@@ -135,6 +145,7 @@ pub struct Final {
     /// The structured answer (matching the task's schema), for conditions and the coordinator.
     /// Untrusted: the app validates it.
     #[serde(default)]
+    #[cfg_attr(test, ts(type = "unknown"))]
     pub output: Option<Value>,
     #[serde(default)]
     pub exit_code: Option<i32>,

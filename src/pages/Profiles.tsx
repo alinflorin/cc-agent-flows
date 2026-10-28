@@ -18,6 +18,8 @@ import {
   DialogTitle,
   Field,
   Input,
+  MessageBar,
+  MessageBarBody,
   Select,
   Textarea,
   makeStyles,
@@ -230,6 +232,11 @@ export function Profiles() {
                           />
                         </div>
                       ))}
+                      {editing.profile.env.some((v) => v.value.includes("${secret:")) && (
+                        <MessageBar intent="warning">
+                          <MessageBarBody>{t("profiles.secretWarning", { names: editing.profile.env.filter((v) => v.value.includes("${secret:")).map((v) => v.name).join(", ") })}</MessageBarBody>
+                        </MessageBar>
+                      )}
                       <div>
                         <Button icon={<Add20Regular />} onClick={() => set({ env: [...editing.profile.env, { name: "", value: "" }] })}>
                           {t("profiles.addVar")}

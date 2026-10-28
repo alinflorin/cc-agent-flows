@@ -219,7 +219,7 @@ fn spec_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(root(app)?.join("specs"))
 }
 
-fn valid_id(id: &str) -> bool {
+pub fn valid_id(id: &str) -> bool {
     !id.is_empty() && id != BASE && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
@@ -272,7 +272,7 @@ fn slug(name: &str) -> String {
     crate::profiles::slug(name)
 }
 
-fn read_specs(app: &AppHandle) -> Vec<(String, Spec)> {
+pub fn read_specs(app: &AppHandle) -> Vec<(String, Spec)> {
     let Ok(dir) = spec_dir(app) else { return vec![] };
     let Ok(rd) = std::fs::read_dir(dir) else { return vec![] };
     let mut v: Vec<_> = rd
@@ -340,8 +340,15 @@ pub fn images_list(app: AppHandle) -> Vec<Info> {
 /// built disk stale, it is not rebuilt until asked.
 #[tauri::command]
 pub fn images_save(app: AppHandle, id: Option<String>, spec: Spec) -> Result<String, String> {
+    save_spec(&app, id, spec, true)
+}
+
+/// Writes a custom image's definition (checked); with `build` its build starts at once. If it
+/// cannot start (the parent is not built, another build is running) it stays missing or out of
+/// date, with its build button.
+pub fn save_spec(app: &AppHandle, id: Option<String>, spec: Spec, build: bool) -> Result<String, String> {
     spec.validate()?;
-    let dir = spec_dir(&app)?;
+    let dir = spec_dir(app)?;
     let id = match id {
         Some(id) if valid_id(&id) => id,
         Some(_) => return Err("bad image id".into()),
@@ -358,7 +365,7 @@ pub fn images_save(app: AppHandle, id: Option<String>, spec: Spec) -> Result<Str
             id
         }
     };
-    let mut specs = read_specs(&app);
+    let mut specs = read_specs(app);
     if spec.parent != BASE && !specs.iter().any(|(i, _)| *i == spec.parent) {
         return Err("the image to build on does not exist".into());
     }
@@ -369,9 +376,9 @@ pub fn images_save(app: AppHandle, id: Option<String>, spec: Spec) -> Result<Str
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let text = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
     std::fs::write(dir.join(format!("{id}.json")), text).map_err(|e| e.to_string())?;
-    // Build it now. If it cannot start (the parent is not built, another build is running) it
-    // stays missing or out of date, with its build button.
-    let _ = start(&app, &id);
+    if build {
+        let _ = start(app, &id);
+    }
     Ok(id)
 }
 
@@ -411,11 +418,24 @@ pub fn path(app: &AppHandle, id: &str) -> Option<PathBuf> {
     disk(app, id).ok().filter(|p| p.is_file())
 }
 
-/// Builds the base image if it is missing or stale (run at startup).
+/// Builds the base image if it is missing or stale, and otherwise the custom images that are out
+/// of date (run at startup: this is how an app update, or an edit that was never built, reaches
+/// the images). When the base is rebuilt, the images built on it follow in the queue.
 pub fn ensure_base(app: &AppHandle) {
     if matches!(info(app, BASE, None).state, "missing" | "stale") {
         let _ = start(app, BASE);
+        return;
     }
+    let specs = read_specs(app);
+    // Only those whose parent is up to date start now; the others follow their parent's build.
+    let ready = |id: &str| id == BASE || info(app, id, specs.iter().find(|(i, _)| i == id).map(|(_, s)| s)).state == "ready";
+    let mut due: Vec<String> = specs.iter().filter(|(id, s)| info(app, id, Some(s)).state == "stale" && ready(&s.parent)).map(|(id, _)| id.clone()).collect();
+    if due.is_empty() {
+        return;
+    }
+    let first = due.remove(0);
+    app.state::<Images>().0.lock().unwrap().queue.extend(due);
+    let _ = start(app, &first);
 }
 
 /// The images offered on first start (`developer`, `qa`): id and spec, scripts in `default-images/`.

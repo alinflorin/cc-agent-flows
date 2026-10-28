@@ -11,6 +11,7 @@
     "updater:default",
     "process:allow-restart",
     "store:default",
+    "notification:default",
     "core:window:allow-set-title"
   ]
 }

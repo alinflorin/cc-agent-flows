@@ -1,6 +1,9 @@
 mod agent;
+mod analytics;
+mod cron;
 mod builder;
 mod egress;
+mod export;
 mod engine;
 mod images;
 mod injections;
@@ -13,6 +16,8 @@ mod workflow;
 mod protocol;
 mod qemu;
 mod runs;
+mod triggers;
+mod webhook;
 mod secrets;
 mod system;
 mod variables;
@@ -67,6 +72,7 @@ pub fn run() {
     adopt_shell_path();
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_store::Builder::new().build());
 
     #[cfg(desktop)]
@@ -106,6 +112,16 @@ pub fn run() {
             engine::session_continue,
             engine::session_cancel,
             engine::session_reply,
+            engine::session_message,
+            analytics::analytics_get,
+            triggers::triggers_status,
+            triggers::trigger_fire,
+            triggers::cron_preview,
+            webhook::webhook_get,
+            webhook::webhook_set,
+            export::bundle_export,
+            export::bundle_import,
+            export::session_audit,
             engine::session_get,
             engine::session_log,
             runs::agent_run,
@@ -130,8 +146,12 @@ pub fn run() {
             app.manage(images::Images::default());
             app.manage(runs::Runs::default());
             app.manage(engine::Sessions::default());
+            app.manage(engine::VmSlots::default());
             engine::recover(app.handle());
             images::ensure_base(app.handle());
+            app.manage(webhook::Webhook::default());
+            triggers::start(app.handle());
+            webhook::start(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

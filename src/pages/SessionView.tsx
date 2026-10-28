@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow, ReactFlowProvider, useNodesState, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Badge, Body1, Button, Caption1, Field, Input, MessageBar, MessageBarBody, Select, Spinner, Subtitle2, Tab, TabList, Textarea, Title2, makeStyles, mergeClasses, tokens } from "@fluentui/react-components";
-import { Edit20Regular } from "@fluentui/react-icons";
+import { Badge, Body1, Button, Caption1, Field, Input, Menu, MenuItem, MenuList, MenuPopover, MenuTrigger, MessageBar, MessageBarBody, Select, Spinner, Subtitle2, Tab, TabList, Textarea, Title2, makeStyles, mergeClasses, tokens } from "@fluentui/react-components";
+import { ArrowDownload20Regular, Edit20Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 import { activeEdges, clip, digest, nodeStates, nodeVms, type CallInfo, type Digest, type Entry, type NodeState, type Run, type Traffic, type VmState, type VmStats } from "../sessionLog";
@@ -20,7 +20,8 @@ interface Pending {
 }
 
 interface View {
-  session: { name: string; task: string; status: string; workflow: string; autonomy: "ask" | "never" };
+  session: { name: string; task: string; status: string; workflow: string; autonomy: "ask" | "never"; source: "chat" | "cron" | "webhook" };
+  messages: string[];
   pending: Pending | null;
   live: boolean;
   cost_usd: number;
@@ -630,6 +631,25 @@ export function SessionView() {
   const { session, pending, live } = view;
   const canStart = session.status === "new";
   const canContinue = !live && ["interrupted", "failed", "cancelled"].includes(session.status);
+  // what the root answered to the request and to each message after it, in order
+  const turnResults = log
+    .filter((e) => e.kind === "call_end" && typeof e.body.call === "string" && /^(r|t\d+)$/.test(e.body.call as string))
+    .map((e) => ({ turn: e.body.call === "r" ? 0 : Number((e.body.call as string).slice(1)), status: e.body.status as string, text: String(e.body.summary ?? "") }));
+  const turnResult = (i: number) => {
+    const all = turnResults.filter((r) => r.turn === i);
+    return all[all.length - 1];
+  };
+  const sendMessage = () => {
+    const text = message.trim();
+    if (text) void act("session_message", { text });
+  };
+  const exportAudit = async (format: "json" | "md") => {
+    try {
+      notify(t("session.auditSaved", { path: await call<string>("session_audit", { id: sid, format }) }), "success");
+    } catch (e) {
+      notify(String(e), "error");
+    }
+  };
   const pickedCalls = [...d.calls.values()].filter((c) => c.node === picked).sort((a, b) => b.t - a.t);
 
   const reply = (approved: boolean | null) => act("session_reply", { reply: { approved, text: answer } });
@@ -664,6 +684,20 @@ export function SessionView() {
         {vmAlive > 0 && <Caption1>{t("session.vm.alive", { count: vmAlive })}</Caption1>}
         {canContinue && <Button appearance="primary" onClick={() => act("session_continue")}>{t("session.continue")}</Button>}
         {live && <Button onClick={() => act("session_cancel")}>{t("runs.cancel")}</Button>}
+        {session.source !== "chat" && <Badge appearance="tint">{t(`session.source.${session.source}`)}</Badge>}
+        {!canStart && (
+          <Menu>
+            <MenuTrigger disableButtonEnhancement>
+              <Button appearance="subtle" icon={<ArrowDownload20Regular />}>{t("session.audit")}</Button>
+            </MenuTrigger>
+            <MenuPopover>
+              <MenuList>
+                <MenuItem onClick={() => void exportAudit("md")}>{t("session.auditMd")}</MenuItem>
+                <MenuItem onClick={() => void exportAudit("json")}>{t("session.auditJson")}</MenuItem>
+              </MenuList>
+            </MenuPopover>
+          </Menu>
+        )}
         <span className={styles.grow} />
         <Field className={styles.autonomy} orientation="horizontal" label={t("session.workflow")}>
           <Select
@@ -715,6 +749,14 @@ export function SessionView() {
             {tab === "chat" && (
               <>
                 {session.task ? <div className={styles.user}>{session.task}</div> : <Body1 className={styles.muted}>{t("session.firstMessage")}</Body1>}
+                {[session.task, ...view.messages].map((m, i) => (
+                  <Fragment key={i}>
+                    {i > 0 && <div className={styles.user}>{m}</div>}
+                    {turnResult(i) && !(live && i === view.messages.length) && (
+                      <div className={turnResult(i)?.status === "done" ? styles.outDone : styles.outFail}>{turnResult(i)?.text}</div>
+                    )}
+                  </Fragment>
+                ))}
                 {d.errors.map((e, i) => <MessageBar key={i} intent="error"><MessageBarBody>{e}</MessageBarBody></MessageBar>)}
                 {pending && live && (
                   <div className={styles.ask}>
@@ -735,7 +777,7 @@ export function SessionView() {
                     </div>
                   </div>
                 )}
-                {view.result && !live && (
+                {view.result && !live && turnResults.length === 0 && (
                   <>
                     <Subtitle2>{t("session.result")}</Subtitle2>
                     <div className={styles.box}>{view.result}</div>
@@ -767,6 +809,26 @@ export function SessionView() {
             <div ref={end} />
           </div>
 
+          {!canStart && (
+            <div className={styles.composer}>
+              <Textarea
+                className={styles.grow}
+                rows={2}
+                placeholder={live ? t("session.followUpQueued") : t("session.followUp")}
+                value={message}
+                onChange={(_, x) => setMessage(x.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && message.trim()) {
+                    e.preventDefault();
+                    sendMessage();
+                  }
+                }}
+              />
+              <Button appearance="primary" disabled={!message.trim()} onClick={sendMessage}>
+                {t("session.send")}
+              </Button>
+            </div>
+          )}
           {canStart && (
             <div className={styles.composer}>
               <Textarea
