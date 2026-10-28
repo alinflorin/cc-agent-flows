@@ -6,7 +6,7 @@ import { NotificationsProvider } from "./notifications";
 import { About } from "./pages/About";
 import { Analytics } from "./pages/Analytics";
 import { ProjectImages, ProjectInjections, ProjectSecrets, ProjectVariables } from "./pages/project/ProjectPages";
-import { ProjectSettings } from "./pages/project/ProjectSettings";
+import { ProjectNetwork, ProjectSettings } from "./pages/project/ProjectSettings";
 import { Projects } from "./pages/Projects";
 import { Profiles } from "./pages/Profiles";
 import { Runs } from "./pages/Runs";
@@ -47,6 +47,7 @@ const router = createHashRouter([
           { path: "secrets", element: <ProjectSecrets /> },
           { path: "injections", element: <ProjectInjections /> },
           { path: "settings", element: <ProjectSettings /> },
+          { path: "network", element: <ProjectNetwork /> },
         ],
       },
       { path: "/about", element: <About /> },

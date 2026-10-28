@@ -13,8 +13,6 @@ import {
   Field,
   Input,
   Subtitle1,
-  Tab,
-  TabList,
   Textarea,
   makeStyles,
   tokens,
@@ -43,10 +41,6 @@ const useStyles = makeStyles({
     gap: tokens.spacingVerticalM,
     maxWidth: "620px",
   },
-  tabs: {
-    marginBottom: tokens.spacingVerticalXL,
-    marginLeft: `-${tokens.spacingHorizontalM}`,
-  },
   actions: { display: "flex", gap: tokens.spacingHorizontalS },
 });
 
@@ -56,7 +50,7 @@ interface Values {
   system_prompt: string;
 }
 
-/** The project's name, description and system prompt, its allowed hosts and, at the bottom, deleting it. */
+/** The project's name, description and system prompt and, at the bottom, deleting it. */
 export function ProjectSettings() {
   const { t } = useTranslation();
   const styles = useStyles();
@@ -67,7 +61,6 @@ export function ProjectSettings() {
   const [saved, setSaved] = useState<Values | null>(null);
   const [v, setV] = useState<Values | null>(null);
   const [confirm, setConfirm] = useState(false);
-  const [tab, setTab] = useState("general");
 
   const load = useCallback(async () => {
     try {
@@ -119,17 +112,8 @@ export function ProjectSettings() {
 
   return (
     <>
-      <PageHeader title={t("projects.settings")} />
-      <TabList
-        className={styles.tabs}
-        selectedValue={tab}
-        onTabSelect={(_, d) => setTab(d.value as string)}
-      >
-        <Tab value="general">{t("settings.tabs.general")}</Tab>
-        <Tab value="network">{t("settings.tabs.network")}</Tab>
-      </TabList>
-      {tab === "network" && <NetworkSettings />}
-      {tab === "general" && v && (
+      <PageHeader title={t("settings.tabs.general")} />
+      {v && (
         <div className={styles.form}>
           <Field label={t("profiles.name")} required>
             <Input
@@ -171,38 +155,45 @@ export function ProjectSettings() {
         </div>
       )}
 
-      {tab === "general" && (
-        <div className={styles.section}>
-          <Subtitle1 block>{t("projects.danger")}</Subtitle1>
-          <div className={styles.actions}>
-            <Dialog
-              surfaceMotion={null}
-              open={confirm}
-              onOpenChange={(_, d) => setConfirm(d.open)}
-            >
-              <DialogTrigger disableButtonEnhancement>
-                <Button icon={<Delete20Regular />}>
-                  {t("projects.delete")}
-                </Button>
-              </DialogTrigger>
-              <DialogSurface backdropMotion={null}>
-                <DialogBody>
-                  <DialogTitle>{t("projects.delete")}</DialogTitle>
-                  <DialogContent>{t("projects.deleteText")}</DialogContent>
-                  <DialogActions>
-                    <Button onClick={() => setConfirm(false)}>
-                      {t("common.cancel")}
-                    </Button>
-                    <Button appearance="primary" onClick={() => void remove()}>
-                      {t("projects.deleteConfirm")}
-                    </Button>
-                  </DialogActions>
-                </DialogBody>
-              </DialogSurface>
-            </Dialog>
-          </div>
+      <div className={styles.section}>
+        <Subtitle1 block>{t("projects.danger")}</Subtitle1>
+        <div className={styles.actions}>
+          <Dialog
+            surfaceMotion={null}
+            open={confirm}
+            onOpenChange={(_, d) => setConfirm(d.open)}
+          >
+            <DialogTrigger disableButtonEnhancement>
+              <Button icon={<Delete20Regular />}>{t("projects.delete")}</Button>
+            </DialogTrigger>
+            <DialogSurface backdropMotion={null}>
+              <DialogBody>
+                <DialogTitle>{t("projects.delete")}</DialogTitle>
+                <DialogContent>{t("projects.deleteText")}</DialogContent>
+                <DialogActions>
+                  <Button onClick={() => setConfirm(false)}>
+                    {t("common.cancel")}
+                  </Button>
+                  <Button appearance="primary" onClick={() => void remove()}>
+                    {t("projects.deleteConfirm")}
+                  </Button>
+                </DialogActions>
+              </DialogBody>
+            </DialogSurface>
+          </Dialog>
         </div>
-      )}
+      </div>
+    </>
+  );
+}
+
+/** The project's allowed hosts. */
+export function ProjectNetwork() {
+  const { t } = useTranslation();
+  return (
+    <>
+      <PageHeader title={t("settings.tabs.network")} />
+      <NetworkSettings />
     </>
   );
 }
