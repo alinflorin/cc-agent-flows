@@ -122,7 +122,6 @@ pub fn resolve(value: &str, kind: &str, lookup: &dyn Fn(&str) -> Option<String>)
 pub const DEMO_SECRETS: &[&str] = &[
     "GITHUB_TOKEN",
     "JIRA_TOKEN",
-    "CONFLUENCE_TOKEN",
     "GITHUB_READONLY_TOKEN",
 ];
 const DUMMY: &str = "dummy";

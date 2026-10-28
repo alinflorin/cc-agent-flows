@@ -199,7 +199,6 @@ fn demo() -> Vec<Injection> {
         out.push(basic(&format!("GITHUB{suffix}"), vec![rule("github.com", ""), rule("api.github.com", "")], "x-access-token", &format!("GITHUB{suffix}_TOKEN")));
     }
     out.push(basic("JIRA", vec![rule("${var:ATLASSIAN_HOST}", "/rest/*")], "${var:ATLASSIAN_EMAIL}", "JIRA_TOKEN"));
-    out.push(basic("CONFLUENCE", vec![rule("${var:ATLASSIAN_HOST}", "/wiki/*")], "${var:ATLASSIAN_EMAIL}", "CONFLUENCE_TOKEN"));
     out
 }
 
@@ -375,12 +374,12 @@ mod tests {
     #[test]
     fn demo_injections_are_valid_and_use_demo_secrets() {
         let list = demo();
-        assert_eq!(cleaned(&list).unwrap().len(), 4);
+        assert_eq!(cleaned(&list).unwrap().len(), 3);
         for i in &list {
             assert!(crate::secrets::DEMO_SECRETS.contains(&i.secret.as_str()), "{}", i.name);
         }
         let names: Vec<_> = list.iter().map(|i| i.name.as_str()).collect();
-        assert!(names.contains(&"GITHUB_READONLY") && !names.contains(&"JIRA_READONLY"));
+        assert!(names.contains(&"GITHUB_READONLY") && names.contains(&"JIRA"));
     }
 
     #[test]
