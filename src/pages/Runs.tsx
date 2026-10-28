@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Badge, Body1, Button, Caption1, Field, Select, Textarea, makeStyles, tokens } from "@fluentui/react-components";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
+import { call } from "../tauri";
 
 interface ProfileInfo {
   id: string;
@@ -28,11 +29,6 @@ const useStyles = makeStyles({
   line: { whiteSpace: "pre-wrap", wordBreak: "break-word", padding: tokens.spacingVerticalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorNeutralBackground2 },
   tool: { fontFamily: tokens.fontFamilyMonospace, color: tokens.colorNeutralForeground3 },
 });
-
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
-}
 
 /** What the feed shows of one stream-json event: the assistant's text and the tools it calls. */
 function linesOf(run: string, msg: Msg): Line[] {

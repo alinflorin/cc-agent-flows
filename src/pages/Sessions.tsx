@@ -6,6 +6,7 @@ import { Body1, Button, Card, CardHeader, Caption1, Select, makeStyles, tokens }
 import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
+import { call } from "../tauri";
 
 interface Session {
   id: string;
@@ -19,11 +20,6 @@ interface Session {
 const useStyles = makeStyles({
   list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM },
 });
-
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
-}
 
 export function Sessions() {
   const { t } = useTranslation();

@@ -7,10 +7,6 @@
     "cancel": "Cancel",
     "copy": "Copy"
   },
-  "validation": {
-    "required": "This field is required.",
-    "max": "Use at most {{max}} characters."
-  },
   "nav": {
     "menu": "Menu",
     "home": "Home",
@@ -97,7 +93,6 @@
       "token": "Claude Code setup token",
       "tokenHint": "Generate one with `claude setup-token`. It is kept in the OS credential store.",
       "tokenDesktopOnly": "Only available in the desktop app.",
-      "tokenSet": "A token is saved.",
       "tokenSaved": "Token saved.",
       "tokenRemove": "Remove",
       "tokenError": "Could not access the credential store: {{error}}",
@@ -266,7 +261,6 @@
     "secretWarning": "{{names}} gets a secret in plain text: the value reaches the VM's environment, where the agent (and anything it runs) can read and send it. Prefer an injection (Settings > Injections): the VM then only sees a placeholder and the proxy adds the real credential."
   },
   "welcome": {
-    "title": "Welcome",
     "text": "Set up demo content? This creates three images built in the background, Manager (the Jira CLI, jtk, on the base image), then Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with agent-browser) on top of it, seven agent profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, tester), three secrets with a dummy value (GITHUB, GITHUB_READONLY and JIRA tokens) to replace with real ones, an injection for each (GitHub, GitHub read-only, Jira; the Jira one takes its site and e-mail from two variables, ATLASSIAN_HOST and ATLASSIAN_EMAIL, to edit in Settings > Variables) wired into the profiles that need them, and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one and, for each, has the analyst, architect, developer, reviewer and tester do their part, in that order. You can edit or delete all of it later.",
     "yes": "Yes, set it up",
     "no": "Skip",
@@ -283,7 +277,6 @@
     "filterWorkflow": "Filter by workflow",
     "new": "New session",
     "empty": "No sessions yet.",
-    "notRunnable": "Running sessions is not available yet.",
     "delete": "Delete session",
     "status": {
       "new": "New",

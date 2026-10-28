@@ -5,6 +5,7 @@ import { Badge, Body1, Button, Caption1, Spinner, Subtitle2, makeStyles, tokens 
 import { ArrowClockwise20Regular, CheckmarkCircle20Filled, DismissCircle20Filled, Info20Filled, Warning20Filled } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
 import { inTauri } from "../prefs";
+import { call } from "../tauri";
 
 interface Check {
   id: string;
@@ -25,11 +26,6 @@ const useStyles = makeStyles({
 });
 
 const icons = { ok: CheckmarkCircle20Filled, warn: Warning20Filled, error: DismissCircle20Filled, info: Info20Filled };
-
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
-}
 
 export function About() {
   const { t } = useTranslation();

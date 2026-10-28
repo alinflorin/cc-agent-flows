@@ -31,6 +31,7 @@ import { ResetDemoButton } from "../components/ResetDemoButton";
 import { inTauri } from "../prefs";
 import { MODELS } from "../llm";
 import { useNotify } from "../notifications";
+import { call } from "../tauri";
 
 interface EnvVar {
   name: string;
@@ -72,11 +73,6 @@ const useStyles = makeStyles({
   grow: { flex: 1 },
   mono: { fontFamily: tokens.fontFamilyMonospace },
 });
-
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
-}
 
 export function Profiles() {
   const { t } = useTranslation();

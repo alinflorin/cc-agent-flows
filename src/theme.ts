@@ -7,7 +7,7 @@ export const THEMES: Theme[] = ["auto", "light", "dark"];
 
 const KEY = "theme";
 
-export function getTheme(): Theme {
+function getTheme(): Theme {
   const saved = getPref<string>(KEY);
   return saved && (THEMES as string[]).includes(saved) ? (saved as Theme) : "auto";
 }
@@ -15,7 +15,7 @@ export function getTheme(): Theme {
 const listeners = new Set<() => void>();
 
 /** For `useSyncExternalStore`: lets the UI follow theme changes. */
-export function subscribeTheme(cb: () => void) {
+function subscribeTheme(cb: () => void) {
   listeners.add(cb);
   return () => void listeners.delete(cb);
 }

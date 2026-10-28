@@ -9,12 +9,12 @@ import { useNotify } from "../notifications";
 import { getPref, setPref } from "../prefs";
 import { useUpdates } from "../updates";
 import { AppearanceFields } from "../components/AppearanceFields";
-import { ImagesSettings } from "./SettingsImages";
-import { LlmSettings } from "./SettingsLlm";
-import { NetworkSettings } from "./SettingsNetwork";
-import { SecretsSettings } from "./SettingsSecrets";
-import { VariablesSettings } from "./SettingsVariables";
-import { InjectionsSettings } from "./SettingsInjections";
+import { ImagesSettings } from "./settings/Images";
+import { LlmSettings } from "./settings/Llm";
+import { NetworkSettings } from "./settings/Network";
+import { SecretsSettings } from "./settings/Secrets";
+import { VariablesSettings } from "./settings/Variables";
+import { InjectionsSettings } from "./settings/Injections";
 
 const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "480px" },

@@ -30,7 +30,7 @@ const ProfilesIcon = bundleIcon(Bot24Filled, Bot24Regular);
 const AboutIcon = bundleIcon(Info24Filled, Info24Regular);
 const SettingsIcon = bundleIcon(Settings24Filled, Settings24Regular);
 
-export const SIDEBAR_WIDTH = 240;
+const SIDEBAR_WIDTH = 240;
 
 const useStyles = makeStyles({
   // one surface for header, items and footer, and the footer pinned to the bottom

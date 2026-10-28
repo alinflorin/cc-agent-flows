@@ -7,7 +7,7 @@ export interface Entry {
   body: Record<string, any>;
 }
 
-export interface Piece {
+interface Piece {
   kind: "text" | "tool";
   text: string;
 }
@@ -24,7 +24,7 @@ export type VmState = "queued" | "preparing" | "starting" | "booting" | "running
 
 const STATS_KEPT = 40;
 
-export const VM_STATES: VmState[] = ["queued", "preparing", "starting", "booting", "running", "off"];
+const VM_STATES: VmState[] = ["queued", "preparing", "starting", "booting", "running", "off"];
 
 /** One sample of what a VM takes from the host (QEMU's process): `cpu` in % of one core, memory in MB. */
 export interface VmStats {
@@ -53,7 +53,7 @@ export interface Run {
   t: number;
 }
 
-export interface Decision {
+interface Decision {
   round: number;
   action: string;
   detail: any;
@@ -76,7 +76,7 @@ export interface CallInfo {
   refused: string[];
 }
 
-export interface TimelineItem {
+interface TimelineItem {
   t: number;
   kind: "start" | "end" | "decision" | "wait" | "reply" | "error";
   node?: string;
