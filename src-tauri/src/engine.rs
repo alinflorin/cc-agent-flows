@@ -985,7 +985,7 @@ fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
     }
     let (wf, instructions, profiles) = prepare(&app, &session.workflow)?;
     // workflow instructions first, then the project's, then (per agent) the profile's
-    let project_prompt = session.project.as_deref().map(|p| crate::projects::get(&root, p).system_prompt).unwrap_or_default();
+    let project_prompt = crate::projects::get(&root, &session.project).system_prompt;
     let instructions = crate::workflow::combine_system_prompts(&instructions, &project_prompt).unwrap_or_default();
     let mut state = if fresh { State::default() } else { read_state(&root, &sid).unwrap_or_default() };
     state.rewind_failures();

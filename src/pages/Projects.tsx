@@ -34,6 +34,7 @@ interface Project {
 interface Entry extends Project {
   id: string;
   sessions: number;
+  workflows: number;
 }
 
 const EMPTY: Project = { name: "", description: "", system_prompt: "" };
@@ -84,6 +85,7 @@ export function Projects() {
       await call("projects_save", { id: editing.id, project: editing.project });
       setOpen(false);
       await load();
+      window.dispatchEvent(new Event("projects-changed"));
     } catch (e) {
       notify(String(e), "error");
     }
@@ -93,6 +95,7 @@ export function Projects() {
     try {
       await call("projects_delete", { id });
       await load();
+      window.dispatchEvent(new Event("projects-changed"));
     } catch (e) {
       notify(String(e), "error");
     }
@@ -114,7 +117,7 @@ export function Projects() {
       {desktop && entries.length === 0 && <Body1 block style={{ color: tokens.colorNeutralForeground3 }}>{t("projects.empty")}</Body1>}
       <div className={styles.list}>
         {entries.map((e) => (
-          <Card key={e.id} className={styles.card} onClick={() => navigate(`/sessions?project=${e.id}`)}>
+          <Card key={e.id} className={styles.card} onClick={() => navigate(`/projects/${e.id}/sessions`)}>
             <CardHeader
               header={<Subtitle2>{e.name}</Subtitle2>}
               description={<Caption1 className={styles.desc}>{e.description || t("projects.noDescription")}</Caption1>}
@@ -131,7 +134,7 @@ export function Projects() {
               }
             />
             <div className={styles.footer}>
-              <Caption1>{t("projects.sessions", { count: e.sessions })}</Caption1>
+              <Caption1>{t("projects.sessions", { count: e.sessions })} · {t("projects.workflows", { count: e.workflows })}</Caption1>
               <Button
                 size="small"
                 onClick={(ev) => {

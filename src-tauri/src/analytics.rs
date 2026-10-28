@@ -26,6 +26,7 @@ fn log_entries(root: &Path, sid: &str, kinds: &[&str]) -> Vec<Value> {
 #[derive(Serialize, Debug, PartialEq)]
 pub struct SessionStat {
     id: String,
+    project: String,
     name: String,
     task: String,
     status: String,
@@ -76,6 +77,7 @@ fn day(t: u64) -> String {
 fn fold(sid: &str, session: &workflow::Session, entries: &[Value], agents: &mut HashMap<String, AgentStat>, days: &mut BTreeMap<String, DayStat>) -> SessionStat {
     let mut stat = SessionStat {
         id: sid.into(),
+        project: session.project.clone(),
         name: session.name.clone(),
         task: session.task.chars().take(200).collect(),
         status: session.status.clone(),
@@ -160,7 +162,7 @@ mod tests {
 
     #[test]
     fn folds_runs_into_session_agent_and_day_numbers() {
-        let session = workflow::Session { name: "n".into(), task: "t".into(), created: 1_000_000, status: "done".into(), autonomy: "ask".into(), workflow: "w".into(), messages: vec!["x".into()], entry: None, source: "chat".into(), project: None };
+        let session = workflow::Session { name: "n".into(), task: "t".into(), created: 1_000_000, status: "done".into(), autonomy: "ask".into(), workflow: "w".into(), messages: vec!["x".into()], entry: None, source: "chat".into(), project: "p".into() };
         let e = |t: u64, kind: &str, body: Value| json!({"t": t, "kind": kind, "body": body});
         let entries = vec![
             e(100, "started", json!({})),

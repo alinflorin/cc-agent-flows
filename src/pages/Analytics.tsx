@@ -9,6 +9,7 @@ import { useNotify } from "../notifications";
 
 interface SessionStat {
   id: string;
+  project: string;
   name: string;
   task: string;
   status: string;
@@ -189,7 +190,7 @@ export function Analytics() {
               </TableHeader>
               <TableBody>
                 {heaviest.map((s) => (
-                  <TableRow key={s.id} className={styles.row} onClick={() => navigate(`/sessions/${s.id}`)}>
+                  <TableRow key={s.id} className={styles.row} onClick={() => navigate(`/projects/${s.project}/sessions/${s.id}`)}>
                     <TableCell><TableCellLayout>{s.name || s.task.slice(0, 60) || t("sessions.untitled")}</TableCellLayout></TableCell>
                     <TableCell>{t(`sessions.status.${s.status}`, s.status)}</TableCell>
                     <TableCell>{s.turns}</TableCell>
