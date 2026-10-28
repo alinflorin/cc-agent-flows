@@ -32,6 +32,7 @@ import { inTauri } from "../prefs";
 import { MODELS } from "../llm";
 import { useNotify } from "../notifications";
 import { call } from "../tauri";
+import { useProjectId } from "../project";
 
 interface EnvVar {
   name: string;
@@ -78,6 +79,7 @@ export function Profiles() {
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
+  const project = useProjectId();
   const desktop = inTauri();
 
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -95,15 +97,20 @@ export function Profiles() {
 
   const load = useCallback(async () => {
     try {
-      setEntries(await call<Entry[]>("profiles_list"));
-      setImages(await call<ImageInfo[]>("images_list"));
-      setSecrets(await call<string[]>("secrets_list"));
-      setInjections((await call<{ name: string }[]>("injections_get")).map((i) => i.name));
-      setVariables((await call<{ name: string }[]>("variables_list")).map((v) => v.name));
+      setEntries(await call<Entry[]>("profiles_list", { project }));
+      setImages(await call<ImageInfo[]>("images_list", { project }));
+      // what a profile can refer to: the project's own and the global ones
+      const both = async <T,>(cmd: string, pick: (x: T) => string) => {
+        const [own, global] = await Promise.all([call<T[]>(cmd, { project }), call<T[]>(cmd, { project: null })]);
+        return [...new Set([...own, ...global].map(pick))];
+      };
+      setSecrets(await both<string>("secrets_list", (n) => n));
+      setInjections(await both<{ name: string }>("injections_get", (i) => i.name));
+      setVariables(await both<{ name: string }>("variables_list", (v) => v.name));
     } catch (e) {
       notify(String(e), "error");
     }
-  }, [notify]);
+  }, [notify, project]);
 
   useEffect(() => {
     if (desktop) void load();
@@ -112,7 +119,7 @@ export function Profiles() {
   const save = async () => {
     if (!editing) return;
     try {
-      await call("profiles_save", { id: editing.id, profile: editing.profile });
+      await call("profiles_save", { project, id: editing.id, profile: editing.profile });
       setOpen(false);
       await load();
     } catch (e) {
@@ -122,7 +129,7 @@ export function Profiles() {
 
   const remove = async (id: string) => {
     try {
-      await call("profiles_delete", { id });
+      await call("profiles_delete", { project, id });
       await load();
     } catch (e) {
       notify(String(e), "error");

@@ -1,6 +1,7 @@
 //! Credential injection: named rules that tell the egress proxy to put a secret into the requests
 //! an agent sends to certain URLs, so the secret itself never enters the VM. Stored as
-//! `<app data>/injections.json`, edited in Settings > Injections.
+//! `injections.json` of the global settings or of a project; a run uses both lists (a project's
+//! injection replaces a global one with the same name).
 //!
 //! An injection says which requests it applies to (host, path pattern, methods), how the header is
 //! built (`Bearer`, `Basic` with a user name, or the raw secret in a header of your choice) and
@@ -15,6 +16,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 use crate::config::profiles::{EnvVar, clean_host};
+use crate::config::scope::Scope;
 use crate::vm::protocol::TaskEnv;
 
 const MAX_INJECTIONS: usize = 100;
@@ -151,8 +153,8 @@ fn cleaned(list: &[Injection]) -> Result<Vec<Injection>, String> {
     Ok(out)
 }
 
-fn file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(crate::util::data_dir(app)?.join("injections.json"))
+fn file(app: &tauri::AppHandle, scope: &Scope) -> Result<PathBuf, String> {
+    Ok(scope.dir(app)?.join("injections.json"))
 }
 
 pub fn load(path: &Path) -> Vec<Injection> {
@@ -160,14 +162,14 @@ pub fn load(path: &Path) -> Vec<Injection> {
 }
 
 #[tauri::command]
-pub fn injections_get(app: tauri::AppHandle) -> Result<Vec<Injection>, String> {
-    Ok(load(&file(&app)?))
+pub fn injections_get(app: tauri::AppHandle, project: Option<String>) -> Result<Vec<Injection>, String> {
+    Ok(load(&file(&app, &Scope::of(project)?)?))
 }
 
 #[tauri::command]
-pub fn injections_save(app: tauri::AppHandle, injections: Vec<Injection>) -> Result<Vec<Injection>, String> {
+pub fn injections_save(app: tauri::AppHandle, project: Option<String>, injections: Vec<Injection>) -> Result<Vec<Injection>, String> {
     let list = cleaned(&injections)?;
-    let path = file(&app)?;
+    let path = file(&app, &Scope::of(project)?)?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
@@ -178,8 +180,8 @@ pub fn injections_save(app: tauri::AppHandle, injections: Vec<Injection>) -> Res
 /// Part of the demo content: adds the demo injections that do not exist yet.
 ///
 /// `reset`: the demo injections are written again over the ones with their names, other injections are left alone.
-pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
-    let path = file(app)?;
+pub fn provision_demo(app: &tauri::AppHandle, scope: &Scope, reset: bool) -> Result<(), String> {
+    let path = file(app, scope)?;
     let mut list = load(&path);
     for i in crate::demo::injections() {
         match list.iter_mut().find(|o| o.name == i.name) {
@@ -195,10 +197,10 @@ pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String>
     std::fs::write(&path, serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
-/// Settings > Injections > Reset to demo content.
+/// Injections > Reset to demo content.
 #[tauri::command]
-pub fn injections_reset_demo(app: tauri::AppHandle) -> Result<(), String> {
-    provision_demo(&app, true)
+pub fn injections_reset_demo(app: tauri::AppHandle, project: Option<String>) -> Result<(), String> {
+    provision_demo(&app, &Scope::of(project)?, true)
 }
 
 /// An injection switched on for a run, with its header value built from the secret. It lives in
@@ -341,10 +343,21 @@ fn resolved(i: &Injection, var: &dyn Fn(&str) -> Option<String>) -> Result<Injec
     Ok(cleaned(&[i])?.remove(0))
 }
 
-/// [`build`] with the saved injections, the credential store and the saved variables.
-pub fn prepare(app: &tauri::AppHandle, vars: &[EnvVar]) -> Result<(Vec<TaskEnv>, Vec<Active>), String> {
-    let variables = crate::config::variables::all(app);
-    build(&load(&file(app)?), vars, &crate::config::secrets::secret_value, &|n| variables.get(n).cloned())
+/// The injections a run in `project` can use: the global ones, with the project's replacing those of the same name.
+fn available(app: &tauri::AppHandle, project: &Scope) -> Result<Vec<Injection>, String> {
+    let mut list = load(&file(app, &Scope::global())?);
+    if !project.is_global() {
+        let own = load(&file(app, project)?);
+        list.retain(|g| !own.iter().any(|o| o.name == g.name));
+        list.extend(own);
+    }
+    Ok(list)
+}
+
+/// [`build`] with the saved injections of the project and the global ones, the credential store and the saved variables.
+pub fn prepare(app: &tauri::AppHandle, project: &Scope, vars: &[EnvVar]) -> Result<(Vec<TaskEnv>, Vec<Active>), String> {
+    let variables = crate::config::variables::all(app, project);
+    build(&available(app, project)?, vars, &|n| crate::config::secrets::secret_value(project, n), &|n| variables.get(n).cloned())
 }
 
 #[cfg(test)]

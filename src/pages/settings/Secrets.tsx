@@ -7,6 +7,7 @@ import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
+import { useProject } from "../../project";
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
@@ -23,6 +24,7 @@ export function SecretsSettings() {
   const styles = useStyles();
   const notify = useNotify();
   const desktop = inTauri();
+  const project = useProject();
 
   const [names, setNames] = useState<string[]>([]);
   const [name, setName] = useState("");
@@ -32,11 +34,11 @@ export function SecretsSettings() {
 
   const load = useCallback(async () => {
     try {
-      setNames(await call<string[]>("secrets_list"));
+      setNames(await call<string[]>("secrets_list", { project }));
     } catch (e) {
       notify(String(e), "error");
     }
-  }, [notify]);
+  }, [notify, project]);
 
   useEffect(() => {
     if (desktop) void load();
@@ -44,7 +46,7 @@ export function SecretsSettings() {
 
   const save = async (n: string, v: string) => {
     try {
-      await call("secrets_set", { name: n, value: v });
+      await call("secrets_set", { project, name: n, value: v });
       notify(t("settings.secrets.saved"), "success");
       await load();
       return true;
@@ -56,7 +58,7 @@ export function SecretsSettings() {
 
   const remove = async (n: string) => {
     try {
-      await call("secrets_delete", { name: n });
+      await call("secrets_delete", { project, name: n });
       await load();
     } catch (e) {
       notify(String(e), "error");

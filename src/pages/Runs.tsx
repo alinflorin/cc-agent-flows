@@ -5,6 +5,7 @@ import { Badge, Body1, Button, Caption1, Field, Select, Textarea, makeStyles, to
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 import { call } from "../tauri";
+import { useProjectId } from "../project";
 
 interface ProfileInfo {
   id: string;
@@ -53,6 +54,7 @@ export function Runs() {
   const styles = useStyles();
   const notify = useNotify();
   const desktop = inTauri();
+  const project = useProjectId();
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [profile, setProfile] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -63,7 +65,7 @@ export function Runs() {
 
   useEffect(() => {
     if (!desktop) return;
-    void call<ProfileInfo[]>("profiles_list").then((p) => {
+    void call<ProfileInfo[]>("profiles_list", { project }).then((p) => {
       setProfiles(p);
       setProfile((cur) => cur || p[0]?.id || "");
     });
@@ -76,13 +78,13 @@ export function Runs() {
       }).then((u) => (off = u)),
     );
     return () => off?.();
-  }, [desktop]);
+  }, [desktop, project]);
 
   const start = async () => {
     try {
       current.current = null;
       setLines([]);
-      const id = await call<string>("agent_run", { profile, prompt });
+      const id = await call<string>("agent_run", { project, profile, prompt });
       current.current = id;
       setRun(id);
       setFinished(false);

@@ -1,5 +1,6 @@
 //! Variables: named values that are not secret (a site's host, an e-mail address), kept in plain
-//! text in `<app data>/variables.json` and edited in Settings > Variables. They are used like
+//! text in `variables.json` of the global settings or of a project (Variables page). A run sees
+//! both, the project's winning on a name they share. They are used like
 //! secrets: `${var:NAME}` in an agent profile's environment variable (inside a longer value too,
 //! `https://${var:HOST}`) or in an injection's host, path pattern or user name. The reference is
 //! resolved when the run starts, so changing a variable changes every place that uses it. Unlike a
@@ -10,6 +11,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+use crate::config::scope::Scope;
+
 const MAX_VARIABLES: usize = 200;
 const MAX_VALUE: usize = 4096;
 
@@ -19,8 +22,8 @@ pub struct Variable {
     value: String,
 }
 
-fn file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(crate::util::data_dir(app)?.join("variables.json"))
+fn file(app: &tauri::AppHandle, scope: &Scope) -> Result<PathBuf, String> {
+    Ok(scope.dir(app)?.join("variables.json"))
 }
 
 fn load(path: &Path) -> BTreeMap<String, String> {
@@ -44,16 +47,20 @@ fn check(name: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// All variables, for resolving `${var:NAME}` in a run.
-pub fn all(app: &tauri::AppHandle) -> BTreeMap<String, String> {
-    file(app).map(|f| load(&f)).unwrap_or_default()
+/// The variables a run in `project` sees: the global ones, overridden by the project's.
+pub fn all(app: &tauri::AppHandle, project: &Scope) -> BTreeMap<String, String> {
+    let mut map = file(app, &Scope::global()).map(|f| load(&f)).unwrap_or_default();
+    if !project.is_global() {
+        map.extend(file(app, project).map(|f| load(&f)).unwrap_or_default());
+    }
+    map
 }
 
 /// Part of the demo content: adds the demo variables that do not exist yet.
 ///
 /// `reset`: the demo variables get their placeholder values again, the ones the user set are lost.
-pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
-    let path = file(app)?;
+pub fn provision_demo(app: &tauri::AppHandle, scope: &Scope, reset: bool) -> Result<(), String> {
+    let path = file(app, scope)?;
     let mut map = load(&path);
     for (name, value) in crate::demo::variables() {
         if reset {
@@ -65,22 +72,23 @@ pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String>
     save(&path, &map)
 }
 
-/// Settings > Variables > Reset to demo content.
+/// Variables > Reset to demo content.
 #[tauri::command]
-pub fn variables_reset_demo(app: tauri::AppHandle) -> Result<(), String> {
-    provision_demo(&app, true)
+pub fn variables_reset_demo(app: tauri::AppHandle, project: Option<String>) -> Result<(), String> {
+    provision_demo(&app, &Scope::of(project)?, true)
 }
 
+/// The variables defined in the global settings or in one project (not merged).
 #[tauri::command]
-pub fn variables_list(app: tauri::AppHandle) -> Result<Vec<Variable>, String> {
-    Ok(load(&file(&app)?).into_iter().map(|(name, value)| Variable { name, value }).collect())
+pub fn variables_list(app: tauri::AppHandle, project: Option<String>) -> Result<Vec<Variable>, String> {
+    Ok(load(&file(&app, &Scope::of(project)?)?).into_iter().map(|(name, value)| Variable { name, value }).collect())
 }
 
 /// Creates a variable or replaces its value.
 #[tauri::command]
-pub fn variables_set(app: tauri::AppHandle, name: String, value: String) -> Result<(), String> {
+pub fn variables_set(app: tauri::AppHandle, project: Option<String>, name: String, value: String) -> Result<(), String> {
     check(&name, &value)?;
-    let path = file(&app)?;
+    let path = file(&app, &Scope::of(project)?)?;
     let mut map = load(&path);
     if !map.contains_key(&name) && map.len() >= MAX_VARIABLES {
         return Err(format!("at most {MAX_VARIABLES} variables"));
@@ -90,8 +98,8 @@ pub fn variables_set(app: tauri::AppHandle, name: String, value: String) -> Resu
 }
 
 #[tauri::command]
-pub fn variables_delete(app: tauri::AppHandle, name: String) -> Result<(), String> {
-    let path = file(&app)?;
+pub fn variables_delete(app: tauri::AppHandle, project: Option<String>, name: String) -> Result<(), String> {
+    let path = file(&app, &Scope::of(project)?)?;
     let mut map = load(&path);
     map.remove(&name);
     save(&path, &map)

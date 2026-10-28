@@ -21,21 +21,21 @@ export function Notifier() {
     let gone = false;
     void (async () => {
       const [{ listen }, { invoke }, notification] = await Promise.all([import("@tauri-apps/api/event"), import("@tauri-apps/api/core"), import("@tauri-apps/plugin-notification")]);
-      const show = async (session: string, key: string, vars: Record<string, unknown>) => {
+      const show = async (project: string, session: string, key: string, vars: Record<string, unknown>) => {
         if (getPref<boolean>("notifications") === false || document.hasFocus()) return;
         try {
           if (!(await notification.isPermissionGranted()) && (await notification.requestPermission()) !== "granted") return;
-          const s = await invoke<{ session: { name: string; task: string } }>("session_get", { id: session });
+          const s = await invoke<{ session: { name: string; task: string } }>("session_get", { project, id: session });
           const name = s.session.name || s.session.task.slice(0, 60);
           notification.sendNotification({ title: name || t("sessions.untitled"), body: t(key, vars) });
         } catch {
           // notifications are a convenience: never in the way
         }
       };
-      const u = await listen<{ session: string; entry: Entry }>("session-log", ({ payload: { session, entry } }) => {
+      const u = await listen<{ project: string; session: string; entry: Entry }>("session-log", ({ payload: { project, session, entry } }) => {
         const b = entry.body;
-        if (entry.kind === "wait") void show(session, `session.notify.${b.kind === "approve" ? "approve" : "questions"}`, { label: String(b.label ?? "") });
-        else if (entry.kind === "status" && ["done", "failed"].includes(String(b.status))) void show(session, `session.notify.${b.status}`, {});
+        if (entry.kind === "wait") void show(project, session, `session.notify.${b.kind === "approve" ? "approve" : "questions"}`, { label: String(b.label ?? "") });
+        else if (entry.kind === "status" && ["done", "failed"].includes(String(b.status))) void show(project, session, `session.notify.${b.status}`, {});
       });
       if (gone) u();
       else off = u;

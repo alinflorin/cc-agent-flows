@@ -1,18 +1,26 @@
-# The demo content, in one place: everything the welcome dialog's "demo content" creates and the
-# "Reset to demo content" buttons write again. Parsed by src/demo.rs (checked by `cargo test`).
+# The demo content, in one place: the demo project, with everything the welcome dialog's "demo
+# content" creates in it and the "Reset to demo content" buttons write again. Parsed by
+# src/demo.rs (checked by `cargo test`).
 
-# Variables (Settings > Variables): placeholders the user edits; referenced as ${var:NAME}.
+# The project that owns all of the below. Allowed hosts stay on the profiles (and the Claude API
+# in the global settings), so the project adds none; its system prompt is empty.
+project:
+  id: "demo"
+  name: "Delivery pipeline (demo)"
+  description: "An orchestrator, a project manager and a team of specialists that take Jira tickets to merged pull requests."
+
+# Variables (project > Variables): placeholders the user edits; referenced as ${var:NAME}.
 variables:
   ATLASSIAN_HOST: "your-site.atlassian.net"
   ATLASSIAN_EMAIL: "you@example.com"
 
-# Secrets (Settings > Secrets): created with the value `dummy`, to be replaced.
+# Secrets (project > Secrets): created with the value `dummy`, to be replaced.
 secrets:
   - "GITHUB_TOKEN"
   - "JIRA_TOKEN"
   - "GITHUB_READONLY_TOKEN"
 
-# Injections (Settings > Injections): credentials the proxy adds to requests; each uses one secret above.
+# Injections (project > Injections): credentials the proxy adds to requests; each uses one secret above.
 injections:
   - kind: "basic"
     name: "GITHUB"
@@ -35,7 +43,7 @@ injections:
     secret: "JIRA_TOKEN"
     username: "${var:ATLASSIAN_EMAIL}"
 
-# Images (Settings > Images): built after the base, in this order; `script` is a file next to this one.
+# Images (project > Images): built after the base, in this order; `script` is a file next to this one.
 images:
   - id: "manager"
     name: "Manager"

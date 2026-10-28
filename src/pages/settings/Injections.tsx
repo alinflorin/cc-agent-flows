@@ -25,6 +25,7 @@ import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
+import { useProject } from "../../project";
 
 interface InjectionRule {
   host: string;
@@ -69,6 +70,7 @@ export function InjectionsSettings() {
   const styles = useStyles();
   const notify = useNotify();
   const desktop = inTauri();
+  const project = useProject();
 
   const [list, setList] = useState<Injection[]>([]);
   const [secrets, setSecrets] = useState<string[]>([]);
@@ -78,12 +80,12 @@ export function InjectionsSettings() {
 
   const load = useCallback(async () => {
     try {
-      setList(await call<Injection[]>("injections_get"));
-      setSecrets(await call<string[]>("secrets_list"));
+      setList(await call<Injection[]>("injections_get", { project }));
+      setSecrets(await call<string[]>("secrets_list", { project }));
     } catch (e) {
       notify(String(e), "error");
     }
-  }, [notify]);
+  }, [notify, project]);
 
   useEffect(() => {
     if (desktop) void load();
@@ -96,7 +98,7 @@ export function InjectionsSettings() {
 
   const persist = async (next: Injection[]) => {
     try {
-      setList(await call<Injection[]>("injections_save", { injections: next }));
+      setList(await call<Injection[]>("injections_save", { project, injections: next }));
       return true;
     } catch (e) {
       notify(String(e), "error");

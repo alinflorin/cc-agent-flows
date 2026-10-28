@@ -148,8 +148,8 @@ pub fn compute(root: &std::path::Path) -> Analytics {
 }
 
 #[tauri::command]
-pub async fn analytics_get(app: AppHandle) -> Result<Analytics, String> {
-    let root = workflow::root(&app)?;
+pub async fn analytics_get(app: AppHandle, project: String) -> Result<Analytics, String> {
+    let root = workflow::root(&app, &project)?;
     tauri::async_runtime::spawn_blocking(move || compute(&root)).await.map_err(|e| e.to_string())
 }
 

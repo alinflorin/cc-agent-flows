@@ -1,17 +1,20 @@
 import { Suspense } from "react";
-import { createHashRouter, RouterProvider } from "react-router";
+import { Navigate, createHashRouter, RouterProvider } from "react-router";
 import { FluentProvider, makeStaticStyles } from "@fluentui/react-components";
 import { Layout } from "./components/Layout";
 import { NotificationsProvider } from "./notifications";
 import { About } from "./pages/About";
 import { Analytics } from "./pages/Analytics";
-import { Home } from "./pages/Home";
+import { ProjectImages, ProjectInjections, ProjectSecrets, ProjectVariables } from "./pages/project/ProjectPages";
+import { ProjectSettings } from "./pages/project/ProjectSettings";
+import { Projects } from "./pages/Projects";
 import { Profiles } from "./pages/Profiles";
 import { Runs } from "./pages/Runs";
 import { SessionView } from "./pages/session/SessionView";
 import { Sessions } from "./pages/Sessions";
 import { Settings } from "./pages/Settings";
 import { Workflow } from "./pages/workflow/Workflow";
+import { ProjectRoute } from "./project";
 import { useFluentTheme } from "./theme";
 import { UpdatesProvider } from "./updates";
 
@@ -27,15 +30,28 @@ const router = createHashRouter([
   {
     element: <Layout />,
     children: [
-      { path: "/", element: <Home /> },
-      { path: "/workflow", element: <Workflow /> },
-      { path: "/sessions", element: <Sessions /> },
-      { path: "/sessions/:sid", element: <SessionView /> },
-      { path: "/analytics", element: <Analytics /> },
-      { path: "/runs", element: <Runs /> },
-      { path: "/profiles", element: <Profiles /> },
+      { path: "/", element: <Projects /> },
+      {
+        path: "/p/:pid",
+        element: <ProjectRoute />,
+        children: [
+          { index: true, element: <Navigate to="sessions" replace /> },
+          { path: "workflow", element: <Workflow /> },
+          { path: "sessions", element: <Sessions /> },
+          { path: "sessions/:sid", element: <SessionView /> },
+          { path: "profiles", element: <Profiles /> },
+          { path: "runs", element: <Runs /> },
+          { path: "analytics", element: <Analytics /> },
+          { path: "images", element: <ProjectImages /> },
+          { path: "variables", element: <ProjectVariables /> },
+          { path: "secrets", element: <ProjectSecrets /> },
+          { path: "injections", element: <ProjectInjections /> },
+          { path: "settings", element: <ProjectSettings /> },
+        ],
+      },
       { path: "/about", element: <About /> },
-      { path: "/settings", element: <Settings /> },
+      { path: "/settings", element: <Navigate to="general" replace /> },
+      { path: "/settings/:tab", element: <Settings /> },
     ],
   },
 ]);

@@ -19,6 +19,7 @@ use tauri::{AppHandle, Manager};
 use tokio::process::Command;
 
 use crate::config::profiles::EnvVar;
+use crate::config::scope::Scope;
 use crate::vm::builder::{Console, Serial, script_cmd, within};
 use crate::vm::machine::{arch, drive_arg, machine, qemu_img, resources};
 
@@ -139,12 +140,39 @@ impl Spec {
     }
 }
 
+/// An image: the id and where it lives. Global images are `base` and the ones made in Settings;
+/// a project's are made in the project. A project's image can be built on a global one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ref {
+    pub scope: Scope,
+    pub id: String,
+}
+
+impl Ref {
+    fn new(scope: &Scope, id: &str) -> Ref {
+        Ref { scope: scope.clone(), id: id.to_string() }
+    }
+
+    fn base() -> Ref {
+        Ref::new(&Scope::global(), BASE)
+    }
+
+    /// Unique over all scopes: the id, or `<project>/<id>`.
+    fn key(&self) -> String {
+        match self.scope.id() {
+            None => self.id.clone(),
+            Some(p) => format!("{p}/{}", self.id),
+        }
+    }
+}
+
 #[derive(Default)]
 struct Inner {
     /// The image being built (one at a time).
-    building: Option<String>,
+    building: Option<Ref>,
     /// Images waiting for their turn: the ones built on an image that was just rebuilt.
-    queue: Vec<String>,
+    queue: Vec<Ref>,
+    /// By [`Ref::key`].
     logs: HashMap<String, Vec<String>>,
     errors: HashMap<String, String>,
 }
@@ -152,6 +180,14 @@ struct Inner {
 /// Managed state: what the builds are doing.
 #[derive(Default)]
 pub struct Images(Mutex<Inner>);
+
+impl Images {
+    /// Whether an image of the project is being built or waits to be.
+    pub fn busy_in(&self, project: &str) -> bool {
+        let g = self.0.lock().unwrap();
+        g.building.iter().chain(g.queue.iter()).any(|r| r.scope.id() == Some(project))
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 struct Meta {
@@ -162,6 +198,8 @@ struct Meta {
 #[derive(Serialize)]
 pub struct Info {
     pub id: String,
+    /// The project it belongs to; `None` for a global image.
+    scope: Option<String>,
     /// The built-in image: not editable or deletable.
     builtin: bool,
     name: String,
@@ -185,20 +223,20 @@ fn plain_image(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(resources(app)?.join("images").join(format!("alpine-{}.qcow2", arch()?)))
 }
 
-fn root(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(crate::util::data_dir(app)?.join("images"))
+fn root(app: &AppHandle, scope: &Scope) -> Result<PathBuf, String> {
+    Ok(scope.dir(app)?.join("images"))
 }
 
-fn disk(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
-    Ok(root(app)?.join("built").join(format!("{id}.qcow2")))
+fn disk(app: &AppHandle, r: &Ref) -> Result<PathBuf, String> {
+    Ok(root(app, &r.scope)?.join("built").join(format!("{}.qcow2", r.id)))
 }
 
-fn meta_path(app: &AppHandle, id: &str) -> Result<PathBuf, String> {
-    Ok(root(app)?.join("built").join(format!("{id}.json")))
+fn meta_path(app: &AppHandle, r: &Ref) -> Result<PathBuf, String> {
+    Ok(root(app, &r.scope)?.join("built").join(format!("{}.json", r.id)))
 }
 
-fn spec_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(root(app)?.join("specs"))
+fn spec_dir(app: &AppHandle, scope: &Scope) -> Result<PathBuf, String> {
+    Ok(root(app, scope)?.join("specs"))
 }
 
 pub fn valid_id(id: &str) -> bool {
@@ -226,11 +264,12 @@ fn base_stamp(app: &AppHandle) -> Result<String, String> {
 
 /// The stamp an image should have given its sources now. For a custom image: its script on top
 /// of its parent's stamp as it was built (so a rebuilt parent makes it stale, down the chain).
-fn wanted_stamp(app: &AppHandle, spec: Option<&Spec>) -> Result<String, String> {
+fn wanted_stamp(app: &AppHandle, r: &Ref, spec: Option<&Spec>) -> Result<String, String> {
     match spec {
         None => base_stamp(app),
         Some(spec) => {
-            let parent: Meta = read_meta(app, &spec.parent).ok_or("the parent image is not built")?;
+            let parent = resolve(app, &r.scope, &spec.parent).ok_or("the parent image does not exist")?;
+            let parent: Meta = read_meta(app, &parent).ok_or("the parent image is not built")?;
             let mut h = Sha256::new();
             h.update(&parent.stamp);
             h.update(env_lines(&spec.env).as_bytes());
@@ -250,13 +289,14 @@ fn hex(d: &[u8]) -> String {
     d[..12].iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn read_meta(app: &AppHandle, id: &str) -> Option<Meta> {
-    let text = std::fs::read_to_string(meta_path(app, id).ok()?).ok()?;
+fn read_meta(app: &AppHandle, r: &Ref) -> Option<Meta> {
+    let text = std::fs::read_to_string(meta_path(app, r).ok()?).ok()?;
     serde_json::from_str(&text).ok()
 }
 
-pub fn read_specs(app: &AppHandle) -> Vec<(String, Spec)> {
-    let Ok(dir) = spec_dir(app) else { return vec![] };
+/// The custom images of one scope.
+pub fn read_specs(app: &AppHandle, scope: &Scope) -> Vec<(String, Spec)> {
+    let Ok(dir) = spec_dir(app, scope) else { return vec![] };
     let Ok(rd) = std::fs::read_dir(dir) else { return vec![] };
     let mut v: Vec<_> = rd
         .flatten()
@@ -271,31 +311,61 @@ pub fn read_specs(app: &AppHandle) -> Vec<(String, Spec)> {
     v
 }
 
-fn info(app: &AppHandle, id: &str, spec: Option<&Spec>) -> Info {
+/// The custom images of every scope: the global ones and each project's.
+fn all_specs(app: &AppHandle) -> Vec<(Ref, Spec)> {
+    let mut scopes = vec![Scope::global()];
+    scopes.extend(crate::config::projects::ids(app).iter().map(|p| Scope::project(p)));
+    scopes.iter().flat_map(|sc| read_specs(app, sc).into_iter().map(|(id, s)| (Ref::new(sc, &id), s))).collect()
+}
+
+/// The image an id means to something in `scope`: the project's own, else the global one (`base`
+/// included). A project's image shadows a global one with the same id.
+pub fn resolve(app: &AppHandle, scope: &Scope, id: &str) -> Option<Ref> {
+    if id == BASE {
+        return Some(Ref::base());
+    }
+    if !scope.is_global() && read_specs(app, scope).iter().any(|(i, _)| i == id) {
+        return Some(Ref::new(scope, id));
+    }
+    read_specs(app, &Scope::global()).iter().any(|(i, _)| i == id).then(|| Ref::new(&Scope::global(), id))
+}
+
+fn spec_of(app: &AppHandle, r: &Ref) -> Option<Spec> {
+    read_specs(app, &r.scope).into_iter().find(|(i, _)| *i == r.id).map(|(_, s)| s)
+}
+
+/// The image a custom image is built on.
+fn parent_of(app: &AppHandle, r: &Ref, spec: &Spec) -> Option<Ref> {
+    resolve(app, &r.scope, &spec.parent)
+}
+
+fn info(app: &AppHandle, r: &Ref, spec: Option<&Spec>) -> Info {
     let inner = app.state::<Images>();
     let g = inner.0.lock().unwrap();
     let (mut state, mut built_at, mut size) = ("missing", None, None);
-    if let Some(meta) = read_meta(app, id)
-        && let Ok(d) = disk(app, id)
+    if let Some(meta) = read_meta(app, r)
+        && let Ok(d) = disk(app, r)
         && d.is_file()
     {
         built_at = Some(meta.built_at);
         size = std::fs::metadata(&d).ok().map(|m| m.len());
-        state = if wanted_stamp(app, spec).is_ok_and(|s| s == meta.stamp) { "ready" } else { "stale" };
+        state = if wanted_stamp(app, r, spec).is_ok_and(|s| s == meta.stamp) { "ready" } else { "stale" };
     }
-    if g.building.as_deref() == Some(id) {
+    if g.building.as_ref() == Some(r) {
         state = "building";
-    } else if g.queue.iter().any(|q| q == id) {
+    } else if g.queue.contains(r) {
         state = "queued";
     }
     let (name, description, script, docs, env) = match spec {
         Some(s) => (s.name.clone(), s.description.clone(), s.script.clone(), s.docs.clone(), s.env.clone()),
         None => ("Base".into(), "Alpine with agentd, Claude Code and ripgrep".into(), String::new(), vec![], vec![]),
     };
+    let key = r.key();
     Info {
-        can_build: spec.is_none_or(|s| path(app, &s.parent).is_some()),
+        can_build: spec.is_none_or(|s| parent_of(app, r, s).is_some_and(|p| built(app, &p).is_some())),
         parent: spec.map(|s| s.parent.clone()),
-        id: id.to_string(),
+        id: r.id.clone(),
+        scope: r.scope.id().map(str::to_string),
         builtin: spec.is_none(),
         name,
         description,
@@ -305,33 +375,44 @@ fn info(app: &AppHandle, id: &str, spec: Option<&Spec>) -> Info {
         state,
         built_at,
         size,
-        error: g.errors.get(id).cloned(),
-        log: g.logs.get(id).cloned().unwrap_or_default(),
+        error: g.errors.get(&key).cloned(),
+        log: g.logs.get(&key).cloned().unwrap_or_default(),
     }
 }
 
+/// The global images (the base first), or those of a project followed by the global ones it can use.
 #[tauri::command]
-pub fn images_list(app: AppHandle) -> Vec<Info> {
-    let mut v = vec![info(&app, BASE, None)];
-    for (id, spec) in read_specs(&app) {
-        v.push(info(&app, &id, Some(&spec)));
+pub fn images_list(app: AppHandle, project: Option<String>) -> Result<Vec<Info>, String> {
+    let scope = Scope::of(project)?;
+    let mut v = vec![];
+    if !scope.is_global() {
+        scope.dir(&app)?;
+        for (id, spec) in read_specs(&app, &scope) {
+            v.push(info(&app, &Ref::new(&scope, &id), Some(&spec)));
+        }
     }
-    v
+    v.push(info(&app, &Ref::base(), None));
+    for (id, spec) in read_specs(&app, &Scope::global()) {
+        v.push(info(&app, &Ref::new(&Scope::global(), &id), Some(&spec)));
+    }
+    Ok(v)
 }
 
 /// Creates (`id` null) or updates a custom image; returns its id. Editing the script makes the
 /// built disk stale, it is not rebuilt until asked.
 #[tauri::command]
-pub fn images_save(app: AppHandle, id: Option<String>, spec: Spec) -> Result<String, String> {
-    save_spec(&app, id, spec)
+pub fn images_save(app: AppHandle, project: Option<String>, id: Option<String>, spec: Spec) -> Result<String, String> {
+    save_spec(&app, &Scope::of(project)?, id, spec)
 }
 
 /// Writes a custom image's definition (checked) and starts its build at once. If it
 /// cannot start (the parent is not built, another build is running) it stays missing or out of
 /// date, with its build button.
-fn save_spec(app: &AppHandle, id: Option<String>, spec: Spec) -> Result<String, String> {
+fn save_spec(app: &AppHandle, scope: &Scope, id: Option<String>, spec: Spec) -> Result<String, String> {
     spec.validate()?;
-    let dir = spec_dir(app)?;
+    let dir = spec_dir(app, scope)?;
+    let global_ids: Vec<String> = read_specs(app, &Scope::global()).into_iter().map(|(i, _)| i).collect();
+    let taken = |id: &str| dir.join(format!("{id}.json")).exists() || (!scope.is_global() && global_ids.iter().any(|g| g == id));
     let id = match id {
         Some(id) if valid_id(&id) => id,
         Some(_) => return Err("bad image id".into()),
@@ -341,15 +422,15 @@ fn save_spec(app: &AppHandle, id: Option<String>, spec: Spec) -> Result<String, 
                 return Err("pick another name".into());
             }
             let (mut id, mut n) = (base.clone(), 2);
-            while dir.join(format!("{id}.json")).exists() {
+            while taken(&id) {
                 id = format!("{base}-{n}");
                 n += 1;
             }
             id
         }
     };
-    let mut specs = read_specs(app);
-    if spec.parent != BASE && !specs.iter().any(|(i, _)| *i == spec.parent) {
+    let mut specs = read_specs(app, scope);
+    if resolve(app, scope, &spec.parent).is_none() {
         return Err("the image to build on does not exist".into());
     }
     specs.retain(|(i, _)| *i != id);
@@ -357,58 +438,74 @@ fn save_spec(app: &AppHandle, id: Option<String>, spec: Spec) -> Result<String, 
         return Err("an image cannot be built on itself or on one built on it".into());
     }
     crate::util::write_json(&dir.join(format!("{id}.json")), &spec)?;
-    let _ = start(app, &id);
+    let _ = start(app, &Ref::new(scope, &id));
     Ok(id)
 }
 
 #[tauri::command]
-pub fn images_delete(app: AppHandle, id: String) -> Result<(), String> {
+pub fn images_delete(app: AppHandle, project: Option<String>, id: String) -> Result<(), String> {
+    let scope = Scope::of(project)?;
     if !valid_id(&id) {
         return Err("the base image cannot be deleted".into());
     }
-    if crate::config::profiles::used_images(&app).contains(&id) {
+    let r = Ref::new(&scope, &id);
+    // profiles of the project, or of every project for a global image (unless it shadows theirs)
+    let users: Vec<String> = match scope.id() {
+        Some(p) => crate::config::profiles::used_images(&app, p),
+        None => crate::config::projects::ids(&app)
+            .iter()
+            .filter(|p| !read_specs(&app, &Scope::project(p)).iter().any(|(i, _)| *i == id))
+            .flat_map(|p| crate::config::profiles::used_images(&app, p))
+            .collect(),
+    };
+    if users.contains(&id) {
         return Err("an agent profile uses this image".into());
     }
-    if let Some((child, _)) = read_specs(&app).into_iter().find(|(_, s)| s.parent == id) {
-        return Err(format!("the image {child} is built on it"));
+    if let Some((child, _)) = all_specs(&app).into_iter().find(|(c, s)| *c != r && parent_of(&app, c, s).as_ref() == Some(&r)) {
+        return Err(format!("the image {} is built on it", child.id));
     }
     {
         let images = app.state::<Images>();
         let mut g = images.0.lock().unwrap();
-        if g.building.as_deref() == Some(id.as_str()) {
+        if g.building.as_ref() == Some(&r) {
             return Err("it is being built".into());
         }
-        g.queue.retain(|q| *q != id);
+        g.queue.retain(|q| *q != r);
     }
-    std::fs::remove_file(spec_dir(&app)?.join(format!("{id}.json"))).map_err(|e| e.to_string())?;
-    let _ = std::fs::remove_file(disk(&app, &id)?);
-    let _ = std::fs::remove_file(meta_path(&app, &id)?);
+    std::fs::remove_file(spec_dir(&app, &scope)?.join(format!("{id}.json"))).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(disk(&app, &r)?);
+    let _ = std::fs::remove_file(meta_path(&app, &r)?);
     Ok(())
 }
 
 /// Starts a build in the background; progress is in `images_list`.
 #[tauri::command]
-pub fn images_build(app: AppHandle, id: String) -> Result<(), String> {
-    start(&app, &id)
+pub fn images_build(app: AppHandle, project: Option<String>, id: String) -> Result<(), String> {
+    start(&app, &Ref::new(&Scope::of(project)?, &id))
 }
 
 /// The built disk of an image, if there is one.
-pub fn path(app: &AppHandle, id: &str) -> Option<PathBuf> {
-    disk(app, id).ok().filter(|p| p.is_file())
+fn built(app: &AppHandle, r: &Ref) -> Option<PathBuf> {
+    disk(app, r).ok().filter(|p| p.is_file())
+}
+
+/// The built disk of the image a run in `scope` means by `id`.
+pub fn path(app: &AppHandle, scope: &Scope, id: &str) -> Option<PathBuf> {
+    built(app, &resolve(app, scope, id)?)
 }
 
 /// Builds the base image if it is missing or stale, and otherwise the custom images that are out
 /// of date (run at startup: this is how an app update, or an edit that was never built, reaches
 /// the images). When the base is rebuilt, the images built on it follow in the queue.
 pub fn ensure_base(app: &AppHandle) {
-    if matches!(info(app, BASE, None).state, "missing" | "stale") {
-        let _ = start(app, BASE);
+    if matches!(info(app, &Ref::base(), None).state, "missing" | "stale") {
+        let _ = start(app, &Ref::base());
         return;
     }
-    let specs = read_specs(app);
+    let specs = all_specs(app);
     // Only those whose parent is up to date start now; the others follow their parent's build.
-    let ready = |id: &str| id == BASE || info(app, id, specs.iter().find(|(i, _)| i == id).map(|(_, s)| s)).state == "ready";
-    let mut due: Vec<String> = specs.iter().filter(|(id, s)| info(app, id, Some(s)).state == "stale" && ready(&s.parent)).map(|(id, _)| id.clone()).collect();
+    let ready = |p: &Ref| *p == Ref::base() || specs.iter().find(|(i, _)| i == p).is_some_and(|(i, s)| info(app, i, Some(s)).state == "ready");
+    let mut due: Vec<Ref> = specs.iter().filter(|(r, s)| info(app, r, Some(s)).state == "stale" && parent_of(app, r, s).is_some_and(|p| ready(&p))).map(|(r, _)| r.clone()).collect();
     if due.is_empty() {
         return;
     }
@@ -417,12 +514,12 @@ pub fn ensure_base(app: &AppHandle) {
     let _ = start(app, &first);
 }
 
-/// Creates the default images (the ones that do not exist yet) and builds them: now if the base is
-/// built, else after it (while the base builds they follow it as the images built on it).
+/// Creates the demo images in a project (the ones that do not exist yet) and builds them: now if
+/// the base is built, else after it (while the base builds they follow it as the images built on it).
 ///
-/// `reset`: the starter images are written again over what is there (the edits of the user are lost, other images are left alone) and the ones that are then missing or out of date are built. Refused while a build runs.
-pub fn provision_defaults(app: &AppHandle, reset: bool) -> Result<(), String> {
-    let dir = spec_dir(app)?;
+/// `reset`: the demo images are written again over what is there (the edits of the user are lost, other images are left alone) and the ones that are then missing or out of date are built. Refused while a build runs.
+pub fn provision_defaults(app: &AppHandle, scope: &Scope, reset: bool) -> Result<(), String> {
+    let dir = spec_dir(app, scope)?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     if reset {
         let images = app.state::<Images>();
@@ -434,14 +531,15 @@ pub fn provision_defaults(app: &AppHandle, reset: bool) -> Result<(), String> {
     let mut created = vec![];
     for (id, spec) in crate::demo::images() {
         let file = dir.join(format!("{id}.json"));
+        let r = Ref::new(scope, &id);
         if reset || !file.exists() {
             crate::util::write_json(&file, &spec)?;
-            if !reset || info(app, &id, Some(&spec)).state != "ready" {
-                created.push(id.clone());
+            if !reset || info(app, &r, Some(&spec)).state != "ready" {
+                created.push(r);
             }
         }
     }
-    if info(app, BASE, None).state == "ready"
+    if info(app, &Ref::base(), None).state == "ready"
         && let Some((first, rest)) = created.split_first()
     {
         app.state::<Images>().0.lock().unwrap().queue.extend(rest.iter().cloned());
@@ -450,33 +548,29 @@ pub fn provision_defaults(app: &AppHandle, reset: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Settings > Images > Reset to demo content.
+/// Images > Reset to demo content.
 #[tauri::command]
-pub fn images_reset_demo(app: AppHandle) -> Result<(), String> {
-    provision_defaults(&app, true)
+pub fn images_reset_demo(app: AppHandle, project: Option<String>) -> Result<(), String> {
+    provision_defaults(&app, &Scope::of(project)?, true)
 }
 
-fn start(app: &AppHandle, id: &str) -> Result<(), String> {
-    let spec = if id == BASE {
-        None
-    } else {
-        let specs = read_specs(app);
-        Some(specs.into_iter().find(|(i, _)| i == id).ok_or("no such image")?.1)
-    };
+fn start(app: &AppHandle, r: &Ref) -> Result<(), String> {
+    let spec = if *r == Ref::base() { None } else { Some(spec_of(app, r).ok_or("no such image")?) };
     {
         let images = app.state::<Images>();
         let mut g = images.0.lock().unwrap();
         if let Some(b) = &g.building {
-            return Err(format!("{b} is being built, wait for it"));
+            return Err(format!("{} is being built, wait for it", b.id));
         }
-        g.building = Some(id.to_string());
-        g.logs.insert(id.to_string(), vec![]);
-        g.errors.remove(id);
+        g.building = Some(r.clone());
+        g.logs.insert(r.key(), vec![]);
+        g.errors.remove(&r.key());
     }
-    let (app, id) = (app.clone(), id.to_string());
+    let (app, r) = (app.clone(), r.clone());
     tauri::async_runtime::spawn(async move {
-        let result = build(&app, &id, spec.as_ref()).await;
+        let result = build(&app, &r, spec.as_ref()).await;
         {
+            let children: Vec<Ref> = if result.is_ok() { all_specs(&app).into_iter().filter(|(c, s)| parent_of(&app, c, s).as_ref() == Some(&r)).map(|(c, _)| c).collect() } else { vec![] };
             let images = app.state::<Images>();
             let mut g = images.0.lock().unwrap();
             g.building = None;
@@ -484,15 +578,15 @@ fn start(app: &AppHandle, id: &str) -> Result<(), String> {
                 Ok(()) => {
                     // A rebuilt image changes everything built on it: rebuild those next, and
                     // theirs after each of them (a chain reaction, one build at a time).
-                    for (child, _) in read_specs(&app).into_iter().filter(|(_, s)| s.parent == id) {
+                    for child in children {
                         if !g.queue.contains(&child) {
                             g.queue.push(child);
                         }
                     }
                 }
                 Err(e) => {
-                    g.logs.entry(id.clone()).or_default().push(format!("build failed: {e}"));
-                    g.errors.insert(id.clone(), e);
+                    g.logs.entry(r.key()).or_default().push(format!("build failed: {e}"));
+                    g.errors.insert(r.key(), e);
                 }
             }
         }
@@ -519,36 +613,37 @@ fn start(app: &AppHandle, id: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn log(app: &AppHandle, id: &str, line: &str) {
+fn log(app: &AppHandle, r: &Ref, line: &str) {
     let images = app.state::<Images>();
     let mut g = images.0.lock().unwrap();
-    let log = g.logs.entry(id.to_string()).or_default();
+    let log = g.logs.entry(r.key()).or_default();
     log.push(line.to_string());
     if log.len() > LOG_LINES {
         log.remove(0);
     }
 }
 
-async fn build(app: &AppHandle, id: &str, spec: Option<&Spec>) -> Result<(), String> {
-    let stamp = wanted_stamp(app, spec)?;
+async fn build(app: &AppHandle, r: &Ref, spec: Option<&Spec>) -> Result<(), String> {
+    let stamp = wanted_stamp(app, r, spec)?;
     // The base is built from the plain image, a custom image from its finished parent.
     let source = match spec {
         None => plain_image(app)?,
-        Some(s) => path(app, &s.parent).ok_or_else(|| format!("build {} first", s.parent))?,
+        Some(s) => parent_of(app, r, s).and_then(|p| built(app, &p)).ok_or_else(|| format!("build {} first", s.parent))?,
     };
-    let out = root(app)?.join("built");
-    let work = root(app)?.join("work");
+    let out = root(app, &r.scope)?.join("built");
+    let work = root(app, &r.scope)?.join("work");
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
-    let result = build_in(app, id, spec, &source, &out, &work, &stamp).await;
+    let result = build_in(app, r, spec, &source, &out, &work, &stamp).await;
     let _ = std::fs::remove_dir_all(&work);
     result
 }
 
 /// Boots a builder VM from an overlay of `source`, runs the setup in it and flattens the disk to
 /// `out/<id>.qcow2`.
-async fn build_in(app: &AppHandle, id: &str, spec: Option<&Spec>, source: &Path, out: &Path, work: &Path, stamp: &str) -> Result<(), String> {
-    let say = |l: &str| log(app, id, l);
+async fn build_in(app: &AppHandle, r: &Ref, spec: Option<&Spec>, source: &Path, out: &Path, work: &Path, stamp: &str) -> Result<(), String> {
+    let id = r.id.as_str();
+    let say = |l: &str| log(app, r, l);
     let overlay = work.join("disk.qcow2");
     say("creating the builder disk");
     qemu_img(app, &["create", "-q", "-f", "qcow2", "-b", source.to_str().unwrap(), "-F", "qcow2", overlay.to_str().unwrap()]).await?;

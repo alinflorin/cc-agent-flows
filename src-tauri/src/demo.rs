@@ -1,11 +1,13 @@
-//! The demo content in one place: `demo/demo.yaml` (variables, secrets, injections, images,
-//! profiles and the standard workflow) and the image scripts next to it. The welcome dialog's demo
-//! content and the "Reset to demo content" buttons write it; each module's `provision_*` takes its
-//! part from here. Parsed once; a mistake in the file panics, which `cargo test` catches.
+//! The demo content in one place: `demo/demo.yaml` (the demo project with its variables, secrets,
+//! injections, images, profiles and the standard workflow) and the image scripts next to it. The
+//! welcome dialog's demo content and the "Reset to demo content" buttons write it; each module's
+//! `provision_*` takes its part from here. Parsed once; a mistake in the file panics, which `cargo test` catches.
 
 use crate::vm::images::{Doc, Spec};
 use crate::config::injections::Injection;
 use crate::config::profiles::{self, Profile};
+use crate::config::projects::Project;
+use crate::config::scope::Scope;
 use crate::workflow::{Edge, EdgeKind, Node, Workflow};
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -72,7 +74,20 @@ struct RawWorkflow {
 }
 
 #[derive(Deserialize)]
+struct RawProject {
+    id: String,
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    system_prompt: String,
+    #[serde(default)]
+    allow_hosts: Vec<String>,
+}
+
+#[derive(Deserialize)]
 struct Raw {
+    project: RawProject,
     variables: BTreeMap<String, String>,
     secrets: Vec<String>,
     injections: Vec<Injection>,
@@ -91,6 +106,16 @@ pub struct DemoWorkflow {
 fn raw() -> &'static Raw {
     static RAW: OnceLock<Raw> = OnceLock::new();
     RAW.get_or_init(|| serde_yaml_ng::from_str(FILE).unwrap_or_else(|e| panic!("demo/demo.yaml: {e}")))
+}
+
+/// The id of the demo project.
+pub fn project_id() -> &'static str {
+    &raw().project.id
+}
+
+fn project() -> Project {
+    let p = &raw().project;
+    Project { name: p.name.clone(), description: p.description.clone(), system_prompt: p.system_prompt.clone(), allow_hosts: p.allow_hosts.clone() }
 }
 
 /// The demo variables, name and placeholder value.
@@ -154,15 +179,22 @@ pub fn workflow() -> DemoWorkflow {
     DemoWorkflow { id: w.id.clone(), name: w.name.clone(), workflow: Workflow { nodes, edges } }
 }
 
-/// First-start setup the user accepted: the starter images (building them), profiles, secrets and workflow.
+/// First-start setup the user accepted: the demo project with its images (building them), profiles,
+/// secrets, variables, injections and workflow. What exists already is left alone. Returns the project's id.
 #[tauri::command]
-pub fn provision_starters(app: tauri::AppHandle) -> Result<(), String> {
-    crate::vm::images::provision_defaults(&app, false)?;
-    crate::config::profiles::provision_defaults(&app, false)?;
-    crate::config::secrets::provision_demo(&app, false)?;
-    crate::config::variables::provision_demo(&app, false)?;
-    crate::config::injections::provision_demo(&app, false)?;
-    crate::workflow::provision_defaults(&app)
+pub fn provision_starters(app: tauri::AppHandle) -> Result<String, String> {
+    let id = project_id();
+    if crate::config::projects::load(&app, id).is_none() {
+        crate::config::projects::store(&app, id, &project())?;
+    }
+    let scope = Scope::project(id);
+    crate::vm::images::provision_defaults(&app, &scope, false)?;
+    crate::config::profiles::provision_defaults(&app, id, false)?;
+    crate::config::secrets::provision_demo(&app, &scope, false)?;
+    crate::config::variables::provision_demo(&app, &scope, false)?;
+    crate::config::injections::provision_demo(&app, &scope, false)?;
+    crate::workflow::provision_defaults(&app, id)?;
+    Ok(id.to_string())
 }
 
 #[cfg(test)]

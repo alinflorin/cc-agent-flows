@@ -31,6 +31,7 @@ export function LlmSettings() {
   const [model, setModel] = useState(getPref<string>("llmModel") ?? DEFAULT_MODEL);
   const [thinking, setThinking] = useState(getPref<string>("llmThinking") ?? DEFAULT_THINKING);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [mode, setMode] = useState<"round_robin" | "drain">("round_robin");
   const [name, setName] = useState("");
   const [token, setToken] = useState("");
   const [renew, setRenew] = useState<{ id: string; token: string } | null>(null);
@@ -38,6 +39,7 @@ export function LlmSettings() {
   const load = useCallback(async () => {
     try {
       setAccounts(await call<Account[]>("accounts_list"));
+      setMode(await call<"round_robin" | "drain">("accounts_mode"));
     } catch (e) {
       notify(String(e), "error");
     }
@@ -117,6 +119,24 @@ export function LlmSettings() {
           </div>
         );
       })}
+      <Field label={t("settings.llm.mode")} hint={t(`settings.llm.modeHint.${mode}`)}>
+        <Dropdown
+          disabled={!desktop}
+          value={t(`settings.llm.modes.${mode}`)}
+          selectedOptions={[mode]}
+          onOptionSelect={(_, d) => {
+            const next = d.optionValue as "round_robin" | "drain";
+            setMode(next);
+            void run("accounts_set_mode", { mode: next });
+          }}
+        >
+          {(["round_robin", "drain"] as const).map((m) => (
+            <Option key={m} value={m}>
+              {t(`settings.llm.modes.${m}`)}
+            </Option>
+          ))}
+        </Dropdown>
+      </Field>
       <Field label={t("settings.llm.addAccount")} hint={t("settings.llm.tokenHint")}>
         <div className={styles.row}>
           <Input value={name} disabled={!desktop} placeholder={t("settings.llm.accountName")} onChange={(_, d) => setName(d.value)} />

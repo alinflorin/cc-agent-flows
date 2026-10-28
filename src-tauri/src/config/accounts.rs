@@ -1,7 +1,8 @@
 //! Claude accounts: several setup tokens (personal subscriptions) that agent runs share. Tokens
 //! are in the OS credential store like the single token before them (`default` is that same
-//! entry); names and the on/off switch are in `<app data>/claude-accounts.json`. Each run takes
-//! the next ready account in turn (round-robin). A run that fails because Claude refused the
+//! entry); names, the on/off switch and the mode are in `<app data>/claude-accounts.json`. Each run
+//! takes a ready account: the next in turn (round-robin, the default) or, in drain mode, the first
+//! in the list until it rests, then the next one. A run that fails because Claude refused the
 //! account (usage limit, rate limit, a rejected token) puts that account on cooldown, and when
 //! the run had done no billed work it is started again on the next account (`runs::run_vm`).
 //! Cooldowns live in memory only: a restart gives every account another chance.
@@ -37,9 +38,22 @@ fn yes() -> bool {
     true
 }
 
+/// How the next account is chosen among those that are ready.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    /// Each run takes the next account in turn.
+    #[default]
+    RoundRobin,
+    /// Always the first account in the list that is ready, so one is used up before the next is touched.
+    Drain,
+}
+
 #[derive(Default, Serialize, Deserialize)]
 struct Index {
     accounts: Vec<Meta>,
+    #[serde(default)]
+    mode: Mode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,12 +104,15 @@ struct Candidate {
     cooling_until: Option<u64>,
 }
 
-/// Which candidate runs next: round-robin over those that are not resting (`turn` counts the
-/// picks so far); when all are resting, the one that rests the shortest.
-fn choose(c: &[Candidate], now: u64, turn: usize) -> Option<usize> {
+/// Which candidate runs next: among those that are not resting, the next in turn (`turn` counts
+/// the picks so far) or, when draining, the first; when all are resting, the one that rests the shortest.
+fn choose(c: &[Candidate], now: u64, turn: usize, mode: Mode) -> Option<usize> {
     let ready: Vec<usize> = (0..c.len()).filter(|i| c[*i].cooling_until.is_none_or(|u| u <= now)).collect();
     if !ready.is_empty() {
-        return Some(ready[turn % ready.len()]);
+        return Some(match mode {
+            Mode::RoundRobin => ready[turn % ready.len()],
+            Mode::Drain => ready[0],
+        });
     }
     (0..c.len()).min_by_key(|i| c[*i].cooling_until)
 }
@@ -106,12 +123,14 @@ fn cooling_until(id: &str) -> Option<(u64, Cooldown)> {
 
 /// The account the next run uses, not one of `tried`: `(id, name, token)`.
 pub fn pick(app: &AppHandle, tried: &[String]) -> Result<(String, String, String), String> {
-    let usable: Vec<(Meta, String)> = read(app).accounts.into_iter().filter(|a| a.enabled && !tried.contains(&a.id)).filter_map(|a| token(&a.id).map(|t| (a, t))).collect();
+    let index = read(app);
+    let mode = index.mode;
+    let usable: Vec<(Meta, String)> = index.accounts.into_iter().filter(|a| a.enabled && !tried.contains(&a.id)).filter_map(|a| token(&a.id).map(|t| (a, t))).collect();
     if usable.is_empty() {
         return Err(if tried.is_empty() { "no Claude account is ready: add a setup token in Settings > LLM".into() } else { "every Claude account was refused (usage limit or rejected token)".to_string() });
     }
     let cands: Vec<Candidate> = usable.iter().map(|(a, _)| Candidate { cooling_until: cooling_until(&a.id).map(|c| c.0) }).collect();
-    let i = choose(&cands, now(), TURN.fetch_add(1, Ordering::Relaxed)).ok_or("no Claude account")?;
+    let i = choose(&cands, now(), TURN.fetch_add(1, Ordering::Relaxed), mode).ok_or("no Claude account")?;
     let (a, t) = usable.into_iter().nth(i).ok_or("no Claude account")?;
     Ok((a.id, a.name, t))
 }
@@ -173,6 +192,19 @@ pub fn accounts_list(app: AppHandle) -> Vec<Info> {
             Info { has_token: token(&a.id).is_some(), rest_until: rest.map(|r| r.0), rest_why: rest.map(|r| if r.1 == Cooldown::Limited { "limited" } else { "rejected" }), id: a.id, name: a.name, enabled: a.enabled }
         })
         .collect()
+}
+
+/// How runs choose among the accounts (Settings > LLM).
+#[tauri::command]
+pub fn accounts_mode(app: AppHandle) -> Mode {
+    read(&app).mode
+}
+
+#[tauri::command]
+pub fn accounts_set_mode(app: AppHandle, mode: Mode) -> Result<(), String> {
+    let mut index = read(&app);
+    index.mode = mode;
+    write(&app, &index)
 }
 
 fn clean_token(t: &str) -> Result<String, String> {
@@ -262,11 +294,23 @@ mod tests {
     #[test]
     fn takes_the_ready_accounts_in_turn() {
         let c = [cand(None), cand(Some(500)), cand(None)];
-        let picks: Vec<_> = (0..4).map(|t| choose(&c, 100, t).unwrap()).collect();
+        let picks: Vec<_> = (0..4).map(|t| choose(&c, 100, t, Mode::RoundRobin).unwrap()).collect();
         assert_eq!(picks, [0, 2, 0, 2], "the resting one is skipped");
-        assert_eq!(choose(&c, 600, 1), Some(1), "its rest is over");
-        assert_eq!(choose(&[cand(Some(900)), cand(Some(700))], 100, 0), Some(1), "all resting: the one that wakes first");
-        assert_eq!(choose(&[], 0, 0), None);
+        assert_eq!(choose(&c, 600, 1, Mode::RoundRobin), Some(1), "its rest is over");
+        assert_eq!(choose(&[cand(Some(900)), cand(Some(700))], 100, 0, Mode::RoundRobin), Some(1), "all resting: the one that wakes first");
+        assert_eq!(choose(&[], 0, 0, Mode::RoundRobin), None);
+    }
+
+    #[test]
+    fn draining_uses_the_first_ready_account_until_it_rests() {
+        let c = [cand(None), cand(None), cand(None)];
+        assert!((0..5).all(|t| choose(&c, 100, t, Mode::Drain) == Some(0)));
+        let c = [cand(Some(500)), cand(None), cand(None)];
+        assert!((0..5).all(|t| choose(&c, 100, t, Mode::Drain) == Some(1)), "the first one rests, so the second is drained");
+        assert_eq!(choose(&c, 600, 3, Mode::Drain), Some(0), "back to the first when it wakes");
+        assert_eq!(choose(&[cand(Some(900)), cand(Some(700))], 100, 0, Mode::Drain), Some(1), "all resting: the one that wakes first");
+        let index: Index = serde_json::from_str(r#"{"accounts":[]}"#).unwrap();
+        assert_eq!(index.mode, Mode::RoundRobin, "round-robin is the default");
     }
 
     #[test]

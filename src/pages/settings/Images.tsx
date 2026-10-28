@@ -24,6 +24,7 @@ import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
+import { useProject } from "../../project";
 
 interface EnvVar {
   name: string;
@@ -37,6 +38,8 @@ interface Doc {
 
 interface Image {
   id: string;
+  /** The project it belongs to; null for a global image. */
+  scope: string | null;
   builtin: boolean;
   name: string;
   description: string;
@@ -120,10 +123,11 @@ export function ImagesSettings() {
   const styles = useStyles();
   const notify = useNotify();
   const desktop = inTauri();
+  const project = useProject();
   const [images, setImages] = useState<Image[] | null>(null);
   const [editing, setEditing] = useState<{ id: string | null; spec: Spec } | null>(null);
 
-  const refresh = useCallback(() => call<Image[]>("images_list").then(setImages, () => {}), []);
+  const refresh = useCallback(() => call<Image[]>("images_list", { project }).then(setImages, () => {}), [project]);
 
   useEffect(() => {
     if (!desktop) return;
@@ -134,7 +138,7 @@ export function ImagesSettings() {
 
   const run = async (cmd: string, args: Record<string, unknown>) => {
     try {
-      await call(cmd, args);
+      await call(cmd, { project, ...args });
       await refresh();
       return true;
     } catch (e) {
@@ -151,6 +155,8 @@ export function ImagesSettings() {
   const setDoc = (n: number, value: string) =>
     setEditing((e) => e && { ...e, spec: { ...e.spec, docs: e.spec.docs.map((d, j) => (j === n ? { ...d, value } : d)) } });
   const busy = images.some((i) => i.state === "building");
+  // inside a project the global images are listed too (to build on), but they are managed in Settings
+  const own = (i: Image) => i.scope === project;
 
   return (
     <>
@@ -172,10 +178,13 @@ export function ImagesSettings() {
               <Badge appearance="filled" color={COLORS[i.state]}>
                 {t(`settings.images.state.${i.state}`)}
               </Badge>
-              <Button disabled={busy || !i.can_build} title={i.can_build ? undefined : t("settings.images.needBase")} onClick={() => run("images_build", { id: i.id })}>
-                {i.state === "missing" ? t("settings.images.build") : t("settings.images.rebuild")}
-              </Button>
-              {!i.builtin && (
+              {!own(i) && <Badge appearance="outline">{t("settings.images.global")}</Badge>}
+              {own(i) && (
+                <Button disabled={busy || !i.can_build} title={i.can_build ? undefined : t("settings.images.needBase")} onClick={() => run("images_build", { id: i.id })}>
+                  {i.state === "missing" ? t("settings.images.build") : t("settings.images.rebuild")}
+                </Button>
+              )}
+              {!i.builtin && own(i) && (
                 <>
                   <Button
                     appearance="subtle"

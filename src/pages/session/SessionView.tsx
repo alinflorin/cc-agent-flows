@@ -8,6 +8,7 @@ import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { clip, digest, type Entry } from "../../sessionLog";
 import { call } from "../../tauri";
+import { projectPath, useProjectId } from "../../project";
 import { useStyles } from "./styles";
 import { Tab_, View, WEdge, WNode, fmtTokens, statusColor } from "./types";
 import { Graph } from "./Graph";
@@ -15,6 +16,7 @@ import { CallCard, Timeline, TrafficView } from "./Calls";
 
 export function SessionView() {
   const { sid = "" } = useParams();
+  const project = useProjectId();
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
@@ -31,11 +33,11 @@ export function SessionView() {
 
   const refresh = useCallback(async () => {
     try {
-      setView(await call<View>("session_get", { id: sid }));
+      setView(await call<View>("session_get", { project, id: sid }));
     } catch (e) {
       notify(String(e), "error");
     }
-  }, [sid, notify]);
+  }, [sid, project, notify]);
 
   useEffect(() => {
     if (!inTauri()) return;
@@ -43,15 +45,15 @@ export function SessionView() {
     let gone = false;
     void (async () => {
       try {
-        setWorkflows(await call<{ id: string; name: string }[]>("workflows_list"));
+        setWorkflows(await call<{ id: string; name: string }[]>("workflows_list", { project }));
       } catch (e) {
         notify(String(e), "error");
       }
-      setLog(await call<Entry[]>("session_log", { id: sid }));
+      setLog(await call<Entry[]>("session_log", { project, id: sid }));
       await refresh();
       const { listen } = await import("@tauri-apps/api/event");
-      const u = await listen<{ session: string; entry: Entry }>("session-log", (e) => {
-        if (e.payload.session !== sid) return;
+      const u = await listen<{ project: string; session: string; entry: Entry }>("session-log", (e) => {
+        if (e.payload.session !== sid || e.payload.project !== project) return;
         setLog((l) => [...l, e.payload.entry]);
         if (["status", "wait", "reply", "call_end"].includes(e.payload.entry.kind)) void refresh();
       });
@@ -62,19 +64,19 @@ export function SessionView() {
       gone = true;
       off?.();
     };
-  }, [sid, refresh, notify]);
+  }, [sid, project, refresh, notify]);
 
   const wfId = view?.session.workflow;
   useEffect(() => {
     if (!inTauri() || !wfId) return;
     void (async () => {
       try {
-        setWf((await call<{ workflow: { nodes: WNode[]; edges: WEdge[] } }>("workflow_get", { id: wfId })).workflow);
+        setWf((await call<{ workflow: { nodes: WNode[]; edges: WEdge[] } }>("workflow_get", { project, id: wfId })).workflow);
       } catch (e) {
         notify(String(e), "error");
       }
     })();
-  }, [wfId, notify]);
+  }, [wfId, project, notify]);
 
   const names = useMemo(() => Object.fromEntries((wf?.nodes ?? []).map((n) => [n.id, n.label || n.profile || t("wf.kind.you")])), [wf, t]);
   const d = useMemo(() => digest(log, names), [log, names]);
@@ -86,7 +88,7 @@ export function SessionView() {
 
   const act = async (cmd: string, args: Record<string, unknown> = {}) => {
     try {
-      await call(cmd, { id: sid, ...args });
+      await call(cmd, { project, id: sid, ...args });
       setAnswer("");
       setMessage("");
       await refresh();
@@ -131,7 +133,7 @@ export function SessionView() {
   return (
     <>
       <div className={styles.head}>
-        <Caption1><Link to="/sessions">{t("session.back")}</Link></Caption1>
+        <Caption1><Link to={projectPath(project, "/sessions")}>{t("session.back")}</Link></Caption1>
         {title === null ? (
           <div className={styles.title}>
             <Title2 as="h1" className={session.name || session.task ? undefined : styles.muted}>{session.name || (session.task.length > 60 ? `${session.task.slice(0, 60)}…` : session.task) || t("sessions.untitled")}</Title2>
@@ -166,7 +168,7 @@ export function SessionView() {
             disabled={!canStart}
             onChange={async (_, x) => {
               try {
-                await call("sessions_workflow", { id: sid, workflow: x.value });
+                await call("sessions_workflow", { project, id: sid, workflow: x.value });
                 await refresh();
               } catch (e) {
                 notify(String(e), "error");

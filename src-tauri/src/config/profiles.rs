@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::scope::Scope;
+
 /// Variables the app or agentd own; a profile may not set them.
 const RESERVED: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN", "PATH", "HOME", "USER", "LOGNAME", "SHELL", "USE_BUILTIN_RIPGREP"];
 
@@ -237,20 +239,21 @@ pub fn delete(user: &Path, id: &str) -> Result<(), String> {
     std::fs::remove_file(user_path(user, id)?).map_err(|e| e.to_string())
 }
 
-pub fn dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(crate::util::data_dir(app)?.join("profiles"))
+/// Where a project's profiles are.
+pub fn dir(app: &tauri::AppHandle, project: &str) -> Result<PathBuf, String> {
+    Ok(Scope::project(project).dir(app)?.join("profiles"))
 }
 
-/// Ids of the images that profiles use.
-pub fn used_images(app: &tauri::AppHandle) -> Vec<String> {
-    dir(app).map(|d| list(&d).into_iter().map(|e| e.profile.image).collect()).unwrap_or_default()
+/// Ids of the images that the profiles of a project use.
+pub fn used_images(app: &tauri::AppHandle, project: &str) -> Vec<String> {
+    dir(app, project).map(|d| list(&d).into_iter().map(|e| e.profile.image).collect()).unwrap_or_default()
 }
 
-/// The starter profiles (`demo/demo.yaml`): the ones that work on code (developer, architect, reviewer) on the `developer` image, `qa` on its own, the rest on the base image; existing ones are left alone.
+/// The starter profiles of the demo project (`demo/demo.yaml`): the ones that work on code (developer, architect, reviewer) on the `developer` image, `qa` on its own, the rest on the base image; existing ones are left alone.
 ///
 /// `reset`: the starter profiles are written again over what is there (the edits of the user are lost, other profiles are left alone).
-pub fn provision_defaults(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
-    let dir = dir(app)?;
+pub fn provision_defaults(app: &tauri::AppHandle, project: &str, reset: bool) -> Result<(), String> {
+    let dir = dir(app, project)?;
     for (id, profile) in crate::demo::profiles() {
         if !reset && user_path(&dir, &id)?.exists() {
             continue;
@@ -262,24 +265,24 @@ pub fn provision_defaults(app: &tauri::AppHandle, reset: bool) -> Result<(), Str
 
 /// Page Agent profiles > Reset to demo content.
 #[tauri::command]
-pub fn profiles_reset_demo(app: tauri::AppHandle) -> Result<(), String> {
-    provision_defaults(&app, true)
+pub fn profiles_reset_demo(app: tauri::AppHandle, project: String) -> Result<(), String> {
+    provision_defaults(&app, &project, true)
 }
 
 #[tauri::command]
-pub fn profiles_list(app: tauri::AppHandle) -> Result<Vec<Entry>, String> {
-    Ok(list(&dir(&app)?))
+pub fn profiles_list(app: tauri::AppHandle, project: String) -> Result<Vec<Entry>, String> {
+    Ok(list(&dir(&app, &project)?))
 }
 
 /// Creates (`id` null) or updates a profile; returns its id.
 #[tauri::command]
-pub fn profiles_save(app: tauri::AppHandle, id: Option<String>, profile: Profile) -> Result<String, String> {
-    save(&dir(&app)?, id.as_deref(), &profile)
+pub fn profiles_save(app: tauri::AppHandle, project: String, id: Option<String>, profile: Profile) -> Result<String, String> {
+    save(&dir(&app, &project)?, id.as_deref(), &profile)
 }
 
 #[tauri::command]
-pub fn profiles_delete(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    delete(&dir(&app)?, &id)
+pub fn profiles_delete(app: tauri::AppHandle, project: String, id: String) -> Result<(), String> {
+    delete(&dir(&app, &project)?, &id)
 }
 
 #[cfg(test)]

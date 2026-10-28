@@ -45,7 +45,7 @@ fn accel() -> Check {
 }
 
 fn image(app: &AppHandle) -> Check {
-    match crate::vm::images::images_list(app.clone()).into_iter().find(|i| i.id == "base") {
+    match crate::vm::images::images_list(app.clone(), None).unwrap_or_default().into_iter().find(|i| i.id == "base") {
         Some(i) if i.state == "ready" => check("image", "ok", ""),
         Some(i) if i.state == "stale" => check("image", "warn", "stale"),
         Some(i) => check("image", if i.state == "missing" && i.error.is_some() { "error" } else { "warn" }, i.error.unwrap_or_else(|| i.state.to_string())),

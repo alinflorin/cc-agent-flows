@@ -7,6 +7,7 @@ import { PageHeader } from "../components/PageHeader";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 import { call } from "../tauri";
+import { projectPath, useProjectId } from "../project";
 
 interface SessionStat {
   id: string;
@@ -64,17 +65,18 @@ export function Analytics() {
   const styles = useStyles();
   const notify = useNotify();
   const navigate = useNavigate();
+  const project = useProjectId();
   const desktop = inTauri();
   const [data, setData] = useState<Data | null>(null);
   const [range, setRange] = useState("30");
 
   const load = useCallback(async () => {
     try {
-      setData(await call<Data>("analytics_get"));
+      setData(await call<Data>("analytics_get", { project }));
     } catch (e) {
       notify(String(e), "error");
     }
-  }, [notify]);
+  }, [notify, project]);
   useEffect(() => {
     if (desktop) void load();
   }, [desktop, load]);
@@ -185,7 +187,7 @@ export function Analytics() {
               </TableHeader>
               <TableBody>
                 {heaviest.map((s) => (
-                  <TableRow key={s.id} className={styles.row} onClick={() => navigate(`/sessions/${s.id}`)}>
+                  <TableRow key={s.id} className={styles.row} onClick={() => navigate(projectPath(project, `/sessions/${s.id}`))}>
                     <TableCell><TableCellLayout>{s.name || s.task.slice(0, 60) || t("sessions.untitled")}</TableCellLayout></TableCell>
                     <TableCell>{t(`sessions.status.${s.status}`, s.status)}</TableCell>
                     <TableCell>{s.turns}</TableCell>
