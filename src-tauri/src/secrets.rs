@@ -120,8 +120,6 @@ pub const DEMO_SECRETS: &[&str] = &[
     "JIRA_TOKEN",
     "CONFLUENCE_TOKEN",
     "GITHUB_READONLY_TOKEN",
-    "JIRA_READONLY_TOKEN",
-    "CONFLUENCE_READONLY_TOKEN",
 ];
 const DUMMY: &str = "dummy";
 
