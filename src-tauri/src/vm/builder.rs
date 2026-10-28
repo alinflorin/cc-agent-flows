@@ -158,8 +158,25 @@ pub struct Serial {
     pub chardev: String,
     #[cfg(unix)]
     path: PathBuf,
+    /// The private directory made for a socket whose path in `dir` was too long, removed on drop.
+    #[cfg(unix)]
+    short_dir: Option<PathBuf>,
     #[cfg(windows)]
     name: String,
+}
+
+/// Longest socket path that fits `sockaddr_un.sun_path` everywhere (104 bytes on macOS, 108 on
+/// Linux, both with the terminating NUL).
+#[cfg(unix)]
+const MAX_SOCKET_PATH: usize = 100;
+
+#[cfg(unix)]
+impl Drop for Serial {
+    fn drop(&mut self) {
+        if let Some(d) = &self.short_dir {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
 }
 
 impl Serial {
@@ -167,14 +184,27 @@ impl Serial {
         Self::named(dir, "console")
     }
 
-    /// A socket `<name>.sock` in `dir`.
+    /// A socket `<name>.sock` in `dir`, or, when that path is too long for a socket (the app data
+    /// dir on macOS is), in a new directory only the current user can open under the temp dir.
     #[cfg(unix)]
     pub fn named(dir: &Path, name: &str) -> Self {
-        let path = dir.join(format!("{name}.sock"));
+        let file = format!("{name}.sock");
+        let mut path = dir.join(&file);
+        let mut short_dir = None;
+        if path.as_os_str().len() > MAX_SOCKET_PATH {
+            use std::os::unix::fs::DirBuilderExt;
+            let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+            let d = std::env::temp_dir().join(format!("ccaf-{}-{nanos:08x}", std::process::id()));
+            // if this fails QEMU reports the path, which says enough
+            let _ = std::fs::DirBuilder::new().mode(0o700).create(&d);
+            path = d.join(&file);
+            short_dir = Some(d);
+        }
         Serial {
             qemu_arg: format!("unix:{},server=on,wait=off", path.display()),
             chardev: format!("socket,path={},server=on,wait=off", path.display()),
             path,
+            short_dir,
         }
     }
 
@@ -217,6 +247,25 @@ impl Serial {
 /// Runs a future with a deadline.
 pub async fn within<T>(secs: u64, what: &str, f: impl Future<Output = Result<T, String>>) -> Result<T, String> {
     timeout(Duration::from_secs(secs), f).await.map_err(|_| format!("timed out: {what}"))?
+}
+
+#[cfg(all(test, unix))]
+mod socket_tests {
+    use super::*;
+
+    #[test]
+    fn long_socket_paths_move_to_a_private_dir() {
+        let short = Serial::named(Path::new("/tmp/x"), "agent");
+        assert_eq!(short.path, Path::new("/tmp/x/agent.sock"));
+        let long = Path::new("/home").join("d".repeat(120));
+        let moved = Serial::named(&long, "agent");
+        let dir = moved.short_dir.clone().unwrap();
+        assert!(moved.path.starts_with(&dir) && moved.path.as_os_str().len() <= MAX_SOCKET_PATH);
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        drop(moved);
+        assert!(!dir.exists());
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]

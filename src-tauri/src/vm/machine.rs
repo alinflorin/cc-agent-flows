@@ -24,6 +24,24 @@ fn host_cpus() -> u32 {
     std::thread::available_parallelism().map_or(2, |n| n.get() as u32)
 }
 
+/// Whether the host offers the hardware accelerator `machine` asks for (KVM, HVF; WHPX is not
+/// checked). When it does, QEMU still falls back to TCG if the accelerator fails to start.
+fn hw_accel() -> bool {
+    static HW: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *HW.get_or_init(|| {
+        if cfg!(target_os = "linux") {
+            std::fs::OpenOptions::new().read(true).write(true).open("/dev/kvm").is_ok()
+        } else if cfg!(target_os = "macos") {
+            std::process::Command::new("/usr/sbin/sysctl")
+                .args(["-n", "kern.hv_support"])
+                .output()
+                .is_ok_and(|o| o.stdout.starts_with(b"1"))
+        } else {
+            true
+        }
+    })
+}
+
 /// The arguments that boot the kernel and initramfs shipped beside the plain image directly (no
 /// bootloader, no firmware): `dir` is where `alpine-<arch>.vmlinuz` and `.initramfs` are. The root
 /// is the first virtio disk. A builder (`agent` false) gets the kernel's output and the stock init
@@ -70,10 +88,15 @@ pub fn machine(app: &AppHandle, mem_mb: u32, cpus: Option<u32>, agent: bool) -> 
     } else {
         "whpx"
     };
-    // pauth-impdef: without it the software fallback spends minutes on pointer authentication
-    let cpu = if arch == "aarch64" { "max,pauth-impdef=on" } else { "max" };
+    let hw = hw_accel();
+    // pauth-impdef: without it software emulation spends minutes on pointer authentication. Only
+    // TCG has the option: under hvf/kvm `max` is the host CPU and QEMU refuses to start with it.
+    let cpu = if arch == "aarch64" && !hw { "max,pauth-impdef=on" } else { "max" };
     let vcpus = cpus.unwrap_or_else(|| host_cpus().min(DEFAULT_VCPUS));
-    cmd.args(["-accel", accel, "-accel", "tcg", "-cpu", cpu, "-m", &mem_mb.to_string(), "-smp", &vcpus.to_string()]);
+    if hw {
+        cmd.args(["-accel", accel]);
+    }
+    cmd.args(["-accel", "tcg", "-cpu", cpu, "-m", &mem_mb.to_string(), "-smp", &vcpus.to_string()]);
     cmd.args(if arch == "aarch64" { ["-M", "virt"] } else { ["-M", "pc,usb=off,vmport=off"] });
     // no VGA, CD-ROM, floppy, parallel port or default NIC to probe: the caller adds what the VM has
     cmd.args(["-nodefaults", "-no-user-config", "-display", "none", "-monitor", "none", "-no-reboot"]);
