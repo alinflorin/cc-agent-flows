@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::process::Command;
 use tokio::sync::oneshot;
 
+use crate::config::scope::Scope;
 use crate::vm::builder::Serial;
 use crate::vm::protocol::{Bootstrap, Event, Final, Outbound, Status, Task, TunnelKeys};
 
@@ -80,11 +81,14 @@ fn tail(path: &Path) -> String {
 /// What to run: the VM (image, size), who it is and what it does.
 pub struct Spec {
     pub run_id: String,
+    /// The project the agent runs for: its variables, secrets, hosts and images apply.
+    pub project: Scope,
+    /// The id of an image of the project or a global one.
     pub image: String,
     pub identity: String,
     pub cpus: Option<u32>,
     pub memory_mb: u32,
-    /// Hosts the agent may reach besides the global list (Settings > Network): the profile's.
+    /// Hosts the agent may reach besides the global list (Settings > Network) and the project's: the profile's.
     pub allow_hosts: Vec<String>,
     /// The credential injections the profile switched on, applied by the egress proxy.
     pub injections: Vec<crate::config::injections::Active>,
@@ -113,15 +117,19 @@ fn vm_state(on_msg: &mut impl FnMut(&Outbound), state: &str) {
 /// the final (also a synthesized one), in order. `Err` only for what stops the VM from starting
 /// (no token, image not built, QEMU missing). `cancel` firing ends the run as failed.
 pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<()>, mut on_msg: impl FnMut(&Outbound)) -> Result<Final, String> {
-    let Spec { run_id, image, identity, cpus, memory_mb, allow_hosts, injections, task } = spec;
-    let disk = crate::vm::images::path(app, &image).ok_or_else(|| format!("the image {image} is not built"))?;
-    let vars = crate::config::variables::all(app);
-    let allow_hosts = resolve_hosts(&allow_hosts, &|n| vars.get(n).cloned())?;
-    let rules = crate::net::egress::Rules::new([crate::config::network::current(app).allow_hosts, allow_hosts]);
+    let Spec { run_id, project, image, identity, cpus, memory_mb, allow_hosts, injections, task } = spec;
+    let disk = crate::vm::images::path(app, &project, &image).ok_or_else(|| format!("the image {image} is not built"))?;
+    let vars = crate::config::variables::all(app, &project);
+    let lookup = |n: &str| vars.get(n).cloned();
+    let rules = crate::net::egress::Rules::new([
+        resolve_hosts(&crate::config::network::current(app).allow_hosts, &lookup)?,
+        resolve_hosts(&crate::config::network::project_hosts(app, &project), &lookup)?,
+        resolve_hosts(&allow_hosts, &lookup)?,
+    ]);
     // an injection only works on a host the agent may reach: the host is listed in the profile, not added here
     for a in &injections {
         if let Some(r) = a.rules.iter().find(|r| !rules.covers(&r.host)) {
-            return Err(format!("the injection {} is for {}, which is not in the profile's allowed hosts (or Settings > Network)", a.name, r.host));
+            return Err(format!("the injection {} is for {}, which is not in the allowed hosts (the profile's, the project's or Settings > Network)", a.name, r.host));
         }
     }
     // Each attempt uses the next Claude account. When Claude refuses the account (limit, rejected
@@ -302,23 +310,24 @@ fn runs_dir(app: &AppHandle) -> Result<PathBuf, String> {
 /// Starts an agent of a profile on a prompt; returns the run id at once. Progress arrives as
 /// `agent-run` events `{run, msg}`; the `final` message is the last one.
 #[tauri::command]
-pub fn agent_run(app: AppHandle, profile: String, prompt: String) -> Result<String, String> {
+pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: String) -> Result<String, String> {
     if prompt.trim().is_empty() || prompt.len() > 100_000 {
         return Err("the prompt must be 1 to 100000 bytes".into());
     }
-    let profiles_dir = crate::config::profiles::dir(&app)?;
+    let scope = Scope::project(&project);
+    let profiles_dir = crate::config::profiles::dir(&app, &project)?;
     let entry = crate::config::profiles::list(&profiles_dir).into_iter().find(|e| e.id == profile).ok_or("no such profile")?;
     // Fail fast with a clear message instead of an event later.
     if !crate::config::accounts::usable(&app) {
         return Err("no Claude account is ready: add a setup token in Settings > LLM".into());
     }
-    if crate::vm::images::path(&app, &entry.profile.image).is_none() {
+    if crate::vm::images::path(&app, &scope, &entry.profile.image).is_none() {
         return Err(format!("the image {} is not built yet", entry.profile.image));
     }
 
     let run_id = new_run_id();
-    let who = identity(&[("profile", &entry.id)], &run_id);
-    let (env, injections) = crate::config::injections::prepare(&app, &entry.profile.env)?;
+    let who = identity(&[("project", &project), ("profile", &entry.id)], &run_id);
+    let (env, injections) = crate::config::injections::prepare(&app, &scope, &entry.profile.env)?;
     let task = Task {
         prompt,
         model: entry.profile.model.clone(),
@@ -326,7 +335,7 @@ pub fn agent_run(app: AppHandle, profile: String, prompt: String) -> Result<Stri
         session_id: uuid_v4(),
         resume: false,
         schema: crate::vm::protocol::RESULT_SCHEMA.into(),
-        system_prompt: Some(entry.profile.system_prompt.clone()).filter(|s| !s.trim().is_empty()),
+        system_prompt: crate::workflow::combine_system_prompts(&crate::config::projects::load(&app, &project).map(|p| p.system_prompt).unwrap_or_default(), &entry.profile.system_prompt),
         env,
         timeout_secs: 30 * 60,
     };
@@ -338,7 +347,7 @@ pub fn agent_run(app: AppHandle, profile: String, prompt: String) -> Result<Stri
     let _ = std::fs::create_dir_all(log_path.parent().unwrap());
     let mut log = std::fs::File::create(&log_path).ok();
     if let Some(f) = log.as_mut() {
-        let head = serde_json::json!({"kind": "start", "body": {"run": run_id, "identity": who, "profile": entry.id, "image": entry.profile.image, "prompt": task.prompt}});
+        let head = serde_json::json!({"kind": "start", "body": {"run": run_id, "identity": who, "project": project, "profile": entry.id, "image": entry.profile.image, "prompt": task.prompt}});
         let _ = writeln!(f, "{head}");
     }
 
@@ -351,7 +360,7 @@ pub fn agent_run(app: AppHandle, profile: String, prompt: String) -> Result<Stri
             let _ = app.emit("agent-run", serde_json::json!({"run": id, "msg": msg}));
         };
         let mut emit = emit;
-        let spec = Spec { run_id: id.clone(), image: entry.profile.image.clone(), identity: who, cpus: entry.profile.cpus, memory_mb: entry.profile.memory_mb, allow_hosts: entry.profile.allow_hosts.clone(), injections, task };
+        let spec = Spec { run_id: id.clone(), project: scope, image: entry.profile.image.clone(), identity: who, cpus: entry.profile.cpus, memory_mb: entry.profile.memory_mb, allow_hosts: entry.profile.allow_hosts.clone(), injections, task };
         if let Err(e) = run_vm(&app, spec, cancel_rx, &mut emit).await {
             emit(&Outbound::Final(failed(e)));
         }

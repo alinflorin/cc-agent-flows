@@ -22,7 +22,7 @@ use serde_json::json;
 use tauri::{AppHandle, Manager};
 
 use crate::workflow::triggers;
-use crate::workflow::{self, NodeKind};
+use crate::workflow::NodeKind;
 
 pub const DEFAULT_PORT: u16 = 7878;
 /// Largest body taken, in bytes: a session's request is limited to 64 KB, and the node's own text comes first.
@@ -94,8 +94,7 @@ async fn handle(app: AppHandle, req: Request<Incoming>) -> Result<Response<Full<
         payload = if payload.is_empty() { line } else { format!("{line}\n\n{payload}") };
     }
     let started = tauri::async_runtime::spawn_blocking(move || {
-        let root = workflow::root(&app).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-        let Some(f) = triggers::find_all(&root, NodeKind::Webhook).into_iter().find(|f| f.node.trigger.token == token) else {
+        let Some(f) = triggers::find_all(&app, NodeKind::Webhook).into_iter().find(|f| f.node.trigger.token == token) else {
             return Err((StatusCode::NOT_FOUND, "not found".to_string()));
         };
         triggers::fire(&app, &f, &payload).map_err(|e| (if e.contains("running already") || e.contains("sessions are running") { StatusCode::TOO_MANY_REQUESTS } else { StatusCode::BAD_REQUEST }, e))

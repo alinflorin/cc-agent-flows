@@ -3,6 +3,7 @@ import { Button, Caption1, Field, Input, Select, Subtitle2, Textarea, tokens } f
 import { Copy20Regular, Delete20Regular, Send20Regular } from "@fluentui/react-icons";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
+import { useProjectId } from "../../project";
 import { useStyles } from "./styles";
 import type { AEdge, ANode, Agent, Data, ProfileInfo, TriggerInfo } from "./types";
 
@@ -42,6 +43,7 @@ export function TriggerPanel(p: {
 }) {
   const { node, id, dirty, infos, preview, setPreview, sample, setSample, patchData, patchAgent, remove, loadInfos } = p;
   const { t } = useTranslation();
+  const project = useProjectId();
   const styles = useStyles();
   const notify = useNotify();
   const agent = node.data.agent;
@@ -106,7 +108,7 @@ export function TriggerPanel(p: {
               icon={<Send20Regular />}
               onClick={async () => {
                 try {
-                  await call<string>("trigger_fire", { workflow: id, node: node.id, payload: info.kind === "webhook" ? sample : null });
+                  await call<string>("trigger_fire", { project, workflow: id, node: node.id, payload: info.kind === "webhook" ? sample : null });
                   notify(t("wf.fired"), "success");
                 } catch (e) {
                   notify(String(e), "error");

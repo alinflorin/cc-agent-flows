@@ -1,10 +1,11 @@
-import { useState } from "react";
+import type { ReactElement } from "react";
+import { useParams } from "react-router";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
-import { Button, Subtitle1, Switch, Tab, TabList, makeStyles, tokens } from "@fluentui/react-components";
+import { Button, Subtitle1, Switch, makeStyles, tokens } from "@fluentui/react-components";
 import { useNotify } from "../notifications";
 import { getPref, setPref } from "../prefs";
 import { useUpdates } from "../updates";
@@ -19,7 +20,6 @@ import { InjectionsSettings } from "./settings/Injections";
 const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "480px" },
   section: { marginTop: tokens.spacingVerticalXXL, paddingTop: tokens.spacingVerticalXL, borderTop: `1px solid ${tokens.colorNeutralStroke2}`, display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, maxWidth: "480px" },
-  tabs: { marginBottom: tokens.spacingVerticalXL, marginLeft: `-${tokens.spacingHorizontalM}` },
   actions: { display: "flex", gap: tokens.spacingHorizontalS },
 });
 
@@ -101,24 +101,25 @@ function GeneralSettings() {
   );
 }
 
+/** One page of the global settings; the sidebar picks it (`/settings/:tab`). */
 export function Settings() {
   const { t } = useTranslation();
-  const styles = useStyles();
-  const [tab, setTab] = useState("general");
+  const { tab = "general" } = useParams();
+  const pages: Record<string, ReactElement> = {
+    general: <GeneralSettings />,
+    llm: <LlmSettings />,
+    images: <ImagesSettings />,
+    network: <NetworkSettings />,
+    secrets: <SecretsSettings />,
+    variables: <VariablesSettings />,
+    injections: <InjectionsSettings />,
+  };
+  const title = tab === "general" || tab === "llm" ? t(`settings.tabs.${tab}`) : t(`settings.globalTabs.${tab}`);
 
   return (
     <>
-      <PageHeader title={t("settings.title")} />
-      <TabList className={styles.tabs} selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as string)}>
-        <Tab value="general">{t("settings.tabs.general")}</Tab>
-        <Tab value="llm">{t("settings.tabs.llm")}</Tab>
-        <Tab value="images">{t("settings.tabs.images")}</Tab>
-        <Tab value="network">{t("settings.tabs.network")}</Tab>
-        <Tab value="secrets">{t("settings.tabs.secrets")}</Tab>
-        <Tab value="variables">{t("settings.tabs.variables")}</Tab>
-        <Tab value="injections">{t("settings.tabs.injections")}</Tab>
-      </TabList>
-      {tab === "general" ? <GeneralSettings /> : tab === "llm" ? <LlmSettings /> : tab === "network" ? <NetworkSettings /> : tab === "secrets" ? <SecretsSettings /> : tab === "variables" ? <VariablesSettings /> : tab === "injections" ? <InjectionsSettings /> : <ImagesSettings />}
+      <PageHeader title={title} description={t("settings.globalIntro")} />
+      {pages[tab] ?? pages.general}
     </>
   );
 }

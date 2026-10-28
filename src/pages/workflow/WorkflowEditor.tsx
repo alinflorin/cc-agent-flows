@@ -6,6 +6,7 @@ import { Button, Caption1, Field, Input, MessageBar, MessageBarBody, Select, Tex
 import { Add20Regular, Chat20Regular, Clock20Regular, Delete20Regular, Flowchart20Regular, Person20Regular, PlugConnected20Regular, Save20Regular, ShieldCheckmark20Regular } from "@fluentui/react-icons";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
+import { useProjectId } from "../../project";
 import { useStyles } from "./styles";
 import { AEdge, ANode, Agent, Data, Entry, Kind, Problem, ProfileInfo, TriggerCfg, TriggerInfo, View, Workflow, isTrigger } from "./types";
 import { nodeTypes } from "./AgentNode";
@@ -13,6 +14,7 @@ import { AgentPanel, EdgePanel, HumanPanel, TriggerPanel } from "./Panels";
 
 function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) {
   const { t } = useTranslation();
+  const project = useProjectId();
   const styles = useStyles();
   const notify = useNotify();
   const [nodes, setNodes, onNodesChange] = useNodesState<ANode>([]);
@@ -28,11 +30,11 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
 
   const loadInfos = useCallback(async () => {
     try {
-      setInfos(await call<TriggerInfo[]>("triggers_status"));
+      setInfos(await call<TriggerInfo[]>("triggers_status", { project }));
     } catch {
       setInfos([]);
     }
-  }, []);
+  }, [project]);
   useEffect(() => {
     void loadInfos();
   }, [loadInfos, id]);
@@ -74,8 +76,8 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
   useEffect(() => {
     void (async () => {
       try {
-        setProfiles(await call<ProfileInfo[]>("profiles_list"));
-        if (id) load(await call<View>("workflow_get", { id }), false);
+        setProfiles(await call<ProfileInfo[]>("profiles_list", { project }));
+        if (id) load(await call<View>("workflow_get", { project, id }), false);
         else {
           load({ id: "", name: "", workflow: { nodes: [], edges: [] }, problems: [], system_prompt: "" }, false);
           setName(t("wf.newName"));
@@ -133,7 +135,7 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
       nodes: nodes.map((n) => ({ id: n.id, label: n.data.label, x: Math.round(n.position.x), y: Math.round(n.position.y), ...n.data.agent })),
       edges: edges.map((e) => ({ id: e.id, from: e.source, to: e.target, kind: e.data?.kind ?? "delegate" })) };
     try {
-      const v = await call<View>("workflow_save", { id, name, workflow, systemPrompt: instructions });
+      const v = await call<View>("workflow_save", { project, id, name, workflow, systemPrompt: instructions });
       setProblems(v.problems);
       setDirty(false);
       notify(t("wf.saved"), "success");
@@ -146,7 +148,7 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
 
   const useStandard = async () => {
     try {
-      const v = await call<View>("workflow_standard");
+      const v = await call<View>("workflow_standard", { project });
       load({ ...v, name: "", system_prompt: instructions }, true);
     } catch (e) {
       notify(String(e), "error");
@@ -295,6 +297,7 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
 
 export function WorkflowEditor() {
   const { t } = useTranslation();
+  const project = useProjectId();
   const notify = useNotify();
   const [list, setList] = useState<Entry[] | null>(null);
   const [id, setId] = useState("");
@@ -302,14 +305,14 @@ export function WorkflowEditor() {
   const refresh = useCallback(
     async (select?: string) => {
       try {
-        const l = await call<Entry[]>("workflows_list");
+        const l = await call<Entry[]>("workflows_list", { project });
         setList(l);
         setId((cur) => (select !== undefined ? select : l.some((w) => w.id === cur) ? cur : (l[0]?.id ?? "")));
       } catch (e) {
         notify(String(e), "error");
       }
     },
-    [notify],
+    [notify, project],
   );
   useEffect(() => {
     void refresh();
@@ -317,7 +320,7 @@ export function WorkflowEditor() {
 
   const remove = async () => {
     try {
-      await call("workflow_delete", { id });
+      await call("workflow_delete", { project, id });
       await refresh("");
       setId("");
       await refresh();

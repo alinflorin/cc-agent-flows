@@ -7,6 +7,7 @@ import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
+import { useProject } from "../../project";
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
@@ -28,6 +29,7 @@ export function VariablesSettings() {
   const styles = useStyles();
   const notify = useNotify();
   const desktop = inTauri();
+  const project = useProject();
 
   const [vars, setVars] = useState<Variable[]>([]);
   const [name, setName] = useState("");
@@ -37,11 +39,11 @@ export function VariablesSettings() {
 
   const load = useCallback(async () => {
     try {
-      setVars(await call<Variable[]>("variables_list"));
+      setVars(await call<Variable[]>("variables_list", { project }));
     } catch (e) {
       notify(String(e), "error");
     }
-  }, [notify]);
+  }, [notify, project]);
 
   useEffect(() => {
     if (desktop) void load();
@@ -49,7 +51,7 @@ export function VariablesSettings() {
 
   const save = async (n: string, v: string) => {
     try {
-      await call("variables_set", { name: n, value: v });
+      await call("variables_set", { project, name: n, value: v });
       notify(t("settings.variables.saved"), "success");
       await load();
       return true;
@@ -61,7 +63,7 @@ export function VariablesSettings() {
 
   const remove = async (n: string) => {
     try {
-      await call("variables_delete", { name: n });
+      await call("variables_delete", { project, name: n });
       await load();
     } catch (e) {
       notify(String(e), "error");

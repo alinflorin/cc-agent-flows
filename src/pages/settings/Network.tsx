@@ -5,6 +5,7 @@ import { SettingsIntro } from "../../components/SettingsIntro";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
+import { useProject } from "../../project";
 
 interface Network {
   allow_hosts: string[];
@@ -25,6 +26,7 @@ export function NetworkSettings() {
   const styles = useStyles();
   const notify = useNotify();
   const desktop = inTauri();
+  const project = useProject();
 
   // `hosts` is what is in the box (one entry per line), `saved` what is stored.
   const [hosts, setHosts] = useState<string[]>(DEFAULT_HOSTS);
@@ -34,16 +36,18 @@ export function NetworkSettings() {
 
   const load = useCallback(async () => {
     try {
-      const n = await call<Network>("network_get");
+      const n = await call<Network>("network_get", { project });
       setHosts(n.allow_hosts);
       setSaved(n.allow_hosts);
-      const h = await call<{ port: number; error: string | null }>("webhook_get");
-      setHook(h);
-      setPort(String(h.port));
+      if (project === null) {
+        const h = await call<{ port: number; error: string | null }>("webhook_get");
+        setHook(h);
+        setPort(String(h.port));
+      }
     } catch (e) {
       notify(String(e), "error");
     }
-  }, [notify]);
+  }, [notify, project]);
 
   useEffect(() => {
     if (desktop) void load();
@@ -51,7 +55,7 @@ export function NetworkSettings() {
 
   const save = async () => {
     try {
-      const n = await call<Network>("network_set", { network: { allow_hosts: hosts } });
+      const n = await call<Network>("network_set", { project, network: { allow_hosts: hosts } });
       setHosts(n.allow_hosts);
       setSaved(n.allow_hosts);
       notify(t("settings.saved"), "success");
@@ -74,7 +78,7 @@ export function NetworkSettings() {
 
   return (
     <div className={styles.form}>
-      <SettingsIntro text={t("settings.network.intro")}>
+      <SettingsIntro text={t(project === null ? "settings.network.intro" : "settings.network.projectIntro")}>
         {!desktop && <Body1 block>{t("settings.llm.tokenDesktopOnly")}</Body1>}
       </SettingsIntro>
       <Field label={t("settings.network.allowHosts")} hint={t("settings.network.allowHostsHint")}>
@@ -90,10 +94,13 @@ export function NetworkSettings() {
         <Button appearance="primary" disabled={!desktop || same(hosts, saved)} onClick={() => void save()}>
           {t("common.save")}
         </Button>
-        <Button disabled={!desktop || same(hosts, DEFAULT_HOSTS)} onClick={() => setHosts(DEFAULT_HOSTS)}>
-          {t("settings.network.defaults")}
-        </Button>
+        {project === null && (
+          <Button disabled={!desktop || same(hosts, DEFAULT_HOSTS)} onClick={() => setHosts(DEFAULT_HOSTS)}>
+            {t("settings.network.defaults")}
+          </Button>
+        )}
       </div>
+      {project === null && (
       <Field label={t("settings.network.webhookPort")} hint={t("settings.network.webhookPortHint")} validationState={hook?.error ? "error" : "none"} validationMessage={hook?.error ?? undefined}>
         <div className={styles.actions}>
           <Input type="number" min={1024} max={65535} disabled={!desktop} value={port} onChange={(_, d) => setPort(d.value)} />
@@ -102,6 +109,7 @@ export function NetworkSettings() {
           </Button>
         </div>
       </Field>
+      )}
     </div>
   );
 }

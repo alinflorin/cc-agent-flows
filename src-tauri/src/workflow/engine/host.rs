@@ -2,6 +2,8 @@
 
 use super::*;
 
+use crate::config::scope::Scope;
+
 /// What a running session is, for the commands.
 struct Live {
     cancel: watch::Sender<bool>,
@@ -20,12 +22,20 @@ impl Default for VmSlots {
     }
 }
 
-fn key(sid: &str) -> String {
-    sid.to_string()
+/// Sessions of different projects are told apart by project.
+fn key(project: &str, sid: &str) -> String {
+    format!("{project}/{sid}")
+}
+
+/// Whether a session of the project is running or waiting for the user.
+pub fn project_busy(app: &AppHandle, project: &str) -> bool {
+    let prefix = format!("{project}/");
+    app.state::<Sessions>().0.lock().unwrap().keys().any(|k| k.starts_with(&prefix))
 }
 
 struct RealHost {
     app: AppHandle,
+    project: String,
     root: PathBuf,
     sid: String,
     instructions: String,
@@ -53,8 +63,8 @@ impl Host for RealHost {
             return failed(format!("the profile {} does not exist", req.profile));
         };
         let run_id = crate::vm::runs::new_run_id();
-        let identity = crate::vm::runs::identity(&[("session", &self.sid), ("step", &req.node)], &run_id);
-        let (env, injections) = match crate::config::injections::prepare(&self.app, &profile.env) {
+        let identity = crate::vm::runs::identity(&[("project", &self.project), ("session", &self.sid), ("step", &req.node)], &run_id);
+        let (env, injections) = match crate::config::injections::prepare(&self.app, &Scope::project(&self.project), &profile.env) {
             Ok(v) => v,
             Err(e) => return failed(format!("the profile {}: {e}", req.profile)),
         };
@@ -69,7 +79,7 @@ impl Host for RealHost {
             env,
             timeout_secs: u64::from(req.timeout_mins) * 60,
         };
-        let spec = Spec { run_id, image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, allow_hosts: profile.allow_hosts.clone(), injections, task };
+        let spec = Spec { run_id, project: Scope::project(&self.project), image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, allow_hosts: profile.allow_hosts.clone(), injections, task };
         // Cancelling the session cancels this VM.
         let (tx, rx) = oneshot::channel();
         let mut c = self.cancel.clone();
@@ -99,7 +109,7 @@ impl Host for RealHost {
         if let Some(f) = self.log_file.lock().unwrap().as_mut() {
             let _ = writeln!(f, "{entry}");
         }
-        let _ = self.app.emit("session-log", json!({"session": self.sid, "entry": entry}));
+        let _ = self.app.emit("session-log", json!({"project": self.project, "session": self.sid, "entry": entry}));
     }
 
     fn checkpoint(&self, state: &State, status: &str) {
@@ -133,11 +143,11 @@ pub fn read_state(root: &std::path::Path, sid: &str) -> Option<State> {
 }
 
 /// Everything a run needs, checked before anything starts.
-fn prepare(app: &AppHandle, workflow: &str) -> Result<(Workflow, String, HashMap<String, Profile>), String> {
-    let root = crate::workflow::root(app)?;
+fn prepare(app: &AppHandle, project: &str, workflow: &str) -> Result<(Workflow, String, HashMap<String, Profile>), String> {
+    let root = crate::workflow::root(app, project)?;
     let wf = crate::workflow::workflow(&root, workflow);
     wf.validate()?;
-    let profiles_dir = crate::config::profiles::dir(app)?;
+    let profiles_dir = crate::config::profiles::dir(app, project)?;
     let profiles: HashMap<String, Profile> = crate::config::profiles::list(&profiles_dir).into_iter().map(|e| (e.id, e.profile)).collect();
     let ids: Vec<String> = profiles.keys().cloned().collect();
     let problems = wf.problems(&ids);
@@ -147,20 +157,23 @@ fn prepare(app: &AppHandle, workflow: &str) -> Result<(Workflow, String, HashMap
     }
     for n in wf.nodes.iter().filter(|n| n.kind == crate::workflow::NodeKind::Agent) {
         let image = &profiles.get(&n.profile).ok_or_else(|| format!("the profile {} does not exist", n.profile))?.image;
-        if crate::vm::images::path(app, image).is_none() {
+        if crate::vm::images::path(app, &Scope::project(project), image).is_none() {
             return Err(format!("the image {image} (profile {}) is not built yet", n.profile));
         }
     }
     if !crate::config::accounts::usable(app) {
         return Err("no Claude account is ready: add a setup token in Settings > LLM".into());
     }
-    Ok((wf, crate::workflow::instructions(&root, workflow).system_prompt, profiles))
+    // the project's system prompt comes before the workflow's
+    let project_prompt = crate::config::projects::load(app, project).map(|p| p.system_prompt).unwrap_or_default();
+    let instructions = crate::workflow::combine_system_prompts(&project_prompt, &crate::workflow::instructions(&root, workflow).system_prompt).unwrap_or_default();
+    Ok((wf, instructions, profiles))
 }
 
-fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
-    let root = crate::workflow::root(&app)?;
+fn launch(app: AppHandle, project: String, sid: String, fresh: bool) -> Result<(), String> {
+    let root = crate::workflow::root(&app, &project)?;
     let session = crate::workflow::read_session(&root, &sid)?;
-    let k = key(&sid);
+    let k = key(&project, &sid);
     {
         let live = app.state::<Sessions>();
         let live = live.0.lock().unwrap();
@@ -177,7 +190,7 @@ fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
         ("done", false) if session.messages.len() + 1 > read_state(&root, &sid).map_or(0, |s| s.turns as usize) => {}
         _ => return Err(format!("a session that is {} cannot be {}", session.status, if fresh { "started" } else { "continued" })),
     }
-    let (wf, instructions, profiles) = prepare(&app, &session.workflow)?;
+    let (wf, instructions, profiles) = prepare(&app, &project, &session.workflow)?;
     let mut state = if fresh { State::default() } else { read_state(&root, &sid).unwrap_or_default() };
     state.rewind_failures();
 
@@ -190,6 +203,7 @@ fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
         .and_then(|p| std::fs::OpenOptions::new().create(true).append(true).open(p).ok());
     let host = Arc::new(RealHost {
         app: app.clone(),
+        project: project.clone(),
         root: root.clone(),
         sid: sid.clone(),
         instructions,
@@ -222,7 +236,7 @@ fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
             live.remove(&k);
             more
         };
-        if more && let Err(e) = launch(host.app.clone(), sid.clone(), false) && !e.contains("already running") {
+        if more && let Err(e) = launch(host.app.clone(), project.clone(), sid.clone(), false) && !e.contains("already running") {
             host.log("error", json!({"reason": format!("could not answer the last message: {e}")}));
             let _ = crate::workflow::set_session_status(&root, &sid, "failed");
         }
@@ -232,61 +246,63 @@ fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
 
 /// Marks sessions that were running or waiting when the app closed as interrupted (run at startup).
 pub fn recover(app: &AppHandle) {
-    let Ok(root) = crate::workflow::root(app) else { return };
-    for s in crate::workflow::sessions(&root) {
-        if matches!(s.session.status.as_str(), "running" | "waiting") {
-            let _ = crate::workflow::set_session_status(&root, &s.id, "interrupted");
+    for project in crate::config::projects::ids(app) {
+        let Ok(root) = crate::workflow::root(app, &project) else { continue };
+        for s in crate::workflow::sessions(&root) {
+            if matches!(s.session.status.as_str(), "running" | "waiting") {
+                let _ = crate::workflow::set_session_status(&root, &s.id, "interrupted");
+            }
         }
     }
 }
 
 /// Starts a new session; `task` (the user's first message) is saved first.
 #[tauri::command]
-pub fn session_start(app: AppHandle, id: String, task: Option<String>) -> Result<(), String> {
+pub fn session_start(app: AppHandle, project: String, id: String, task: Option<String>) -> Result<(), String> {
     if let Some(task) = task {
-        crate::workflow::edit_session(&crate::workflow::root(&app)?, &id, None, Some(&task))?;
+        crate::workflow::edit_session(&crate::workflow::root(&app, &project)?, &id, None, Some(&task))?;
     }
-    launch(app, id, true)
+    launch(app, project, id, true)
 }
 
 /// Continues an interrupted, failed or cancelled session: what finished is replayed from the
 /// journal, the rest runs again.
 #[tauri::command]
-pub fn session_continue(app: AppHandle, id: String) -> Result<(), String> {
-    launch(app, id, false)
+pub fn session_continue(app: AppHandle, project: String, id: String) -> Result<(), String> {
+    launch(app, project, id, false)
 }
 
 #[tauri::command]
-pub fn session_cancel(app: AppHandle, id: String) -> bool {
-    app.state::<Sessions>().0.lock().unwrap().get(&key(&id)).is_some_and(|l| l.cancel.send(true).is_ok())
+pub fn session_cancel(app: AppHandle, project: String, id: String) -> bool {
+    app.state::<Sessions>().0.lock().unwrap().get(&key(&project, &id)).is_some_and(|l| l.cancel.send(true).is_ok())
 }
 
 #[tauri::command]
-pub fn session_reply(app: AppHandle, id: String, reply: Reply) -> Result<(), String> {
+pub fn session_reply(app: AppHandle, project: String, id: String, reply: Reply) -> Result<(), String> {
     if reply.text.len() > 64 * 1024 {
         return Err("the answer is too large".into());
     }
     let sessions = app.state::<Sessions>();
     let live = sessions.0.lock().unwrap();
-    let l = live.get(&key(&id)).ok_or("the session is not running")?;
+    let l = live.get(&key(&project, &id)).ok_or("the session is not running")?;
     l.reply.try_send(reply).map_err(|_| "the session is not waiting for an answer".to_string())
 }
 
 /// A message from the user after the first one: starts a new turn of a finished session, or is
 /// queued behind the work of a running one (the root answers it when the turn before it ends).
 #[tauri::command]
-pub fn session_message(app: AppHandle, id: String, text: String) -> Result<(), String> {
-    let root = crate::workflow::root(&app)?;
+pub fn session_message(app: AppHandle, project: String, id: String, text: String) -> Result<(), String> {
+    let root = crate::workflow::root(&app, &project)?;
     let live = app.state::<Sessions>();
     {
         let live = live.0.lock().unwrap();
         crate::workflow::add_session_message(&root, &id, &text)?;
-        if live.contains_key(&key(&id)) {
+        if live.contains_key(&key(&project, &id)) {
             return Ok(());
         }
     }
     let n = crate::workflow::read_session(&root, &id)?.messages.len();
-    launch(app, id.clone(), false).inspect_err(|_| {
+    launch(app, project, id.clone(), false).inspect_err(|_| {
         // not started (limits, a missing token...): the message is not kept
         let _ = crate::workflow::drop_session_message(&root, &id, n);
     })
@@ -303,18 +319,18 @@ pub struct SessionView {
 }
 
 #[tauri::command]
-pub fn session_get(app: AppHandle, id: String) -> Result<SessionView, String> {
-    let root = crate::workflow::root(&app)?;
+pub fn session_get(app: AppHandle, project: String, id: String) -> Result<SessionView, String> {
+    let root = crate::workflow::root(&app, &project)?;
     let session = crate::workflow::read_session(&root, &id)?;
     let state = read_state(&root, &id).unwrap_or_default();
-    let live = app.state::<Sessions>().0.lock().unwrap().contains_key(&key(&id));
+    let live = app.state::<Sessions>().0.lock().unwrap().contains_key(&key(&project, &id));
     Ok(SessionView { messages: session.messages.clone(), session, pending: state.pending.filter(|_| live), live, tokens: state.tokens, result: state.result })
 }
 
 /// The session's log (the last entries when it is long).
 #[tauri::command]
-pub fn session_log(app: AppHandle, id: String) -> Result<Vec<Value>, String> {
-    let root = crate::workflow::root(&app)?;
+pub fn session_log(app: AppHandle, project: String, id: String) -> Result<Vec<Value>, String> {
+    let root = crate::workflow::root(&app, &project)?;
     let text = std::fs::read_to_string(crate::workflow::session_file(&root, &id, "log.jsonl")?).unwrap_or_default();
     let entries: Vec<Value> = text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
     let skip = entries.len().saturating_sub(5000);

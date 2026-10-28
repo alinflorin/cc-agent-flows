@@ -1,6 +1,8 @@
 //! Secrets live in the OS credential store, never in `settings.json`; they are write-only from the
-//! frontend. (The Claude setup tokens are in `accounts.rs`.) These are the named secrets (Settings > Secrets). The credential store
-//! cannot list its entries, so the names are kept in `<app data>/secrets.json` (no values). A
+//! frontend. (The Claude setup tokens are in `accounts.rs`.) These are the named secrets, global
+//! (Settings > Secrets) or of a project (its Secrets page): `secret:NAME` and `secret:<project>:NAME`
+//! in the store. A run looks a name up in the project first, then in the global ones. The credential store
+//! cannot list its entries, so the names are kept in `secrets.json` of the scope (no values). A
 //! profile's environment variable may refer to one as `${secret:NAME}`; the reference is resolved
 //! when the run starts (`injections::prepare`), so the value is only in the app and the run's `Task`.
 
@@ -9,6 +11,7 @@ use std::path::{Path, PathBuf};
 use keyring::Entry;
 use serde::{Deserialize, Serialize};
 
+use crate::config::scope::Scope;
 
 use crate::util::KEYRING_SERVICE as SERVICE;
 const MAX_SECRETS: usize = 200;
@@ -19,8 +22,8 @@ struct Index {
     names: Vec<String>,
 }
 
-fn index_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    Ok(crate::util::data_dir(app)?.join("secrets.json"))
+fn index_file(app: &tauri::AppHandle, scope: &Scope) -> Result<PathBuf, String> {
+    Ok(scope.dir(app)?.join("secrets.json"))
 }
 
 fn load_index(path: &Path) -> Index {
@@ -41,12 +44,24 @@ pub fn valid_name(name: &str) -> bool {
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-fn secret_entry(name: &str) -> Result<Entry, String> {
-    Entry::new(SERVICE, &format!("secret:{name}")).map_err(|e| e.to_string())
+fn secret_entry(scope: &Scope, name: &str) -> Result<Entry, String> {
+    Entry::new(SERVICE, &scope.secret_account(name)).map_err(|e| e.to_string())
 }
 
-pub fn secret_value(name: &str) -> Option<String> {
-    secret_entry(name).ok()?.get_password().ok()
+/// The value of a secret as a run in `project` sees it: the project's own, else the global one.
+pub fn secret_value(project: &Scope, name: &str) -> Option<String> {
+    let own = (!project.is_global()).then(|| secret_entry(project, name).ok()?.get_password().ok()).flatten();
+    own.or_else(|| secret_entry(&Scope::global(), name).ok()?.get_password().ok())
+}
+
+/// Removes every secret of a scope from the credential store (when a project is deleted).
+pub fn forget_all(app: &tauri::AppHandle, scope: &Scope) {
+    let Ok(path) = index_file(app, scope) else { return };
+    for name in load_index(&path).names {
+        if let Ok(e) = secret_entry(scope, &name) {
+            let _ = e.delete_credential();
+        }
+    }
 }
 
 /// Replaces every `${<kind>:NAME}` in `value` with what `lookup` returns; fails on an unknown
@@ -70,7 +85,7 @@ pub fn resolve(value: &str, kind: &str, lookup: &dyn Fn(&str) -> Option<String>)
             "var" => "Variables",
             _ => "Injections",
         };
-        out.push_str(&lookup(name).ok_or_else(|| format!("the {kind} {name} does not exist (Settings > {tab})"))?);
+        out.push_str(&lookup(name).ok_or_else(|| format!("the {kind} {name} does not exist ({tab}, in the project or in Settings)"))?);
         rest = &after[end + 1..];
     }
     out.push_str(rest);
@@ -80,52 +95,68 @@ pub fn resolve(value: &str, kind: &str, lookup: &dyn Fn(&str) -> Option<String>)
 const DUMMY: &str = "dummy";
 
 /// Part of the demo content: adds the demo secrets with a dummy value. One that is already listed
-/// or already in the credential store is left as it is.
+/// or already in the credential store is left as it is. A secret of the same name that older
+/// versions kept in the global store is moved into the scope instead of a dummy (and removed
+/// from the global one), so values the user already entered are not lost.
 ///
 /// `reset`: the demo secrets get the dummy value again, a real one is lost.
-pub fn provision_demo(app: &tauri::AppHandle, reset: bool) -> Result<(), String> {
-    let path = index_file(app)?;
+pub fn provision_demo(app: &tauri::AppHandle, scope: &Scope, reset: bool) -> Result<(), String> {
+    let path = index_file(app, scope)?;
     let mut index = load_index(&path);
+    let global = Scope::global();
+    let global_path = index_file(app, &global)?;
+    let mut global_index = load_index(&global_path);
     for name in crate::demo::secrets() {
         if !reset && index.names.iter().any(|n| n == name) {
             continue;
         }
-        let entry = secret_entry(name)?;
+        let entry = secret_entry(scope, name)?;
+        let old = secret_entry(&global, name)?;
+        let moved = if scope.is_global() { None } else { old.get_password().ok() };
         match entry.get_password() {
             Ok(_) if !reset => {}
-            Ok(_) | Err(keyring::Error::NoEntry) => entry.set_password(DUMMY).map_err(|e| e.to_string())?,
+            Ok(_) | Err(keyring::Error::NoEntry) => entry.set_password(moved.as_deref().unwrap_or(DUMMY)).map_err(|e| e.to_string())?,
             Err(e) => return Err(e.to_string()),
+        }
+        if moved.is_some() {
+            let _ = old.delete_credential();
+            global_index.names.retain(|n| n != name);
         }
         if !index.names.iter().any(|n| n == name) {
             index.names.push(name.to_string());
         }
     }
     index.names.sort();
-    save_index(&path, &index)
+    save_index(&path, &index)?;
+    if !scope.is_global() && global_path.is_file() {
+        save_index(&global_path, &global_index)?;
+    }
+    Ok(())
 }
 
-/// Settings > Secrets > Reset to demo content.
+/// Secrets > Reset to demo content.
 #[tauri::command]
-pub fn secrets_reset_demo(app: tauri::AppHandle) -> Result<(), String> {
-    provision_demo(&app, true)
+pub fn secrets_reset_demo(app: tauri::AppHandle, project: Option<String>) -> Result<(), String> {
+    provision_demo(&app, &Scope::of(project)?, true)
 }
 
 /// The names of the saved secrets.
 #[tauri::command]
-pub fn secrets_list(app: tauri::AppHandle) -> Result<Vec<String>, String> {
-    Ok(load_index(&index_file(&app)?).names)
+pub fn secrets_list(app: tauri::AppHandle, project: Option<String>) -> Result<Vec<String>, String> {
+    Ok(load_index(&index_file(&app, &Scope::of(project)?)?).names)
 }
 
 /// Creates a secret or replaces its value.
 #[tauri::command]
-pub fn secrets_set(app: tauri::AppHandle, name: String, value: String) -> Result<(), String> {
+pub fn secrets_set(app: tauri::AppHandle, project: Option<String>, name: String, value: String) -> Result<(), String> {
+    let scope = Scope::of(project)?;
     if !valid_name(&name) {
         return Err("the name must be letters, digits and underscores, not starting with a digit (at most 64)".into());
     }
     if value.is_empty() || value.len() > MAX_VALUE || value.contains('\0') {
         return Err(format!("the value must be 1 to {MAX_VALUE} bytes"));
     }
-    let path = index_file(&app)?;
+    let path = index_file(&app, &scope)?;
     let mut index = load_index(&path);
     if !index.names.contains(&name) {
         if index.names.len() >= MAX_SECRETS {
@@ -134,17 +165,18 @@ pub fn secrets_set(app: tauri::AppHandle, name: String, value: String) -> Result
         index.names.push(name.clone());
         index.names.sort();
     }
-    secret_entry(&name)?.set_password(&value).map_err(|e| e.to_string())?;
+    secret_entry(&scope, &name)?.set_password(&value).map_err(|e| e.to_string())?;
     save_index(&path, &index)
 }
 
 #[tauri::command]
-pub fn secrets_delete(app: tauri::AppHandle, name: String) -> Result<(), String> {
-    match secret_entry(&name)?.delete_credential() {
+pub fn secrets_delete(app: tauri::AppHandle, project: Option<String>, name: String) -> Result<(), String> {
+    let scope = Scope::of(project)?;
+    match secret_entry(&scope, &name)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => {}
         Err(e) => return Err(e.to_string()),
     }
-    let path = index_file(&app)?;
+    let path = index_file(&app, &scope)?;
     let mut index = load_index(&path);
     index.names.retain(|n| *n != name);
     save_index(&path, &index)

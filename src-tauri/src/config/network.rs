@@ -1,12 +1,14 @@
-//! Network settings that apply to every agent VM: the global host allowlist, stored as
-//! `<app data>/network.json`. A profile can allow more hosts (`Profile::allow_hosts`); the
-//! hosts here are allowed for all agents. `runs.rs` enforces them (with the profile's) through the egress proxy.
+//! Network settings that apply to agent VMs: the global host allowlist, stored as
+//! `<app data>/network.json`, and a project's own list (in its `project.json`). A profile can
+//! allow more hosts (`Profile::allow_hosts`); a run may reach the union of the three. `runs.rs`
+//! enforces them through the egress proxy.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::config::profiles::clean_host;
+use crate::config::scope::Scope;
 
 /// What Claude Code needs to work: the API and its telemetry endpoint.
 pub const DEFAULT_ALLOW_HOSTS: &[&str] = &["api.anthropic.com", "statsig.anthropic.com"];
@@ -30,7 +32,8 @@ impl Network {
     fn cleaned(&self) -> Result<Network, String> {
         let mut hosts: Vec<String> = vec![];
         for h in self.allow_hosts.iter().filter(|h| !h.trim().is_empty()) {
-            let h = clean_host(h)?;
+            // a `${var:NAME}` is only known at run time, when the entry is checked again
+            let h = if h.contains("${var:") { h.trim().to_string() } else { clean_host(h)? };
             if !hosts.contains(&h) {
                 hosts.push(h);
             }
@@ -62,15 +65,33 @@ pub fn save(path: &Path, network: &Network) -> Result<Network, String> {
     Ok(network)
 }
 
-#[tauri::command]
-pub fn network_get(app: tauri::AppHandle) -> Result<Network, String> {
-    Ok(load(&file(&app)?))
+/// The hosts a project adds to the global ones (empty for an unknown project).
+pub fn project_hosts(app: &tauri::AppHandle, project: &Scope) -> Vec<String> {
+    project.id().and_then(|id| crate::config::projects::load(app, id)).map(|p| p.allow_hosts).unwrap_or_default()
 }
 
-/// Saves the settings; returns them as stored (normalized).
+/// The global hosts, or a project's own.
 #[tauri::command]
-pub fn network_set(app: tauri::AppHandle, network: Network) -> Result<Network, String> {
-    save(&file(&app)?, &network)
+pub fn network_get(app: tauri::AppHandle, project: Option<String>) -> Result<Network, String> {
+    let scope = Scope::of(project)?;
+    if scope.is_global() {
+        return Ok(load(&file(&app)?));
+    }
+    crate::config::projects::load(&app, scope.id().unwrap_or_default()).map(|p| Network { allow_hosts: p.allow_hosts }).ok_or_else(|| "no such project".into())
+}
+
+/// Saves the global hosts or a project's; returns them as stored (normalized).
+#[tauri::command]
+pub fn network_set(app: tauri::AppHandle, project: Option<String>, network: Network) -> Result<Network, String> {
+    let scope = Scope::of(project)?;
+    let Some(id) = scope.id() else {
+        return save(&file(&app)?, &network);
+    };
+    let mut p = crate::config::projects::load(&app, id).ok_or("no such project")?;
+    let network = network.cleaned()?;
+    p.allow_hosts = network.allow_hosts.clone();
+    crate::config::projects::store(&app, id, &p)?;
+    Ok(network)
 }
 
 #[cfg(test)]

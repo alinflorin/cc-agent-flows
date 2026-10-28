@@ -22,6 +22,7 @@ export function Welcome() {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("provision_starters");
       setPref("welcomed", true);
+      window.dispatchEvent(new Event("projects-changed"));
       notify(t("welcome.done"), "success");
     } catch (e) {
       // Not remembered: it is offered again on the next start.

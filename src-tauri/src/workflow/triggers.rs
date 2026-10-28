@@ -16,20 +16,25 @@ use tauri::{AppHandle, Emitter};
 use crate::workflow::cron::Cron;
 use crate::workflow::{self, Node, NodeKind};
 
-/// A trigger node with the workflow it is in and the agent it points to.
+/// A trigger node with the project and workflow it is in and the agent it points to.
 pub struct Found {
+    pub project: String,
     pub workflow: String,
     pub node: Node,
     pub target: String,
 }
 
-pub fn find_all(root: &std::path::Path, kind: NodeKind) -> Vec<Found> {
+/// The trigger nodes of the given kind in every project.
+pub fn find_all(app: &AppHandle, kind: NodeKind) -> Vec<Found> {
     let mut out = vec![];
-    for w in workflow::workflows(root) {
-        let wf = workflow::workflow(root, &w.id);
-        for n in wf.nodes.iter().filter(|n| n.kind == kind) {
-            if let Some(t) = wf.trigger_target(&n.id) {
-                out.push(Found { workflow: w.id.clone(), node: n.clone(), target: t.id.clone() });
+    for project in crate::config::projects::ids(app) {
+        let Ok(root) = workflow::root(app, &project) else { continue };
+        for w in workflow::workflows(&root) {
+            let wf = workflow::workflow(&root, &w.id);
+            for n in wf.nodes.iter().filter(|n| n.kind == kind) {
+                if let Some(t) = wf.trigger_target(&n.id) {
+                    out.push(Found { project: project.clone(), workflow: w.id.clone(), node: n.clone(), target: t.id.clone() });
+                }
             }
         }
     }
@@ -43,8 +48,8 @@ struct Last {
     last_error: Option<String>,
 }
 
-fn key(workflow: &str, node: &str) -> String {
-    format!("{workflow}/{node}")
+fn key(project: &str, workflow: &str, node: &str) -> String {
+    format!("{project}/{workflow}/{node}")
 }
 
 /// Serializes the read-modify-write of the file.
@@ -85,7 +90,7 @@ pub fn request(node: &Node, payload: &str) -> String {
 
 /// Starts the session of a trigger node. Returns its id.
 pub fn start_session(app: &AppHandle, f: &Found, payload: &str) -> Result<String, String> {
-    let root = workflow::root(app)?;
+    let root = workflow::root(app, &f.project)?;
     let task = request(&f.node, payload);
     if task.trim().is_empty() {
         return Err("there is no request to start the session with".into());
@@ -95,7 +100,7 @@ pub fn start_session(app: &AppHandle, f: &Found, payload: &str) -> Result<String
     let source = if f.node.kind == NodeKind::Cron { "cron" } else { "webhook" };
     let sid = workflow::create_triggered_session(&root, &name, &task, &f.workflow, &f.target, source, &f.node.trigger.autonomy)?;
     let _ = app.emit("sessions-changed", ());
-    if let Err(e) = crate::workflow::engine::session_start(app.clone(), sid.clone(), None) {
+    if let Err(e) = crate::workflow::engine::session_start(app.clone(), f.project.clone(), sid.clone(), None) {
         let _ = workflow::delete_session(&root, &sid);
         return Err(e);
     }
@@ -104,8 +109,8 @@ pub fn start_session(app: &AppHandle, f: &Found, payload: &str) -> Result<String
 
 /// Fires a node and remembers what came of it.
 pub fn fire(app: &AppHandle, f: &Found, payload: &str) -> Result<String, String> {
-    let k = key(&f.workflow, &f.node.id);
-    let root = workflow::root(app)?;
+    let k = key(&f.project, &f.workflow, &f.node.id);
+    let root = workflow::root(app, &f.project)?;
     if f.node.kind == NodeKind::Cron
         && let Some(last) = read(app).get(&k).and_then(|l| l.last_session.clone())
         && workflow::read_session(&root, &last).is_ok_and(|s| matches!(s.status.as_str(), "running" | "waiting"))
@@ -134,9 +139,8 @@ pub fn start(app: &AppHandle) {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             let minute = Local::now().naive_local().with_second(0).and_then(|t| t.with_nanosecond(0)).unwrap();
-            let Ok(root) = workflow::root(&app) else { continue };
-            for f in find_all(&root, NodeKind::Cron) {
-                let k = key(&f.workflow, &f.node.id);
+            for f in find_all(&app, NodeKind::Cron) {
+                let k = key(&f.project, &f.workflow, &f.node.id);
                 if fired.get(&k) == Some(&minute) || !Cron::parse(&f.node.trigger.cron).is_ok_and(|c| c.matches(&minute)) {
                     continue;
                 }
@@ -150,6 +154,7 @@ pub fn start(app: &AppHandle) {
 
 #[derive(Serialize)]
 pub struct Info {
+    project: String,
     workflow: String,
     node: String,
     kind: &'static str,
@@ -162,19 +167,18 @@ pub struct Info {
     last_error: Option<String>,
 }
 
-/// Every cron and webhook node with what it did last, for the editor.
+/// Every cron and webhook node of a project with what it did last, for the editor.
 #[tauri::command]
-pub fn triggers_status(app: AppHandle) -> Result<Vec<Info>, String> {
-    let root = workflow::root(&app)?;
+pub fn triggers_status(app: AppHandle, project: String) -> Result<Vec<Info>, String> {
     let last = read(&app);
     let port = crate::workflow::webhook::port(&app);
     let mut out = vec![];
     for (kind, name) in [(NodeKind::Cron, "cron"), (NodeKind::Webhook, "webhook")] {
-        for f in find_all(&root, kind) {
-            let l = last.get(&key(&f.workflow, &f.node.id)).cloned().unwrap_or_default();
+        for f in find_all(&app, kind).into_iter().filter(|f| f.project == project) {
+            let l = last.get(&key(&f.project, &f.workflow, &f.node.id)).cloned().unwrap_or_default();
             let next = (kind == NodeKind::Cron).then(|| Cron::parse(&f.node.trigger.cron).ok().and_then(|c| c.next(Local::now().naive_local(), 1).first().map(|t| t.format("%Y-%m-%d %H:%M").to_string()))).flatten();
             let url = (kind == NodeKind::Webhook).then(|| format!("http://127.0.0.1:{port}/hook/{}", f.node.trigger.token));
-            out.push(Info { workflow: f.workflow, node: f.node.id, kind: name, next, url, last_run: l.last_run, last_session: l.last_session, last_error: l.last_error });
+            out.push(Info { project: f.project, workflow: f.workflow, node: f.node.id, kind: name, next, url, last_run: l.last_run, last_session: l.last_session, last_error: l.last_error });
         }
     }
     Ok(out)
@@ -183,13 +187,12 @@ pub fn triggers_status(app: AppHandle) -> Result<Vec<Info>, String> {
 /// Starts the session of a cron or webhook node now (a webhook with `payload` as the body), to
 /// try it. Returns the session id.
 #[tauri::command]
-pub async fn trigger_fire(app: AppHandle, workflow: String, node: String, payload: Option<String>) -> Result<String, String> {
+pub async fn trigger_fire(app: AppHandle, project: String, workflow: String, node: String, payload: Option<String>) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let root = workflow::root(&app)?;
         let f = [NodeKind::Cron, NodeKind::Webhook]
             .into_iter()
-            .flat_map(|k| find_all(&root, k))
-            .find(|f| f.workflow == workflow && f.node.id == node)
+            .flat_map(|k| find_all(&app, k))
+            .find(|f| f.project == project && f.workflow == workflow && f.node.id == node)
             .ok_or("no such trigger, or it points to no agent (save the workflow first)")?;
         fire(&app, &f, payload.as_deref().unwrap_or(""))
     })

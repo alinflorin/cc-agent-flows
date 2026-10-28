@@ -7,6 +7,7 @@ import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 import { call } from "../tauri";
+import { projectPath, useProjectId } from "../project";
 
 interface Session {
   id: string;
@@ -26,6 +27,7 @@ export function Sessions() {
   const styles = useStyles();
   const notify = useNotify();
   const navigate = useNavigate();
+  const project = useProjectId();
   const desktop = inTauri();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [workflows, setWorkflows] = useState<Record<string, string>>({});
@@ -34,12 +36,12 @@ export function Sessions() {
 
   const load = useCallback(async () => {
     try {
-      setSessions(await call<Session[]>("sessions_list"));
-      setWorkflows(Object.fromEntries((await call<{ id: string; name: string }[]>("workflows_list")).map((w) => [w.id, w.name])));
+      setSessions(await call<Session[]>("sessions_list", { project }));
+      setWorkflows(Object.fromEntries((await call<{ id: string; name: string }[]>("workflows_list", { project })).map((w) => [w.id, w.name])));
     } catch (e) {
       notify(String(e), "error");
     }
-  }, [notify]);
+  }, [notify, project]);
 
   useEffect(() => {
     if (desktop) void load();
@@ -69,7 +71,7 @@ export function Sessions() {
 
   const create = async () => {
     try {
-      navigate(`/sessions/${await call<string>("sessions_create")}`);
+      navigate(projectPath(project, `/sessions/${await call<string>("sessions_create", { project })}`));
     } catch (e) {
       notify(String(e), "error");
     }
@@ -77,7 +79,7 @@ export function Sessions() {
 
   const remove = async (id: string) => {
     try {
-      await call("sessions_delete", { id });
+      await call("sessions_delete", { project, id });
       await load();
     } catch (e) {
       notify(String(e), "error");
@@ -112,7 +114,7 @@ export function Sessions() {
       {desktop && sessions.length === 0 && <Body1 block style={{ color: tokens.colorNeutralForeground3 }}>{t("sessions.empty")}</Body1>}
       <div className={styles.list}>
         {shown.map((s) => (
-          <Card key={s.id} onClick={() => navigate(`/sessions/${s.id}`)}>
+          <Card key={s.id} onClick={() => navigate(projectPath(project, `/sessions/${s.id}`))}>
             <CardHeader
               header={<Body1><b>{s.name || (s.task ? (s.task.length > 60 ? `${s.task.slice(0, 60)}…` : s.task) : t("sessions.untitled"))}</b></Body1>}
               description={<Caption1>{new Date(s.created * 1000).toLocaleString()} · {t(`sessions.status.${s.status}`, s.status)} · {workflows[s.workflow] ?? s.workflow}</Caption1>}

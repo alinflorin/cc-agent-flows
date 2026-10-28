@@ -9,27 +9,21 @@
   },
   "nav": {
     "menu": "Menu",
-    "home": "Home",
     "about": "About",
-    "settings": "Settings",
+    "settings": "Global settings",
     "profiles": "Agent profiles",
     "runs": "Runs",
     "workflow": "Workflow",
     "sessions": "Sessions",
-    "analytics": "Analytics"
+    "analytics": "Analytics",
+    "projects": "Projects",
+    "back": "Back"
   },
   "theme": {
     "label": "Theme",
     "auto": "System",
     "light": "Light",
     "dark": "Dark"
-  },
-  "home": {
-    "welcome": "Welcome",
-    "intro": "Run a team of Claude Code agents, each sandboxed in its own VM.",
-    "workflow": "Design who hands work to whom.",
-    "sessions": "Start a session and watch the agents deliver.",
-    "profiles": "Define the agents: prompt, tools, image."
   },
   "about": {
     "version": "Version {{version}}",
@@ -78,7 +72,7 @@
     }
   },
   "settings": {
-    "title": "Settings",
+    "title": "Global settings",
     "autoUpdate": "Check for updates on startup",
     "tabs": {
       "llm": "LLM",
@@ -121,7 +115,16 @@
       "replaceToken": "Replace token",
       "setToken": "Set token",
       "addAccount": "Add an account",
-      "add": "Add"
+      "add": "Add",
+      "mode": "Account selection",
+      "modes": {
+        "round_robin": "Round-robin",
+        "drain": "Drain one by one"
+      },
+      "modeHint": {
+        "round_robin": "Each run takes the next account in turn.",
+        "drain": "Always uses the first available account until Claude says it hit its limit, then moves on to the next one."
+      }
     },
     "saved": "Settings saved.",
     "images": {
@@ -154,7 +157,8 @@
       "addText": "Add text",
       "docText": "Text",
       "docCommand": "Command",
-      "docTextPlaceholder": "## Title, or a few lines of advice"
+      "docTextPlaceholder": "## Title, or a few lines of advice",
+      "global": "Global"
     },
     "network": {
       "intro": "Internet hosts every agent may reach over HTTPS. A profile can allow more on top of these. Agents have no other network access.",
@@ -162,7 +166,8 @@
       "allowHostsHint": "One per line: a name (github.com) or all the subdomains of one (*.github.com). Everything not listed here or in the agent's profile is blocked. The defaults are what Claude Code needs to work; an empty list cuts the agents off from the Claude API.",
       "defaults": "Restore defaults",
       "webhookPort": "Webhook port",
-      "webhookPortHint": "Webhook nodes of a workflow listen on this port, on this computer only (127.0.0.1). To reach them from outside, forward the port or use a tunnel; the secret in each URL is what authorizes a call."
+      "webhookPortHint": "Webhook nodes of a workflow listen on this port, on this computer only (127.0.0.1). To reach them from outside, forward the port or use a tunnel; the secret in each URL is what authorizes a call.",
+      "projectIntro": "Internet hosts every agent of this project may reach over HTTPS, on top of the global ones (Settings) and the profile's own. An entry may be a ${var:NAME} variable."
     },
     "secrets": {
       "intro": "Named values kept in the OS credential store, never in plain files. Use them in an agent profile's environment variables as ${secret:NAME}. The value is read when a run starts and reaches the agent's environment, so use tokens with the least privilege and only for the profiles that need them.",
@@ -216,7 +221,16 @@
       "placeholderHint": "What the agent sees in its variable. Set it to look like a token if a tool checks the format (for example ghp_…). Default: ccaf-injected.",
       "summary": "{{header}}: {{kind}} from {{secret}}"
     },
-    "notifications": "Desktop notifications when a session needs me or ends"
+    "notifications": "Desktop notifications when a session needs me or ends",
+    "globalIntro": "Global settings apply to every project: the Claude accounts, the base image, the hosts every agent needs (the Claude API) and anything you want to share. Everything else is managed inside each project.",
+    "globalNote": "Global: available in every project. A project's own item with the same name wins.",
+    "globalTabs": {
+      "images": "Global images",
+      "network": "Global allowed hosts",
+      "secrets": "Global secrets",
+      "variables": "Global variables",
+      "injections": "Global injections"
+    }
   },
   "updates": {
     "title": "Updates",
@@ -261,7 +275,7 @@
     "secretWarning": "{{names}} gets a secret in plain text: the value reaches the VM's environment, where the agent (and anything it runs) can read and send it. Prefer an injection (Settings > Injections): the VM then only sees a placeholder and the proxy adds the real credential."
   },
   "welcome": {
-    "text": "Set up demo content? This creates three images built in the background, Manager (the Jira CLI, jtk, on the base image), then Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with agent-browser) on top of it, seven agent profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, tester), three secrets with a dummy value (GITHUB, GITHUB_READONLY and JIRA tokens) to replace with real ones, an injection for each (GitHub, GitHub read-only, Jira; the Jira one takes its site and e-mail from two variables, ATLASSIAN_HOST and ATLASSIAN_EMAIL, to edit in Settings > Variables) wired into the profiles that need them, and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one and, for each, has the analyst, architect, developer, reviewer and tester do their part, in that order. You can edit or delete all of it later.",
+    "text": "Set up demo content? This creates a demo project with three images built in the background, Manager (the Jira CLI, jtk, on the base image), then Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with agent-browser) on top of it, seven agent profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, tester), three secrets with a dummy value (GITHUB, GITHUB_READONLY and JIRA tokens) to replace with real ones, an injection for each (GitHub, GitHub read-only, Jira; the Jira one takes its site and e-mail from two variables, ATLASSIAN_HOST and ATLASSIAN_EMAIL, to edit on the project's Variables page) wired into the profiles that need them, and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one and, for each, has the analyst, architect, developer, reviewer and tester do their part, in that order. You can edit or delete all of it later.",
     "yes": "Yes, set it up",
     "no": "Skip",
     "done": "Demo content created. The images are building.",
@@ -549,5 +563,29 @@
     "tokens": "Tokens",
     "avgTokens": "Tokens per session",
     "heaviest": "Sessions using the most tokens"
+  },
+  "projects": {
+    "title": "Projects",
+    "intro": "A project holds its own workflows, sessions, agent profiles, images, variables, secrets and injections, plus allowed hosts and a system prompt for all its agents. The global settings apply to every project.",
+    "new": "New project",
+    "empty": "No projects yet. Create one, or set up the demo project.",
+    "noDescription": "No description",
+    "workflows_one": "{{count}} workflow",
+    "workflows_other": "{{count}} workflows",
+    "profiles_one": "{{count}} agent profile",
+    "profiles_other": "{{count}} agent profiles",
+    "sessions_one": "{{count}} session",
+    "sessions_other": "{{count}} sessions",
+    "demo": "Create the demo project",
+    "demoHint": "The demo project is a ready-made delivery pipeline: images, agent profiles, secrets, injections and a workflow.",
+    "missing": "This project does not exist.",
+    "settings": "Project settings",
+    "systemPrompt": "System prompt for all the project's agents",
+    "systemPromptHint": "Given to every agent of the project, before the workflow's instructions and the profile's own system prompt.",
+    "danger": "Danger zone",
+    "delete": "Delete project",
+    "deleteText": "This deletes the project with its workflows, sessions, agent profiles, images, variables, injections and secrets. It cannot be undone.",
+    "deleteConfirm": "Delete everything",
+    "scopeNote": "These belong to this project. The global ones from Settings are available too; when a name exists in both, the project's wins."
   }
 }

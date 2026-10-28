@@ -5,6 +5,7 @@ import "@xyflow/react/dist/style.css";
 import { Body1, Caption1, Spinner, mergeClasses } from "@fluentui/react-components";
 import { activeEdges, nodeStates, nodeVms, type Digest, type NodeState, type VmState, type VmStats } from "../../sessionLog";
 import { useStyles } from "./styles";
+import { useProjectId } from "../../project";
 import { LiveNode, Pending, WEdge, WNode, fmtTokens } from "./types";
 
 /** A coloured dot and the VM's state; pulses while the VM is on its way up. */
@@ -136,12 +137,13 @@ export function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]
   const { t } = useTranslation();
   const states = useMemo(() => nodeStates(d, pending ? { node: pending.node, human: pending.human } : null), [d, pending]);
   const vms = useMemo(() => nodeVms(d), [d]);
+  const project = useProjectId();
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   useEffect(() => {
     void import("@tauri-apps/api/core").then(({ invoke }) =>
-      invoke<{ id: string; name: string }[]>("profiles_list").then((ps) => setProfileNames(Object.fromEntries(ps.map((p) => [p.id, p.name])))),
+      invoke<{ id: string; name: string }[]>("profiles_list", { project }).then((ps) => setProfileNames(Object.fromEntries(ps.map((p) => [p.id, p.name])))),
     ).catch(() => {});
-  }, []);
+  }, [project]);
   const kinds = useMemo(() => new Map(wf.nodes.map((n) => [n.id, n.kind as string])), [wf]);
   const active = useMemo(() => activeEdges(d, wf.edges, kinds), [d, wf, kinds]);
   const stats = useMemo(() => {
