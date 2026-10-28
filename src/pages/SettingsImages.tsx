@@ -9,7 +9,6 @@ import {
   DialogActions,
   DialogBody,
   DialogContent,
-  DialogSurface,
   DialogTitle,
   Field,
   Input,
@@ -18,7 +17,9 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { Add16Regular, Delete16Regular, Edit16Regular } from "@fluentui/react-icons";
+import { Add20Regular, Delete20Regular, Edit20Regular } from "@fluentui/react-icons";
+import { SettingsIntro } from "../components/SettingsIntro";
+import { FormDialogSurface } from "../components/FormDialogSurface";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
@@ -59,7 +60,6 @@ interface Spec {
 }
 
 const useStyles = makeStyles({
-  head: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: tokens.spacingVerticalM },
   list: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, maxWidth: "760px" },
   item: {
     display: "flex",
@@ -134,12 +134,11 @@ export function ImagesSettings() {
 
   return (
     <>
-      <div className={styles.head}>
-        <Body1>{t("settings.images.intro")}</Body1>
-        <Button icon={<Add16Regular />} onClick={() => setEditing({ id: null, spec: { name: "", description: "", parent: "base", env: [], script: "", docs: [] } })}>
+      <SettingsIntro text={t("settings.images.intro")}>
+        <Button appearance="primary" icon={<Add20Regular />} onClick={() => setEditing({ id: null, spec: { name: "", description: "", parent: "base", env: [], script: "", docs: [] } })}>
           {t("settings.images.new")}
         </Button>
-      </div>
+      </SettingsIntro>
       <div className={styles.list}>
         {images.map((i) => (
           <div key={i.id} className={styles.item}>
@@ -150,22 +149,20 @@ export function ImagesSettings() {
               <Badge appearance="filled" color={COLORS[i.state]}>
                 {t(`settings.images.state.${i.state}`)}
               </Badge>
-              <Button size="small" disabled={busy || !i.can_build} title={i.can_build ? undefined : t("settings.images.needBase")} onClick={() => run("images_build", { id: i.id })}>
+              <Button disabled={busy || !i.can_build} title={i.can_build ? undefined : t("settings.images.needBase")} onClick={() => run("images_build", { id: i.id })}>
                 {i.state === "missing" ? t("settings.images.build") : t("settings.images.rebuild")}
               </Button>
               {!i.builtin && (
                 <>
                   <Button
-                    size="small"
                     appearance="subtle"
-                    icon={<Edit16Regular />}
+                    icon={<Edit20Regular />}
                     aria-label={t("profiles.edit")}
                     onClick={() => setEditing({ id: i.id, spec: { name: i.name, description: i.description, parent: i.parent ?? "base", env: i.env, script: i.script, docs: i.docs } })}
                   />
                   <Button
-                    size="small"
                     appearance="subtle"
-                    icon={<Delete16Regular />}
+                    icon={<Delete20Regular />}
                     aria-label={t("profiles.delete")}
                     disabled={i.state === "building"}
                     onClick={() => run("images_delete", { id: i.id })}
@@ -188,7 +185,7 @@ export function ImagesSettings() {
       </div>
 
       <Dialog surfaceMotion={null} open={editing !== null} onOpenChange={(_, d) => !d.open && setEditing(null)}>
-        <DialogSurface backdropMotion={null}>
+        <FormDialogSurface>
           <DialogBody>
             <DialogTitle>{editing?.id ? t("settings.images.edit") : t("settings.images.new")}</DialogTitle>
             <DialogContent className={styles.form}>
@@ -224,7 +221,7 @@ export function ImagesSettings() {
                           <Input className={`${styles.grow} ${styles.mono}`} value={v.value} onChange={(_, d) => setEnv(n, { value: d.value })} />
                           <Button
                             appearance="subtle"
-                            icon={<Delete16Regular />}
+                            icon={<Delete20Regular />}
                             aria-label={t("profiles.delete")}
                             onClick={() => setEditing({ ...editing, spec: { ...editing.spec, env: editing.spec.env.filter((_, j) => j !== n) } })}
                           />
@@ -232,8 +229,7 @@ export function ImagesSettings() {
                       ))}
                       <div>
                         <Button
-                          size="small"
-                          icon={<Add16Regular />}
+                          icon={<Add20Regular />}
                           onClick={() => setEditing({ ...editing, spec: { ...editing.spec, env: [...editing.spec.env, { name: "", value: "" }] } })}
                         >
                           {t("profiles.addVar")}
@@ -274,7 +270,7 @@ export function ImagesSettings() {
                           )}
                           <Button
                             appearance="subtle"
-                            icon={<Delete16Regular />}
+                            icon={<Delete20Regular />}
                             aria-label={t("profiles.delete")}
                             onClick={() => setEditing({ ...editing, spec: { ...editing.spec, docs: editing.spec.docs.filter((_, j) => j !== n) } })}
                           />
@@ -284,8 +280,7 @@ export function ImagesSettings() {
                         {(["command", "text"] as const).map((kind) => (
                           <Button
                             key={kind}
-                            size="small"
-                            icon={<Add16Regular />}
+                            icon={<Add20Regular />}
                             onClick={() => setEditing({ ...editing, spec: { ...editing.spec, docs: [...editing.spec.docs, { kind, value: "" }] } })}
                           >
                             {t(kind === "text" ? "settings.images.addText" : "settings.images.addCommand")}
@@ -310,7 +305,7 @@ export function ImagesSettings() {
               </Button>
             </DialogActions>
           </DialogBody>
-        </DialogSurface>
+        </FormDialogSurface>
       </Dialog>
     </>
   );

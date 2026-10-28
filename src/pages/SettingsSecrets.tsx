@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Body1, Button, Caption1, Field, Input, makeStyles, tokens } from "@fluentui/react-components";
-import { Delete16Regular } from "@fluentui/react-icons";
+import { Delete20Regular } from "@fluentui/react-icons";
+import { SettingsIntro } from "../components/SettingsIntro";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
 const useStyles = makeStyles({
-  form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "560px" },
+  form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "760px" },
   row: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "center" },
   grow: { flex: 1 },
+  name: { flex: "1 1 0", minWidth: 0, overflowWrap: "anywhere", fontFamily: tokens.fontFamilyMonospace },
   mono: { fontFamily: tokens.fontFamilyMonospace },
 });
 
@@ -68,8 +70,9 @@ export function SecretsSettings() {
 
   return (
     <div className={styles.form}>
-      <Body1 block>{t("settings.secrets.intro")}</Body1>
-      {!desktop && <Body1 block>{t("settings.secrets.desktopOnly")}</Body1>}
+      <SettingsIntro text={t("settings.secrets.intro")}>
+        {!desktop && <Body1 block>{t("settings.secrets.desktopOnly")}</Body1>}
+      </SettingsIntro>
 
       <Field
         label={t("settings.secrets.new")}
@@ -101,7 +104,7 @@ export function SecretsSettings() {
       {desktop && names.length === 0 && <Caption1>{t("settings.secrets.empty")}</Caption1>}
       {names.map((n) => (
         <div key={n} className={styles.row}>
-          <Body1 className={`${styles.mono} ${styles.grow}`}>{`\${secret:${n}}`}</Body1>
+          <Body1 className={styles.name}>{`\${secret:${n}}`}</Body1>
           {replacing?.name === n ? (
             <>
               <Input
@@ -124,7 +127,7 @@ export function SecretsSettings() {
           ) : (
             <Button onClick={() => setReplacing({ name: n, value: "" })}>{t("settings.secrets.replace")}</Button>
           )}
-          <Button appearance="subtle" icon={<Delete16Regular />} aria-label={t("settings.secrets.delete")} onClick={() => void remove(n)} />
+          <Button appearance="subtle" icon={<Delete20Regular />} aria-label={t("settings.secrets.delete")} onClick={() => void remove(n)} />
         </div>
       ))}
     </div>

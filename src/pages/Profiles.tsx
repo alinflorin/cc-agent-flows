@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
 import {
   Body1,
   Button,
+  Badge,
   Card,
+  Subtitle2,
   Combobox,
   Option,
   CardHeader,
@@ -12,17 +15,16 @@ import {
   DialogActions,
   DialogBody,
   DialogContent,
-  DialogSurface,
   DialogTitle,
   Field,
   Input,
   Select,
   Textarea,
-  Title2,
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { Add16Regular, Delete16Regular } from "@fluentui/react-icons";
+import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
+import { FormDialogSurface } from "../components/FormDialogSurface";
 import { inTauri } from "../prefs";
 import { MODELS } from "../llm";
 import { useNotify } from "../notifications";
@@ -58,8 +60,10 @@ interface Entry extends Profile {
 const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: null, cpus: null, memory_mb: 2048, image: "base", allow_hosts: [] };
 
 const useStyles = makeStyles({
-  head: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: tokens.spacingVerticalL },
-  list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM },
+  list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalL },
+  card: { cursor: "pointer", transitionProperty: "box-shadow", transitionDuration: "120ms", ":hover": { boxShadow: tokens.shadow8 } },
+  chips: { display: "flex", flexWrap: "wrap", gap: tokens.spacingHorizontalXS },
+  desc: { color: tokens.colorNeutralForeground3 },
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM },
   envRow: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-start" },
   grow: { flex: 1 },
@@ -132,24 +136,26 @@ export function Profiles() {
 
   return (
     <>
-      <div className={styles.head}>
-        <Title2 as="h1">{t("profiles.title")}</Title2>
-        <Button appearance="primary" icon={<Add16Regular />} disabled={!desktop} onClick={() => edit({ id: null, profile: EMPTY })}>
-          {t("profiles.new")}
-        </Button>
-      </div>
+      <PageHeader
+        title={t("profiles.title")}
+        actions={
+          <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit({ id: null, profile: EMPTY })}>
+            {t("profiles.new")}
+          </Button>
+        }
+      />
       {!desktop && <Body1 block>{t("profiles.desktopOnly")}</Body1>}
       {desktop && entries.length === 0 && <Body1 block>{t("profiles.empty")}</Body1>}
       <div className={styles.list}>
         {entries.map((e) => (
-          <Card key={e.id} onClick={() => edit({ id: e.id, profile: e })}>
+          <Card key={e.id} className={styles.card} onClick={() => edit({ id: e.id, profile: e })}>
             <CardHeader
-              header={<Body1><b>{e.name}</b></Body1>}
-              description={<Caption1>{e.description || t("profiles.noDescription")}</Caption1>}
+              header={<Subtitle2>{e.name}</Subtitle2>}
+              description={<Caption1 className={styles.desc}>{e.description || t("profiles.noDescription")}</Caption1>}
               action={
                 <Button
                   appearance="subtle"
-                  icon={<Delete16Regular />}
+                  icon={<Delete20Regular />}
                   aria-label={t("profiles.delete")}
                   onClick={(ev) => {
                     ev.stopPropagation();
@@ -158,12 +164,16 @@ export function Profiles() {
                 />
               }
             />
+            <div className={styles.chips}>
+              <Badge appearance="tint" color="brand" size="small">{e.image}</Badge>
+              {e.model && <Badge appearance="outline" size="small">{e.model}</Badge>}
+            </div>
           </Card>
         ))}
       </div>
 
       <Dialog surfaceMotion={null} open={open} onOpenChange={(_, d) => setOpen(d.open)}>
-        <DialogSurface backdropMotion={null}>
+        <FormDialogSurface>
           <DialogBody>
             <DialogTitle>{editing?.id ? t("profiles.edit") : t("profiles.new")}</DialogTitle>
             <DialogContent className={styles.form}>
@@ -210,14 +220,14 @@ export function Profiles() {
                           </Combobox>
                           <Button
                             appearance="subtle"
-                            icon={<Delete16Regular />}
+                            icon={<Delete20Regular />}
                             aria-label={t("profiles.delete")}
                             onClick={() => set({ env: editing.profile.env.filter((_, j) => j !== i) })}
                           />
                         </div>
                       ))}
                       <div>
-                        <Button size="small" icon={<Add16Regular />} onClick={() => set({ env: [...editing.profile.env, { name: "", value: "" }] })}>
+                        <Button icon={<Add20Regular />} onClick={() => set({ env: [...editing.profile.env, { name: "", value: "" }] })}>
                           {t("profiles.addVar")}
                         </Button>
                       </div>
@@ -295,7 +305,7 @@ export function Profiles() {
               </Button>
             </DialogActions>
           </DialogBody>
-        </DialogSurface>
+        </FormDialogSurface>
       </Dialog>
     </>
   );

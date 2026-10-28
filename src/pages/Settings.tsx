@@ -2,8 +2,9 @@ import { useMemo, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
-import { Button, Field, Input, Subtitle1, Switch, Tab, TabList, Title2, makeStyles, tokens } from "@fluentui/react-components";
+import { Button, Field, Input, Subtitle1, Switch, Tab, TabList, makeStyles, tokens } from "@fluentui/react-components";
 import { getPref, setPref } from "../prefs";
 import { useNotify } from "../notifications";
 import { useUpdates } from "../updates";
@@ -19,8 +20,8 @@ const NAME_MAX = 40;
 
 const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "480px" },
-  section: { marginTop: tokens.spacingVerticalXL },
-  tabs: { marginBottom: tokens.spacingVerticalL },
+  section: { marginTop: tokens.spacingVerticalXXL, paddingTop: tokens.spacingVerticalXL, borderTop: `1px solid ${tokens.colorNeutralStroke2}`, display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, maxWidth: "480px" },
+  tabs: { marginBottom: tokens.spacingVerticalXL, marginLeft: `-${tokens.spacingHorizontalM}` },
   actions: { display: "flex", gap: tokens.spacingHorizontalS },
 });
 
@@ -127,9 +128,7 @@ export function Settings() {
 
   return (
     <>
-      <Title2 as="h1" block>
-        {t("settings.title")}
-      </Title2>
+      <PageHeader title={t("settings.title")} />
       <TabList className={styles.tabs} selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as string)}>
         <Tab value="general">{t("settings.tabs.general")}</Tab>
         <Tab value="llm">{t("settings.tabs.llm")}</Tab>

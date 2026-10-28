@@ -4,10 +4,10 @@ import { useTranslation } from "react-i18next";
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow, ReactFlowProvider, useNodesState, type Edge, type Node, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Badge, Body1, Button, Caption1, Field, Input, MessageBar, MessageBarBody, Select, Spinner, Subtitle2, Tab, TabList, Textarea, Title2, makeStyles, mergeClasses, tokens } from "@fluentui/react-components";
-import { Edit16Regular } from "@fluentui/react-icons";
+import { Edit20Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
-import { activeEdges, clip, digest, nodeStates, type CallInfo, type Digest, type Entry, type NodeState, type Run, type Traffic } from "../sessionLog";
+import { activeEdges, clip, digest, nodeStates, nodeVms, type CallInfo, type Digest, type Entry, type NodeState, type Run, type Traffic, type VmState, type VmStats } from "../sessionLog";
 
 interface Pending {
   id: string;
@@ -46,6 +46,7 @@ type Tab_ = "chat" | "timeline" | "agent" | "traffic";
 
 const useStyles = makeStyles({
   head: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalXS, marginBottom: tokens.spacingVerticalM },
+  autonomy: { gridTemplateColumns: "auto minmax(0, 1fr)", columnGap: tokens.spacingHorizontalM, "& label": { whiteSpace: "nowrap" } },
   bar: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "center", flexWrap: "wrap", marginBottom: tokens.spacingVerticalM },
   title: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS },
   grow: { flexGrow: 1 },
@@ -106,6 +107,24 @@ const useStyles = makeStyles({
   s_done: { border: `2px solid ${tokens.colorPaletteGreenBorderActive}` },
   s_failed: { border: `2px solid ${tokens.colorPaletteRedBorderActive}` },
   s_idle: { opacity: 0.7 },
+  vm: { display: "inline-flex", alignItems: "center", gap: tokens.spacingHorizontalXS, padding: `1px ${tokens.spacingHorizontalS}`, borderRadius: tokens.borderRadiusCircular, backgroundColor: tokens.colorNeutralBackground3, fontSize: tokens.fontSizeBase100, lineHeight: tokens.lineHeightBase100, whiteSpace: "nowrap" },
+  vmRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: tokens.spacingHorizontalS, marginTop: tokens.spacingVerticalXXS },
+  usage: { fontSize: tokens.fontSizeBase100, color: tokens.colorNeutralForeground3, whiteSpace: "nowrap" },
+  bars: { display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: tokens.spacingHorizontalXS, marginTop: "3px" },
+  meters: { display: "flex", flexDirection: "column", gap: "3px", marginTop: tokens.spacingVerticalXS },
+  meter: { display: "grid", gridTemplateColumns: "26px 1fr auto", alignItems: "center", columnGap: tokens.spacingHorizontalXS, fontSize: tokens.fontSizeBase100, color: tokens.colorNeutralForeground3 },
+  track: { height: "4px", borderRadius: tokens.borderRadiusCircular, backgroundColor: tokens.colorNeutralBackground5, overflow: "hidden" },
+  fill: { height: "100%", borderRadius: tokens.borderRadiusCircular, backgroundColor: tokens.colorBrandBackground, transitionProperty: "width", transitionDuration: "400ms" },
+  fillHot: { backgroundColor: tokens.colorPaletteRedBackground3 },
+  spark: { width: "100%", height: "36px", color: tokens.colorBrandForeground1 },
+  vmDot: { width: "8px", height: "8px", borderRadius: "50%", flex: "none" },
+  vmPulse: { animationName: { "0%, 100%": { opacity: 1 }, "50%": { opacity: 0.3 } }, animationDuration: "1.2s", animationIterationCount: "infinite" },
+  vm_queued: { backgroundColor: tokens.colorNeutralForeground4 },
+  vm_preparing: { backgroundColor: tokens.colorPaletteMarigoldBackground3 },
+  vm_starting: { backgroundColor: tokens.colorPaletteMarigoldBackground3 },
+  vm_booting: { backgroundColor: tokens.colorPaletteMarigoldBackground3 },
+  vm_running: { backgroundColor: tokens.colorPaletteGreenBackground3 },
+  vm_off: { backgroundColor: tokens.colorNeutralForeground4 },
   human: { borderTopStyle: "dashed", borderRightStyle: "dashed", borderBottomStyle: "dashed", borderLeftStyle: "dashed" },
 });
 
@@ -125,8 +144,90 @@ type LiveData = {
   calls: number;
   cost: number;
   picked: boolean;
+  vm: { state: VmState; count: number; use: VmStats | null } | null;
 };
 type LiveNode = Node<LiveData, "live">;
+
+/** A coloured dot and the VM's state; pulses while the VM is on its way up. */
+function VmPill({ state, count }: { state: VmState; count?: number }) {
+  const { t } = useTranslation();
+  const styles = useStyles();
+  const s = styles as Record<string, string>;
+  const transient = state === "preparing" || state === "starting" || state === "booting";
+  return (
+    <span className={styles.vm} title={t("session.vm.title")}>
+      <span className={mergeClasses(styles.vmDot, s[`vm_${state}`], transient && styles.vmPulse)} />
+      {t(`session.vm.${state}`)}
+      {count && count > 1 ? ` ×${count}` : ""}
+    </span>
+  );
+}
+
+const pct = (v: number, max: number) => Math.max(0, Math.min(100, max > 0 ? (v / max) * 100 : 0));
+
+/** CPU and memory of the VM as two thin bars (CPU: of all its virtual cores; memory: of what it was given). */
+function Meters({ use }: { use: VmStats }) {
+  const { t } = useTranslation();
+  const styles = useStyles();
+  const cpu = pct(use.cpu, use.cpus * 100);
+  const mem = pct(use.mem, use.memLimit);
+  const row = (label: string, value: number, text: string) => (
+    <div className={styles.meter}>
+      <span>{label}</span>
+      <div className={styles.track}>
+        <div className={mergeClasses(styles.fill, value > 90 && styles.fillHot)} style={{ width: `${value}%` }} />
+      </div>
+      <span>{text}</span>
+    </div>
+  );
+  return (
+    <div className={styles.meters} title={t("session.vm.usageTitle")}>
+      {row(t("session.vm.cpu"), cpu, `${Math.round(use.cpu)}%`)}
+      {row(t("session.vm.mem"), mem, gb(use.mem))}
+    </div>
+  );
+}
+
+/** The last samples of one VM's CPU as a line. */
+function Spark({ samples }: { samples: VmStats[] }) {
+  const styles = useStyles();
+  if (samples.length < 2) return null;
+  const max = Math.max(100 * samples[0].cpus, ...samples.map((s) => s.cpu));
+  const pts = samples.map((s, i) => `${(i / (samples.length - 1)) * 100},${34 - (s.cpu / max) * 32}`).join(" ");
+  return (
+    <svg className={styles.spark} viewBox="0 0 100 36" preserveAspectRatio="none" aria-hidden>
+      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+const gb = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`);
+
+/** The VM line of a node: its state and, once it is sampled, what it takes, in the little room a node has. */
+function NodeVm({ vm }: { vm: { state: VmState; count: number; use: VmStats | null } }) {
+  const { t } = useTranslation();
+  const styles = useStyles();
+  const use = vm.state !== "off" ? vm.use : null;
+  const bar = (value: number) => (
+    <div className={styles.track}>
+      <div className={mergeClasses(styles.fill, value > 90 && styles.fillHot)} style={{ width: `${value}%` }} />
+    </div>
+  );
+  return (
+    <div title={use ? t("session.vm.usageTitle") : undefined}>
+      <div className={styles.vmRow}>
+        <VmPill state={vm.state} count={vm.count} />
+        {use && <span className={styles.usage}>{Math.round(use.cpu)}% · {gb(use.mem)}</span>}
+      </div>
+      {use && (
+        <div className={styles.bars}>
+          {bar(pct(use.cpu, use.cpus * 100))}
+          {bar(pct(use.mem, use.memLimit))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function LiveNodeView({ data }: NodeProps<LiveNode>) {
   const { t } = useTranslation();
@@ -145,6 +246,7 @@ function LiveNodeView({ data }: NodeProps<LiveNode>) {
         {data.calls > 0 ? ` · ${t("session.callsCount", { count: data.calls })}` : ""}
         {data.cost > 0 ? ` · $${data.cost.toFixed(2)}` : ""}
       </Caption1>
+      {data.vm && <NodeVm vm={data.vm} />}
       <Handle type="source" position={Position.Right} />
     </div>
   );
@@ -155,6 +257,7 @@ const nodeTypes = { live: LiveNodeView };
 function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges: WEdge[] }; d: Digest; pending: Pending | null; picked: string | null; onPick: (id: string) => void }) {
   const { t } = useTranslation();
   const states = useMemo(() => nodeStates(d, pending ? { node: pending.node, human: pending.human } : null), [d, pending]);
+  const vms = useMemo(() => nodeVms(d), [d]);
   const kinds = useMemo(() => new Map(wf.nodes.map((n) => [n.id, n.kind as string])), [wf]);
   const active = useMemo(() => activeEdges(d, wf.edges, kinds), [d, wf, kinds]);
   const stats = useMemo(() => {
@@ -184,10 +287,11 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
           calls: stats.get(n.id)?.calls ?? 0,
           cost: stats.get(n.id)?.cost ?? 0,
           picked: picked === n.id,
+          vm: vms.get(n.id) ?? null,
         },
       })),
     );
-  }, [wf, states, stats, picked, t, setNodes]);
+  }, [wf, states, stats, vms, picked, t, setNodes]);
   const edges: Edge[] = wf.edges.map((e) => ({
     id: e.id,
     source: e.from,
@@ -302,8 +406,20 @@ function CallCard({ c, d, names }: { c: CallInfo; d: Digest; names: Record<strin
             <div className={styles.cardHead}>
               {r.status === "running" ? <Spinner size="extra-tiny" /> : <Badge size="small" appearance="tint" color={statusColor(r.status)}>{t(`runs.status.${r.status}`, r.status)}</Badge>}
               <Caption1>{t("session.run")} {n + 1}</Caption1>
+              <VmPill state={r.vm} />
               {r.cost > 0 && <Caption1 className={styles.muted}>${r.cost.toFixed(2)}</Caption1>}
             </div>
+            {r.vm !== "off" && r.stats.length > 0 && (
+              <>
+                <Meters use={r.stats[r.stats.length - 1]} />
+                <Spark samples={r.stats} />
+              </>
+            )}
+            {r.vmLog.length > 1 && (
+              <Caption1 block className={styles.muted}>
+                {r.vmLog.map((x, i) => `${t(`session.vm.${x.state}`)}${i > 0 ? ` +${Math.max(0, x.t - r.vmLog[i - 1].t)}s` : ""}`).join(" → ")}
+              </Caption1>
+            )}
             {r.pieces.length > 0 && (
               <details open={r.status === "running" || undefined}>
                 <summary className={styles.summaryRow}>{t("session.activity", { count: r.pieces.length })}</summary>
@@ -432,6 +548,7 @@ export function SessionView() {
 
   const names = useMemo(() => Object.fromEntries((wf?.nodes ?? []).map((n) => [n.id, n.label || n.profile || t("wf.kind.you")])), [wf, t]);
   const d = useMemo(() => digest(log, names), [log, names]);
+  const vmAlive = useMemo(() => [...d.runs.values()].filter((r) => r.vm !== "off").length, [d]);
 
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end" });
@@ -476,7 +593,7 @@ export function SessionView() {
         {title === null ? (
           <div className={styles.title}>
             <Title2 as="h1" className={session.name ? undefined : styles.muted}>{session.name || t("sessions.untitled")}</Title2>
-            <Button appearance="subtle" icon={<Edit16Regular />} aria-label={t("session.rename")} onClick={() => setTitle(session.name)} />
+            <Button appearance="subtle" icon={<Edit20Regular />} aria-label={t("session.rename")} onClick={() => setTitle(session.name)} />
           </div>
         ) : (
           <Input
@@ -496,10 +613,11 @@ export function SessionView() {
       <div className={styles.bar}>
         <Badge appearance="filled" color={statusColor(session.status)}>{t(`sessions.status.${session.status}`, session.status)}</Badge>
         {view.cost_usd > 0 && <Caption1>${view.cost_usd.toFixed(2)}</Caption1>}
+        {vmAlive > 0 && <Caption1>{t("session.vm.alive", { count: vmAlive })}</Caption1>}
         {canContinue && <Button appearance="primary" onClick={() => act("session_continue")}>{t("session.continue")}</Button>}
         {live && <Button onClick={() => act("session_cancel")}>{t("runs.cancel")}</Button>}
         <span className={styles.grow} />
-        <Field orientation="horizontal" label={t("session.autonomy.label")} hint={t(`session.autonomy.${session.autonomy}Hint`)}>
+        <Field className={styles.autonomy} orientation="horizontal" label={t("session.autonomy.label")} title={t(`session.autonomy.${session.autonomy}Hint`)}>
           <Select value={session.autonomy} onChange={(_, x) => act("sessions_autonomy", { autonomy: x.value })}>
             <option value="ask">{t("session.autonomy.ask")}</option>
             <option value="never">{t("session.autonomy.never")}</option>

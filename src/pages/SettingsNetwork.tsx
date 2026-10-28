@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Body1, Button, Field, Textarea, makeStyles, tokens } from "@fluentui/react-components";
+import { SettingsIntro } from "../components/SettingsIntro";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
@@ -60,8 +61,9 @@ export function NetworkSettings() {
 
   return (
     <div className={styles.form}>
-      <Body1 block>{t("settings.network.intro")}</Body1>
-      {!desktop && <Body1 block>{t("settings.llm.tokenDesktopOnly")}</Body1>}
+      <SettingsIntro text={t("settings.network.intro")}>
+        {!desktop && <Body1 block>{t("settings.llm.tokenDesktopOnly")}</Body1>}
+      </SettingsIntro>
       <Field label={t("settings.network.allowHosts")} hint={t("settings.network.allowHostsHint")}>
         <Textarea
           rows={8}

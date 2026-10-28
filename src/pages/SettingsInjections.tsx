@@ -10,7 +10,6 @@ import {
   DialogActions,
   DialogBody,
   DialogContent,
-  DialogSurface,
   DialogTitle,
   Dropdown,
   Field,
@@ -19,7 +18,9 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { Add16Regular, Delete16Regular } from "@fluentui/react-icons";
+import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
+import { SettingsIntro } from "../components/SettingsIntro";
+import { FormDialogSurface } from "../components/FormDialogSurface";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
@@ -124,13 +125,12 @@ export function InjectionsSettings() {
 
   return (
     <>
-      <Body1 block>{t("settings.injections.intro")}</Body1>
-      {!desktop && <Body1 block>{t("settings.injections.desktopOnly")}</Body1>}
-      <div style={{ marginTop: 16 }}>
-        <Button appearance="primary" icon={<Add16Regular />} disabled={!desktop} onClick={() => edit(null, EMPTY)}>
+      <SettingsIntro text={t("settings.injections.intro")}>
+        {!desktop && <Body1 block>{t("settings.injections.desktopOnly")}</Body1>}
+        <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit(null, EMPTY)}>
           {t("settings.injections.new")}
         </Button>
-      </div>
+      </SettingsIntro>
       {desktop && list.length === 0 && <Caption1 block style={{ marginTop: 16 }}>{t("settings.injections.empty")}</Caption1>}
       <div className={styles.list}>
         {list.map((x, i) => (
@@ -141,17 +141,17 @@ export function InjectionsSettings() {
             />
             <Caption1>{t("settings.injections.summary", { header: x.header, kind: t(`settings.injections.kinds.${x.kind}`), secret: x.secret })}</Caption1>
             <div className={styles.row}>
-              <Button size="small" onClick={() => edit(i, x)}>
+              <Button onClick={() => edit(i, x)}>
                 {t("settings.injections.edit")}
               </Button>
-              <Button size="small" appearance="subtle" icon={<Delete16Regular />} aria-label={t("settings.injections.delete")} onClick={() => void persist(list.filter((_, j) => j !== i))} />
+              <Button appearance="subtle" icon={<Delete20Regular />} aria-label={t("settings.injections.delete")} onClick={() => void persist(list.filter((_, j) => j !== i))} />
             </div>
           </Card>
         ))}
       </div>
 
       <Dialog surfaceMotion={null} open={open} onOpenChange={(_, d) => setOpen(d.open)}>
-        <DialogSurface backdropMotion={null}>
+        <FormDialogSurface>
           <DialogBody>
             <DialogTitle>{editing?.at === null ? t("settings.injections.new") : t("settings.injections.editTitle")}</DialogTitle>
             <DialogContent style={{ overflowX: "hidden" }}>
@@ -184,7 +184,7 @@ export function InjectionsSettings() {
                           </Dropdown>
                           <Button
                             appearance="subtle"
-                            icon={<Delete16Regular />}
+                            icon={<Delete20Regular />}
                             aria-label={t("settings.injections.delete")}
                             disabled={v.rules.length < 2}
                             onClick={() => set({ rules: v.rules.filter((_, j) => j !== i) })}
@@ -193,8 +193,7 @@ export function InjectionsSettings() {
                       ))}
                       <div>
                         <Button
-                          size="small"
-                          icon={<Add16Regular />}
+                          icon={<Add20Regular />}
                           onClick={() => set({ rules: [...v.rules, { host: "", path: "", methods: [] }] })}
                         >
                           {t("settings.injections.addRule")}
@@ -252,7 +251,7 @@ export function InjectionsSettings() {
               </Button>
             </DialogActions>
           </DialogBody>
-        </DialogSurface>
+        </FormDialogSurface>
       </Dialog>
     </>
   );

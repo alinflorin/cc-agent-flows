@@ -91,6 +91,12 @@ pub struct Spec {
     pub task: Task,
 }
 
+/// Tells the listener what the VM is doing (`preparing`, `starting`, `booting`, `running`, `off`), as an
+/// event like the egress lines: seq 0, not Claude's, ignored by what digests the agent's own events.
+fn vm_state(on_msg: &mut impl FnMut(&Outbound), state: &str) {
+    on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "vm", "state": state}) }));
+}
+
 /// Boots a VM of `image`, runs `task` in it and returns how it ended. `on_msg` sees every event and
 /// the final (also a synthesized one), in order. `Err` only for what stops the VM from starting
 /// (no token, image not built, QEMU missing). `cancel` firing ends the run as failed.
@@ -123,6 +129,7 @@ async fn boot_and_drive(
     mut cancel: oneshot::Receiver<()>,
     on_msg: &mut impl FnMut(&Outbound),
 ) -> Result<Final, String> {
+    vm_state(on_msg, "preparing");
     let overlay = work.join("disk.qcow2");
     // Never boot the image itself: a throwaway overlay on top of it.
     crate::images::qemu_img(
@@ -162,14 +169,18 @@ async fn boot_and_drive(
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).kill_on_drop(true);
     cmd.stderr(std::fs::File::create(&errlog).map(Stdio::from).unwrap_or_else(|_| Stdio::null()));
     let mut child = cmd.spawn().map_err(|e| format!("cannot start QEMU: {e}"))?;
+    vm_state(on_msg, "starting");
 
     let stream = match crate::builder::within(30, "the agent channel", channel.connect()).await {
         Ok(s) => s,
         Err(e) => {
             let _ = child.kill().await;
+            vm_state(on_msg, "off");
             return Ok(failed(format!("{e}: {}", tail(&errlog))));
         }
     };
+    vm_state(on_msg, "booting");
+    let mut running = false;
     // The stream stays open inside `drive` until the run is over.
     let mut rx = crate::agent::drive(stream, Bootstrap {
             id: identity.to_string(),
@@ -183,11 +194,22 @@ async fn boot_and_drive(
     let deadline = tokio::time::sleep(Duration::from_secs(timeout_secs.saturating_add(GRACE_SECS)));
     tokio::pin!(deadline);
     let mut exit = None;
+    // what the VM costs the host, sampled from QEMU's own process (the guest is not asked)
+    let pid = child.id().map(sysinfo::Pid::from_u32);
+    let mut sys = sysinfo::System::new();
+    let mut sample = tokio::time::interval(Duration::from_secs(2));
+    sample.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let fin = loop {
         tokio::select! {
             msg = rx.recv() => match msg {
                 Some(Outbound::Final(f)) => break f,
-                Some(m) => on_msg(&m),
+                Some(m) => {
+                    // the agent talks only once `agentd` is up in the guest
+                    if !std::mem::replace(&mut running, true) {
+                        vm_state(on_msg, "running");
+                    }
+                    on_msg(&m)
+                }
                 None => {
                     // The stream ended: QEMU is gone (or about to be) and the agent never finished.
                     let status = match exit {
@@ -201,6 +223,21 @@ async fn boot_and_drive(
                 // not Claude's: shown with the agent's events, ignored by those that read them
                 on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "egress", "text": line}) }));
             }
+            _ = sample.tick(), if exit.is_none() && pid.is_some() => {
+                let pid = pid.unwrap();
+                sys.refresh_processes_specifics(
+                    sysinfo::ProcessesToUpdate::Some(&[pid]),
+                    true,
+                    sysinfo::ProcessRefreshKind::nothing().with_cpu().with_memory(),
+                );
+                if let Some(p) = sys.process(pid) {
+                    let cpus = size.0.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get() as u32));
+                    // `cpu` is a percentage of one core (it can pass 100), `mem_mb` the host memory QEMU holds
+                    on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({
+                        "type": "vm_stats", "cpu": p.cpu_usage(), "mem_mb": p.memory() / (1024 * 1024), "mem_limit_mb": size.1, "cpus": cpus,
+                    }) }));
+                }
+            }
             status = child.wait(), if exit.is_none() => {
                 // Keep reading: the final may still be on its way through the channel.
                 exit = Some(status.ok());
@@ -210,6 +247,7 @@ async fn boot_and_drive(
         }
     };
     let _ = child.kill().await;
+    vm_state(on_msg, "off");
     Ok(fin)
 }
 

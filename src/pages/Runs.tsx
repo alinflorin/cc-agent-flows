@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
-import { Badge, Body1, Button, Caption1, Field, Select, Textarea, Title2, makeStyles, tokens } from "@fluentui/react-components";
+import { Badge, Body1, Button, Caption1, Field, Select, Textarea, makeStyles, tokens } from "@fluentui/react-components";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 
@@ -99,9 +100,7 @@ export function Runs() {
   if (!desktop) return <Body1 block>{t("app.desktopOnly")}</Body1>;
   return (
     <>
-      <Title2 as="h1" block>
-        {t("runs.title")}
-      </Title2>
+      <PageHeader title={t("runs.title")} />
       <div className={styles.form}>
         <Caption1>{t("runs.hint")}</Caption1>
         <Field label={t("wf.profile")}>

@@ -16,7 +16,8 @@ const useStyles = makeStyles({
   },
   column: { display: "flex", flexDirection: "column", flex: 1, minWidth: 0 },
   mobileBar: { flex: "none", padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalS}`, borderBottom: `1px solid ${tokens.colorNeutralStroke2}` },
-  main: { flex: 1, minWidth: 0, overflow: "auto", padding: tokens.spacingHorizontalXXL },
+  main: { flex: 1, minWidth: 0, overflow: "auto", padding: `${tokens.spacingVerticalXXL} ${tokens.spacingHorizontalXXXL}` },
+  content: { maxWidth: "1400px", margin: "0 auto" },
 });
 
 /** The sidebar on the left (behind a menu button on mobile) and the routed page. */
@@ -42,7 +43,9 @@ export function Layout() {
           </div>
         )}
         <main className={styles.main}>
-          <Outlet />
+          <div className={styles.content}>
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

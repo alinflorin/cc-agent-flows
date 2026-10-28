@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
+import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
-import { Body1, Caption1, Title2, makeStyles, tokens } from "@fluentui/react-components";
+import { Body1, makeStyles, tokens } from "@fluentui/react-components";
 import { getVersion } from "@tauri-apps/api/app";
 import { inTauri } from "../prefs";
 
 const useStyles = makeStyles({
-  logo: { width: "64px", height: "64px", marginBottom: tokens.spacingVerticalM },
+  logo: { width: "64px", height: "64px", marginBottom: tokens.spacingVerticalL },
 });
 
 export function About() {
@@ -19,11 +20,8 @@ export function About() {
   return (
     <>
       <img src="/logo.svg" alt="" className={styles.logo} />
-      <Title2 as="h1" block>
-        {t("title")}
-      </Title2>
+      <PageHeader title={t("title")} description={t("about.tagline")} />
       <Body1 block>{t("about.version", { version: version || "—" })}</Body1>
-      <Caption1 block>{t("about.tagline")}</Caption1>
     </>
   );
 }

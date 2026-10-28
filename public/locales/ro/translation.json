@@ -371,6 +371,20 @@
         "injected": "credențial",
         "other": "info"
       }
+    },
+    "vm": {
+      "title": "Starea mașinii virtuale a agentului",
+      "queued": "VM în așteptare",
+      "preparing": "VM se pregătește",
+      "starting": "VM pornește",
+      "booting": "VM boot-ează",
+      "running": "VM activ",
+      "off": "VM oprit",
+      "alive_one": "{{count}} VM pornit",
+      "alive_other": "{{count}} VM-uri pornite",
+      "cpu": "CPU",
+      "mem": "RAM",
+      "usageTitle": "CPU și memoria pe care VM-ul le ia de la acest calculator (procesul QEMU)"
     }
   },
   "app": {

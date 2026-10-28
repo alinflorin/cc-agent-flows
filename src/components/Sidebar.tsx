@@ -43,7 +43,7 @@ const useStyles = makeStyles({
     "& .fui-NavItem[aria-current=page]": { backgroundColor: tokens.colorNeutralBackground2Selected },
   },
   body: { flex: 1, minHeight: 0, overflowY: "auto", backgroundColor: "transparent" },
-  footer: { flex: "none", borderTop: `1px solid ${tokens.colorNeutralStroke2}`, backgroundColor: "transparent", padding: tokens.spacingVerticalS },
+  footer: { flex: "none", borderTop: `1px solid ${tokens.colorNeutralStroke2}`, backgroundColor: "transparent", padding: `${tokens.spacingVerticalS} 4px ${tokens.spacingVerticalS} 10px` },
   brand: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS, padding: `${tokens.spacingVerticalM} ${tokens.spacingHorizontalM}` },
   logo: { width: "28px", height: "28px", flex: "none" },
   name: { fontSize: tokens.fontSizeBase400, fontWeight: tokens.fontWeightSemibold, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
