@@ -2,7 +2,14 @@ import { useEffect, useState, type ReactElement } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { call } from "../tauri";
 import { useTranslation } from "react-i18next";
-import { NavDrawer, NavDrawerBody, NavDrawerFooter, NavDrawerHeader, NavItem, makeStyles, tokens } from "@fluentui/react-components";
+import {
+  NavDrawer,
+  NavDrawerBody,
+  NavDrawerHeader,
+  NavItem,
+  makeStyles,
+  tokens,
+} from "@fluentui/react-components";
 import {
   ArrowLeft24Regular,
   Bot24Filled,
@@ -42,10 +49,16 @@ const ProjectsIcon = bundleIcon(Folder24Filled, Folder24Regular);
 const ImagesIcon = bundleIcon(Box24Filled, Box24Regular);
 const VariablesIcon = bundleIcon(Braces24Filled, Braces24Regular);
 const SecretsIcon = bundleIcon(Key24Filled, Key24Regular);
-const InjectionsIcon = bundleIcon(PlugConnected24Filled, PlugConnected24Regular);
+const InjectionsIcon = bundleIcon(
+  PlugConnected24Filled,
+  PlugConnected24Regular,
+);
 const WorkflowIcon = bundleIcon(Flowchart24Filled, Flowchart24Regular);
 const SessionsIcon = bundleIcon(Chat24Filled, Chat24Regular);
-const AnalyticsIcon = bundleIcon(DataBarVertical24Filled, DataBarVertical24Regular);
+const AnalyticsIcon = bundleIcon(
+  DataBarVertical24Filled,
+  DataBarVertical24Regular,
+);
 const RunsIcon = bundleIcon(Play24Filled, Play24Regular);
 const ProfilesIcon = bundleIcon(Bot24Filled, Bot24Regular);
 const AboutIcon = bundleIcon(Info24Filled, Info24Regular);
@@ -65,16 +78,49 @@ const useStyles = makeStyles({
     flexDirection: "column",
     backgroundColor: tokens.colorNeutralBackground2,
     borderRight: `1px solid ${tokens.colorNeutralStroke2}`,
-    "& .fui-NavItem, & .fui-NavSectionHeader": { backgroundColor: "transparent" },
-    "& .fui-NavItem:hover": { backgroundColor: tokens.colorNeutralBackground2Hover },
-    "& .fui-NavItem[aria-current=page]": { backgroundColor: tokens.colorNeutralBackground2Selected },
+    "& .fui-NavItem, & .fui-NavSectionHeader": {
+      backgroundColor: "transparent",
+    },
+    "& .fui-NavItem:hover": {
+      backgroundColor: tokens.colorNeutralBackground2Hover,
+    },
+    "& .fui-NavItem[aria-current=page]": {
+      backgroundColor: tokens.colorNeutralBackground2Selected,
+    },
   },
-  body: { flex: 1, minHeight: 0, overflowY: "auto", backgroundColor: "transparent" },
-  footer: { flex: "none", borderTop: `1px solid ${tokens.colorNeutralStroke2}`, backgroundColor: "transparent", padding: `${tokens.spacingVerticalS} 4px ${tokens.spacingVerticalS} 10px` },
-  brand: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS, padding: `${tokens.spacingVerticalM} ${tokens.spacingHorizontalM}` },
+  body: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    backgroundColor: "transparent",
+  },
+  footer: {
+    flex: "none",
+    borderTop: `1px solid ${tokens.colorNeutralStroke2}`,
+    backgroundColor: "transparent",
+    padding: `${tokens.spacingVerticalS} 4px ${tokens.spacingVerticalS} 10px`,
+  },
+  brand: {
+    display: "flex",
+    alignItems: "center",
+    gap: tokens.spacingHorizontalS,
+    padding: `${tokens.spacingVerticalM} ${tokens.spacingHorizontalM}`,
+  },
   logo: { width: "28px", height: "28px", flex: "none" },
-  project: { padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalM} ${tokens.spacingVerticalS}`, fontWeight: tokens.fontWeightSemibold, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  name: { fontSize: tokens.fontSizeBase400, fontWeight: tokens.fontWeightSemibold, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  project: {
+    padding: `${tokens.spacingVerticalXS} ${tokens.spacingHorizontalM} ${tokens.spacingVerticalS}`,
+    fontWeight: tokens.fontWeightSemibold,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  name: {
+    fontSize: tokens.fontSizeBase400,
+    fontWeight: tokens.fontWeightSemibold,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
 });
 
 /** The name of a project, for the heading of its navigation. */
@@ -84,7 +130,10 @@ function useProjectName(pid: string | null) {
     setName("");
     if (!pid) return;
     const load = () => {
-      call<{ name: string }>("projects_get", { id: pid }).then((p) => setName(p.name), () => {});
+      call<{ name: string }>("projects_get", { id: pid }).then(
+        (p) => setName(p.name),
+        () => {},
+      );
     };
     load();
     window.addEventListener("projects-changed", load);
@@ -94,7 +143,15 @@ function useProjectName(pid: string | null) {
 }
 
 /** The left navigation, with Settings at the bottom. Inline beside the page on desktop, an overlay opened from a menu button on mobile. Inside a project it lists the project's pages; otherwise the projects and About. */
-export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: boolean; onClose: () => void }) {
+export function Sidebar({
+  overlay,
+  open,
+  onClose,
+}: {
+  overlay: boolean;
+  open: boolean;
+  onClose: () => void;
+}) {
   const { t } = useTranslation();
   const styles = useStyles();
   const navigate = useNavigate();
@@ -105,7 +162,11 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
   // /p/<id>/sessions/<sid> belongs to Sessions
   const section = pid ? (pathname.split("/")[3] ?? "") : "";
   const inSettings = pathname.startsWith("/settings");
-  const selected = pid ? `/p/${pid}/${section}` : pathname === "/" ? "/" : pathname;
+  const selected = pid
+    ? `/p/${pid}/${section}`
+    : pathname === "/"
+      ? "/"
+      : pathname;
   const setting = (tab: string, label: string, icon: ReactElement) => (
     <NavItem value={`/settings/${tab}`} icon={icon}>
       {label}
@@ -144,6 +205,7 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
             <div className={styles.project} title={name}>
               {name}
             </div>
+            {item("settings", t("settings.tabs.general"), <GeneralIcon />)}
             {item("workflow", t("nav.workflow"), <WorkflowIcon />)}
             {item("sessions", t("nav.sessions"), <SessionsIcon />)}
             {item("profiles", t("nav.profiles"), <ProfilesIcon />)}
@@ -152,7 +214,12 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
             {item("images", t("settings.tabs.images"), <ImagesIcon />)}
             {item("variables", t("settings.tabs.variables"), <VariablesIcon />)}
             {item("secrets", t("settings.tabs.secrets"), <SecretsIcon />)}
-            {item("injections", t("settings.tabs.injections"), <InjectionsIcon />)}
+            {item(
+              "injections",
+              t("settings.tabs.injections"),
+              <InjectionsIcon />,
+            )}
+            {item("network", t("settings.tabs.network"), <NetworkIcon />)}
           </>
         ) : inSettings ? (
           <>
@@ -163,10 +230,26 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
             {setting("general", t("settings.tabs.general"), <GeneralIcon />)}
             {setting("llm", t("settings.tabs.llm"), <LlmIcon />)}
             {setting("images", t("settings.globalTabs.images"), <ImagesIcon />)}
-            {setting("network", t("settings.globalTabs.network"), <NetworkIcon />)}
-            {setting("variables", t("settings.globalTabs.variables"), <VariablesIcon />)}
-            {setting("secrets", t("settings.globalTabs.secrets"), <SecretsIcon />)}
-            {setting("injections", t("settings.globalTabs.injections"), <InjectionsIcon />)}
+            {setting(
+              "network",
+              t("settings.globalTabs.network"),
+              <NetworkIcon />,
+            )}
+            {setting(
+              "variables",
+              t("settings.globalTabs.variables"),
+              <VariablesIcon />,
+            )}
+            {setting(
+              "secrets",
+              t("settings.globalTabs.secrets"),
+              <SecretsIcon />,
+            )}
+            {setting(
+              "injections",
+              t("settings.globalTabs.injections"),
+              <InjectionsIcon />,
+            )}
           </>
         ) : (
           <>
@@ -182,13 +265,6 @@ export function Sidebar({ overlay, open, onClose }: { overlay: boolean; open: bo
           </>
         )}
       </NavDrawerBody>
-      {pid && (
-        <NavDrawerFooter className={styles.footer}>
-          <NavItem value={`/p/${pid}/settings`} icon={<SettingsIcon />}>
-            {t("projects.settings")}
-          </NavItem>
-        </NavDrawerFooter>
-      )}
     </NavDrawer>
   );
 }
