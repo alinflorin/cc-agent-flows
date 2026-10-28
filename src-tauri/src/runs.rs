@@ -189,11 +189,11 @@ async fn boot_and_drive(
     let channel = Serial::named(work, "agent");
     let errlog = work.join("qemu.err");
     let timeout_secs = task.timeout_secs;
-    let mut cmd = crate::images::machine(app, size.1, size.0)?;
+    let mut cmd = crate::images::machine(app, size.1, size.0, true)?;
     cmd.args(["-nic", &sealed_nic(tunnel.port)])
         .args(["-action", "panic=exit-failure", "-serial", "null"])
         .arg("-drive")
-        .arg(format!("file={},if=virtio,discard=unmap", overlay.display()))
+        .arg(crate::images::drive_arg(&overlay))
         .args(["-device", "virtio-serial-pci"])
         .arg("-chardev")
         .arg(format!("{},id=agent", channel.chardev))
@@ -289,7 +289,7 @@ async fn boot_and_drive(
 /// the host's loopback `port`. `guestfwd=tcp:` shares one host connection among all guest
 /// connections, which is why the guest runs one ssh over it (see `tunnel.rs`).
 fn sealed_nic(port: u16) -> String {
-    format!("user,restrict=on,guestfwd=tcp:10.0.2.100:22-tcp:127.0.0.1:{port}")
+    format!("user,model=virtio-net-pci,restrict=on,guestfwd=tcp:10.0.2.100:22-tcp:127.0.0.1:{port}")
 }
 
 fn runs_dir(app: &AppHandle) -> Result<PathBuf, String> {
@@ -438,14 +438,16 @@ mod tests {
         let rules = crate::egress::Rules::new([crate::network::Network::default().allow_hosts]);
         let tunnel = crate::tunnel::Tunnel::start(crate::egress::Proxy::new(rules, None), std::sync::Arc::new(move |l| sink.lock().unwrap().push(l))).await.unwrap();
         let channel = Serial::named(&work, "agent");
+        let t0 = std::time::Instant::now();
         let mut vm = Command::new(q.join("bin/qemu-system-x86_64"))
             .arg("-L")
             .arg(q.join("share/qemu"))
-            .args(["-accel", "kvm", "-cpu", "max", "-m", "2048", "-smp", "2", "-display", "none", "-monitor", "none"])
+            .args(["-accel", "kvm", "-cpu", "max", "-m", "2048", "-smp", "2", "-M", "pc,usb=off,vmport=off", "-nodefaults", "-no-user-config", "-display", "none", "-monitor", "none"])
+            .args(crate::images::boot_args(&res.join("images"), "x86_64", true))
             .args(["-no-reboot", "-action", "panic=exit-failure", "-serial", "null"])
             .args(["-nic", &sealed_nic(tunnel.port)])
             .arg("-drive")
-            .arg(format!("file={},if=virtio,discard=unmap", overlay.display()))
+            .arg(crate::images::drive_arg(&overlay))
             .args(["-device", "virtio-serial-pci", "-chardev"])
             .arg(format!("{},id=agent", channel.chardev))
             .args(["-device", "virtserialport,chardev=agent,name=agent"])
@@ -474,17 +476,27 @@ mod tests {
                 tunnel: Some(TunnelKeys { key: tunnel.client_key.clone(), host_key: tunnel.host_key.clone() }),
                 ca: None,
             }, task);
+        // where the time goes, from the QEMU spawn: `ready` is agentd up in the guest (boot over)
+        let mark = |what: &str| eprintln!("TIMING {:>6} ms  {what}", t0.elapsed().as_millis());
+        mark("channel connected");
         let fin = tokio::time::timeout(Duration::from_secs(240), async {
+            let mut first = true;
             loop {
                 match rx.recv().await.expect("channel closed without a final") {
                     Outbound::Final(f) => return f,
-                    Outbound::Event(e) => eprintln!("event {}: {}", e.seq, e.event.to_string().chars().take(200).collect::<String>()),
-                    Outbound::Ready => {}
+                    Outbound::Event(e) => {
+                        if std::mem::take(&mut first) {
+                            mark("first event from claude");
+                        }
+                        eprintln!("event {}: {}", e.seq, e.event.to_string().chars().take(200).collect::<String>())
+                    }
+                    Outbound::Ready => mark("ready (agentd up, asks for its task)"),
                 }
             }
         })
         .await
         .expect("no final in time");
+        mark("final");
         eprintln!("final: {:?} {}", fin.status, fin.result);
         assert_eq!(fin.status, Status::Failed, "a fake token cannot succeed");
         // claude got to the API through the tunnel and the proxy (the 401 is the API's answer)
@@ -493,6 +505,7 @@ mod tests {
         assert!(log.contains("api.anthropic.com:443 allowed"), "the API was not reached through the proxy");
         assert!(!log.contains("denied"), "something was denied:\n{log}");
         let exited = tokio::time::timeout(Duration::from_secs(60), vm.wait()).await.expect("the VM did not power off").unwrap();
+        mark("QEMU exited");
         eprintln!("qemu exit: {exited}");
         let _ = std::fs::remove_dir_all(work);
     }

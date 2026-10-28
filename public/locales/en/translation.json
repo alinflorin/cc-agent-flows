@@ -279,7 +279,7 @@
     "effortDefault": "Default",
     "cpus": "CPUs",
     "cpusAll": "All of the host's",
-    "cpusHint": "Virtual CPUs of the VM. Empty gives it all the host's cores. This limits how many cores it can use, not their share of time.",
+    "cpusHint": "Virtual CPUs of the VM. Empty gives it the host's cores, at most 4. This limits how many cores it can use, not their share of time.",
     "memory": "Memory (MB)",
     "memoryHint": "RAM of the VM, at least 1024. Default 2048.",
     "allowHosts": "Allowed hosts",
