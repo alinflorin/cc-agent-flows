@@ -6,6 +6,7 @@ import { ArrowClockwise20Regular } from "@fluentui/react-icons";
 import { PageHeader } from "../components/PageHeader";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
+import { call } from "../tauri";
 
 interface SessionStat {
   id: string;
@@ -53,11 +54,6 @@ const useStyles = makeStyles({
   row: { cursor: "pointer" },
   bar2: { height: "6px", borderRadius: tokens.borderRadiusCircular, backgroundColor: tokens.colorBrandBackground, minWidth: "2px" },
 });
-
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
-}
 
 const tok = (n: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n);
 const dur = (s: number) => (s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m` : s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`);

@@ -8,10 +8,10 @@ import { Analytics } from "./pages/Analytics";
 import { Home } from "./pages/Home";
 import { Profiles } from "./pages/Profiles";
 import { Runs } from "./pages/Runs";
-import { SessionView } from "./pages/SessionView";
+import { SessionView } from "./pages/session/SessionView";
 import { Sessions } from "./pages/Sessions";
 import { Settings } from "./pages/Settings";
-import { Workflow } from "./pages/Workflow";
+import { Workflow } from "./pages/workflow/Workflow";
 import { useFluentTheme } from "./theme";
 import { UpdatesProvider } from "./updates";
 

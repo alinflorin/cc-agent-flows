@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Body1, Button, Caption1, Field, Input, makeStyles, tokens } from "@fluentui/react-components";
 import { Delete20Regular } from "@fluentui/react-icons";
-import { SettingsIntro } from "../components/SettingsIntro";
-import { ResetDemoButton } from "../components/ResetDemoButton";
-import { inTauri } from "../prefs";
-import { useNotify } from "../notifications";
+import { SettingsIntro } from "../../components/SettingsIntro";
+import { ResetDemoButton } from "../../components/ResetDemoButton";
+import { inTauri } from "../../prefs";
+import { useNotify } from "../../notifications";
+import { call } from "../../tauri";
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
@@ -21,11 +22,6 @@ const useStyles = makeStyles({
   mono: { fontFamily: tokens.fontFamilyMonospace },
   name: { width: "260px", fontFamily: tokens.fontFamilyMonospace },
 });
-
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
-}
 
 export function VariablesSettings() {
   const { t } = useTranslation();

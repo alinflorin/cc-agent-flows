@@ -18,11 +18,12 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { Add20Regular, Delete20Regular, Edit20Regular } from "@fluentui/react-icons";
-import { SettingsIntro } from "../components/SettingsIntro";
-import { FormDialogSurface } from "../components/FormDialogSurface";
-import { ResetDemoButton } from "../components/ResetDemoButton";
-import { inTauri } from "../prefs";
-import { useNotify } from "../notifications";
+import { SettingsIntro } from "../../components/SettingsIntro";
+import { FormDialogSurface } from "../../components/FormDialogSurface";
+import { ResetDemoButton } from "../../components/ResetDemoButton";
+import { inTauri } from "../../prefs";
+import { useNotify } from "../../notifications";
+import { call } from "../../tauri";
 
 interface EnvVar {
   name: string;
@@ -88,11 +89,6 @@ const useStyles = makeStyles({
     margin: 0,
   },
 });
-
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
-}
 
 const COLORS = { missing: "danger", queued: "informative", building: "informative", ready: "success", stale: "warning" } as const;
 

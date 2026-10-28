@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Body1, Button, Field, Input, Textarea, makeStyles, tokens } from "@fluentui/react-components";
-import { SettingsIntro } from "../components/SettingsIntro";
-import { inTauri } from "../prefs";
-import { useNotify } from "../notifications";
+import { SettingsIntro } from "../../components/SettingsIntro";
+import { inTauri } from "../../prefs";
+import { useNotify } from "../../notifications";
+import { call } from "../../tauri";
 
 interface Network {
   allow_hosts: string[];
@@ -16,11 +17,6 @@ const useStyles = makeStyles({
   actions: { display: "flex", gap: tokens.spacingHorizontalS },
   mono: { fontFamily: tokens.fontFamilyMonospace },
 });
-
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
-}
 
 const same = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 

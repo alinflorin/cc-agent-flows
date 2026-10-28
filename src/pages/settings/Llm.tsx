@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Badge, Button, Caption1, Dropdown, Field, Input, Option, Subtitle2, Switch, makeStyles, tokens } from "@fluentui/react-components";
-import { DEFAULT_MODEL, DEFAULT_THINKING, MODELS, THINKING_LEVELS } from "../llm";
-import { getPref, inTauri, setPref } from "../prefs";
-import { useNotify } from "../notifications";
+import { DEFAULT_MODEL, DEFAULT_THINKING, MODELS, THINKING_LEVELS } from "../../llm";
+import { getPref, inTauri, setPref } from "../../prefs";
+import { useNotify } from "../../notifications";
+import { call } from "../../tauri";
 
 const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "480px" },
@@ -19,11 +20,6 @@ interface Account {
   has_token: boolean;
   rest_until: number | null;
   rest_why: "limited" | "rejected" | null;
-}
-
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<T>(cmd, args);
 }
 
 export function LlmSettings() {
