@@ -12,6 +12,13 @@ export interface Piece {
   text: string;
 }
 
+/** One line of an agent's network traffic, as the egress proxy logged it. */
+export interface Traffic {
+  t: number;
+  kind: "allowed" | "denied" | "injected" | "other";
+  text: string;
+}
+
 export interface Run {
   key: string;
   call: string;
@@ -22,6 +29,7 @@ export interface Run {
   questions: string[];
   assumptions: string[];
   pieces: Piece[];
+  traffic: Traffic[];
   t: number;
 }
 
@@ -107,7 +115,7 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
         const path = pathOf(b.call);
         const c = callOf(path, b.node, e.t);
         if (!c.runs.includes(b.call)) c.runs.push(b.call);
-        runs.set(b.call, { key: b.call, call: path, node: b.node, status: "running", cost: 0, summary: "", questions: [], assumptions: [], pieces: [], t: e.t });
+        runs.set(b.call, { key: b.call, call: path, node: b.node, status: "running", cost: 0, summary: "", questions: [], assumptions: [], pieces: [], traffic: [], t: e.t });
         break;
       }
       case "run_end": {
@@ -117,6 +125,12 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
       }
       case "agent": {
         const r = runs.get(b.call);
+        if (r && b.event?.type === "egress") {
+          const text = String(b.event.text ?? "").replace(/^egress: /, "");
+          const kind = /denied|refused|cannot|failed/.test(text) ? "denied" : / gets /.test(text) ? "injected" : /allowed$/.test(text) ? "allowed" : "other";
+          r.traffic.push({ t: e.t, kind, text });
+          break;
+        }
         if (!r || b.event?.type !== "assistant") break;
         for (const c of b.event.message?.content ?? []) {
           if (c.type === "text" && c.text) r.pieces.push({ kind: "text", text: c.text });

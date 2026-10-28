@@ -321,7 +321,8 @@
     "tabs": {
       "chat": "Conversation",
       "timeline": "Timeline",
-      "agent": "Agent"
+      "agent": "Agent",
+      "traffic": "Traffic"
     },
     "node": {
       "idle": "idle",
@@ -356,6 +357,18 @@
       "wait": "waits for you",
       "reply": "you answered",
       "error": "error"
+    },
+    "traffic": {
+      "allowed": "{{count}} allowed",
+      "denied": "{{count}} blocked",
+      "injected": "{{count}} with credentials",
+      "empty": "No network traffic yet from this agent.",
+      "kind": {
+        "allowed": "allowed",
+        "denied": "blocked",
+        "injected": "credential",
+        "other": "info"
+      }
     }
   },
   "app": {
