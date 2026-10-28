@@ -654,7 +654,12 @@ async fn build_in(app: &AppHandle, r: &Ref, spec: Option<&Spec>, source: &Path, 
     let serial = Serial::new(work);
     let mut vm = launch(app, &overlay, &serial)?;
     let mut con = Console::new(serial.connect().await?);
-    within(240, "waiting for the VM to boot", con.login()).await?;
+    // QEMU's own complaint (bad path, no accelerator...) is the useful part when it dies at once
+    let qemu_err = |e: String| match std::fs::read_to_string(work.join("qemu.err")) {
+        Ok(t) if !t.trim().is_empty() => format!("{e}: {}", t.trim().lines().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ")),
+        _ => e,
+    };
+    within(240, "waiting for the VM to boot", con.login()).await.map_err(qemu_err)?;
 
     con.run("mkdir -p /tmp/setup", |_| {}).await?;
     let script = match spec {
@@ -717,7 +722,8 @@ fn launch(app: &AppHandle, disk: &Path, serial: &Serial) -> Result<tokio::proces
         .arg("-serial")
         .arg(&serial.qemu_arg);
     let mut cmd = Command::from(cmd);
-    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
+    let err = disk.parent().and_then(|d| std::fs::File::create(d.join("qemu.err")).ok());
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(err.map_or_else(Stdio::null, Stdio::from)).kill_on_drop(true);
     cmd.spawn().map_err(|e| super::qemu::spawn_error(app, &format!("qemu-system-{}", arch().unwrap_or("?")), &e))
 }
 

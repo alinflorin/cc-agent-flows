@@ -5,6 +5,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+/// The bundled resources folder. Tauri may hand it back as `\\?\C:\...` on Windows, which QEMU
+/// cannot use (`-L`, `-kernel`: it looks for its files and fails), so the prefix is dropped.
+pub fn resource_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    let dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+    Ok(match dir.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
+        Some(plain) if !plain.starts_with("UNC") => plain.into(),
+        _ => dir,
+    })
+}
+
 /// Seconds since the Unix epoch (0 if the clock is before it).
 pub fn unix_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())

@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::process::Command;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 /// The bundled QEMU tree (`bin/`, `lib/`, `share/qemu/`), if this build shipped one.
 fn bundled_root(app: &AppHandle) -> Option<PathBuf> {
-    let root = app.path().resource_dir().ok()?.join("qemu");
+    let root = crate::util::resource_dir(app).ok()?.join("qemu");
     root.join("bin").is_dir().then_some(root)
 }
 

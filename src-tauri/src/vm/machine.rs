@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tokio::process::Command;
 
 pub fn arch() -> Result<&'static str, String> {
@@ -16,7 +16,7 @@ pub fn arch() -> Result<&'static str, String> {
 }
 
 pub fn resources(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path().resource_dir().map_err(|e| e.to_string())
+    crate::util::resource_dir(app)
 }
 
 /// The host's logical cores: "no CPU limit" for a VM.
@@ -31,11 +31,16 @@ fn host_cpus() -> u32 {
 /// the little it needs and runs agentd (no OpenRC, no DHCP).
 pub fn boot_args(dir: &Path, arch: &str, agent: bool) -> Vec<std::ffi::OsString> {
     let tty = if arch == "aarch64" { "ttyAMA0" } else { "ttyS0" };
-    let cmdline = if agent {
+    let mut cmdline = if agent {
         "quiet loglevel=0 8250.nr_uarts=0 noresume root=/dev/vda rootfstype=ext4 rootflags=noatime rw init=/sbin/ccaf-init".to_string()
     } else {
         format!("console={tty} root=/dev/vda rootfstype=ext4 rw")
     };
+    // WHPX: the guest kernel panics while setting up XSAVE state (fpu__init_system_xstate), so it
+    // must not use XSAVE (no AVX in the guest; Claude Code's SSE4.2 baseline is enough)
+    if cfg!(windows) && arch == "x86_64" {
+        cmdline.push_str(" noxsave");
+    }
     vec![
         "-kernel".into(),
         dir.join(format!("alpine-{arch}.vmlinuz")).into(),
