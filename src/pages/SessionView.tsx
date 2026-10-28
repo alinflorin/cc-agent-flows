@@ -236,11 +236,12 @@ function LiveNodeView({ data }: NodeProps<LiveNode>) {
   return (
     <div className={cls}>
       <Handle type="target" position={Position.Left} />
+      {!data.human && <Handle type="target" id="order-in" position={Position.Top} style={{ opacity: 0 }} />}
       <div className={styles.nodeTop}>
         <Body1><b>{data.human ? "👤 " : ""}{data.label}</b></Body1>
         {data.state === "running" && <Spinner size="extra-tiny" />}
       </div>
-      <Caption1 block>{data.sub}</Caption1>
+      {data.sub && data.sub !== data.label && <Caption1 block>{data.sub}</Caption1>}
       <Caption1 block className={styles.muted}>
         {t(`session.node.${data.state}`)}
         {data.calls > 0 ? ` · ${t("session.callsCount", { count: data.calls })}` : ""}
@@ -248,6 +249,7 @@ function LiveNodeView({ data }: NodeProps<LiveNode>) {
       </Caption1>
       {data.vm && <NodeVm vm={data.vm} />}
       <Handle type="source" position={Position.Right} />
+      {!data.human && <Handle type="source" id="order-out" position={Position.Bottom} style={{ opacity: 0 }} />}
     </div>
   );
 }
@@ -258,6 +260,12 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
   const { t } = useTranslation();
   const states = useMemo(() => nodeStates(d, pending ? { node: pending.node, human: pending.human } : null), [d, pending]);
   const vms = useMemo(() => nodeVms(d), [d]);
+  const [profileNames, setProfileNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    void import("@tauri-apps/api/core").then(({ invoke }) =>
+      invoke<{ id: string; name: string }[]>("profiles_list").then((ps) => setProfileNames(Object.fromEntries(ps.map((p) => [p.id, p.name])))),
+    ).catch(() => {});
+  }, []);
   const kinds = useMemo(() => new Map(wf.nodes.map((n) => [n.id, n.kind as string])), [wf]);
   const active = useMemo(() => activeEdges(d, wf.edges, kinds), [d, wf, kinds]);
   const stats = useMemo(() => {
@@ -280,8 +288,8 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
         draggable: false,
         connectable: false,
         data: {
-          label: n.label || (n.kind === "agent" ? n.profile : t("wf.kind.you")),
-          sub: n.kind === "agent" ? n.profile : t(`wf.kind.${n.kind}`),
+          label: n.label || (n.kind === "agent" ? (profileNames[n.profile] ?? n.profile) : t("wf.kind.you")),
+          sub: n.kind === "agent" ? (profileNames[n.profile] ?? n.profile) : t(`wf.kind.${n.kind}`),
           human: n.kind !== "agent",
           state: states.get(n.id) ?? "idle",
           calls: stats.get(n.id)?.calls ?? 0,
@@ -291,11 +299,13 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
         },
       })),
     );
-  }, [wf, states, stats, vms, picked, t, setNodes]);
+  }, [wf, states, stats, vms, picked, profileNames, t, setNodes]);
   const edges: Edge[] = wf.edges.map((e) => ({
     id: e.id,
     source: e.from,
     target: e.to,
+    sourceHandle: e.kind === "before" ? "order-out" : undefined,
+    targetHandle: e.kind === "before" ? "order-in" : undefined,
     animated: active.has(e.id),
     label: e.kind === "before" ? t("wf.orderLabel") : undefined,
     style: { strokeDasharray: e.kind === "before" ? "6 4" : undefined, strokeWidth: active.has(e.id) ? 3 : 1.5, opacity: e.kind === "before" ? 0.45 : 1 },
@@ -592,7 +602,7 @@ export function SessionView() {
         <Caption1><Link to="/sessions">{t("session.back")}</Link></Caption1>
         {title === null ? (
           <div className={styles.title}>
-            <Title2 as="h1" className={session.name ? undefined : styles.muted}>{session.name || t("sessions.untitled")}</Title2>
+            <Title2 as="h1" className={session.name || session.task ? undefined : styles.muted}>{session.name || (session.task.length > 60 ? `${session.task.slice(0, 60)}…` : session.task) || t("sessions.untitled")}</Title2>
             <Button appearance="subtle" icon={<Edit20Regular />} aria-label={t("session.rename")} onClick={() => setTitle(session.name)} />
           </div>
         ) : (
