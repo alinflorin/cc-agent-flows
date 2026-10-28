@@ -508,6 +508,7 @@
       "cron": "Programată",
       "webhook": "Webhook"
     },
+    "answerPlaceholder": "Răspunde agentului. Enter trimite, Shift+Enter adaugă o linie.",
     "followUp": "Scrie agenților. Enter trimite, Shift+Enter adaugă o linie.",
     "followUpQueued": "Sesiunea lucrează. Mesajul tău este tratat când se termină tura curentă.",
     "notify": {

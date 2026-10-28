@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useFollow } from "../../follow";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Badge,
@@ -95,21 +96,9 @@ const useStyles = makeStyles({
 
 /** Build output that follows the newest line, unless the user has scrolled up to read. */
 function BuildLog({ lines, className }: { lines: string[]; className: string }) {
-  const ref = useRef<HTMLPreElement>(null);
-  const follow = useRef(true);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (el && follow.current) el.scrollTop = el.scrollHeight;
-  }, [lines]);
+  const follow = useFollow<HTMLPreElement>(lines);
   return (
-    <pre
-      ref={ref}
-      className={className}
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-      }}
-    >
+    <pre className={className} {...follow}>
       {lines.join("\n")}
     </pre>
   );

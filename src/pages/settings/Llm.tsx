@@ -8,7 +8,7 @@ import { call } from "../../tauri";
 
 const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "480px" },
-  row: { display: "flex", gap: tokens.spacingHorizontalS },
+  row: { display: "flex", alignItems: "center", gap: tokens.spacingHorizontalS },
   grow: { flex: 1 },
   account: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS, padding: tokens.spacingHorizontalM, border: `1px solid ${tokens.colorNeutralStroke2}`, borderRadius: tokens.borderRadiusMedium },
 });

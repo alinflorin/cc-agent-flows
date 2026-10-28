@@ -506,6 +506,7 @@
       "cron": "Scheduled",
       "webhook": "Webhook"
     },
+    "answerPlaceholder": "Answer the agent. Enter sends, Shift+Enter adds a line.",
     "followUp": "Write to the agents. Enter sends, Shift+Enter adds a line.",
     "followUpQueued": "The session is working. Your message is handled when this turn ends.",
     "notify": {
