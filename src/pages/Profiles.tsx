@@ -81,6 +81,7 @@ export function Profiles() {
   const [images, setImages] = useState<ImageInfo[]>([]);
   const [secrets, setSecrets] = useState<string[]>([]);
   const [injections, setInjections] = useState<string[]>([]);
+  const [variables, setVariables] = useState<string[]>([]);
   const [editing, setEditing] = useState<{ id: string | null; profile: Profile } | null>(null);
   // closing only hides the dialog: its content stays until the next open, so the title cannot flip to "New profile" while it fades out
   const [open, setOpen] = useState(false);
@@ -95,6 +96,7 @@ export function Profiles() {
       setImages(await call<ImageInfo[]>("images_list"));
       setSecrets(await call<string[]>("secrets_list"));
       setInjections((await call<{ name: string }[]>("injections_get")).map((i) => i.name));
+      setVariables((await call<{ name: string }[]>("variables_list")).map((v) => v.name));
     } catch (e) {
       notify(String(e), "error");
     }
@@ -201,6 +203,9 @@ export function Profiles() {
                             ))}
                             {injections.map((n) => (
                               <Option key={`i:${n}`} value={`\${injection:${n}}`}>{`\${injection:${n}}`}</Option>
+                            ))}
+                            {variables.map((n) => (
+                              <Option key={`v:${n}`} value={`\${var:${n}}`}>{`\${var:${n}}`}</Option>
                             ))}
                           </Combobox>
                           <Button
