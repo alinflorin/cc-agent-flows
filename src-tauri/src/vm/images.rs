@@ -653,12 +653,20 @@ async fn build_in(app: &AppHandle, r: &Ref, spec: Option<&Spec>, source: &Path, 
     say("starting the builder VM");
     let serial = Serial::new(work);
     let mut vm = launch(app, &overlay, &serial)?;
-    let mut con = Console::new(serial.connect().await?);
     // QEMU's own complaint (bad path, no accelerator...) is the useful part when it dies at once
     let qemu_err = |e: String| match std::fs::read_to_string(work.join("qemu.err")) {
         Ok(t) if !t.trim().is_empty() => format!("{e}: {}", t.trim().lines().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ")),
         _ => e,
     };
+    // stop waiting for the console as soon as QEMU has exited, and say why
+    let stream = tokio::select! {
+        s = serial.connect() => s.map_err(&qemu_err)?,
+        st = vm.wait() => {
+            let how = st.map_or_else(|e| e.to_string(), |s| s.to_string());
+            return Err(qemu_err(format!("QEMU exited before the console was ready ({how})")));
+        }
+    };
+    let mut con = Console::new(stream);
     within(240, "waiting for the VM to boot", con.login()).await.map_err(qemu_err)?;
 
     con.run("mkdir -p /tmp/setup", |_| {}).await?;
