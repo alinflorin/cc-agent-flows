@@ -1,8 +1,9 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Follow } from "../../follow";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import { ReactFlowProvider } from "@xyflow/react";
-import { Badge, Body1, Button, Caption1, Field, Input, MessageBar, MessageBarBody, Select, Subtitle2, Tab, TabList, Textarea, Title2 } from "@fluentui/react-components";
+import { Badge, Body1, Button, Caption1, Field, Input, MessageBar, MessageBarBody, Select, Subtitle2, Tab, TabList, Textarea, Title2, mergeClasses } from "@fluentui/react-components";
 import { Edit20Regular } from "@fluentui/react-icons";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
@@ -25,11 +26,18 @@ export function SessionView() {
   const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
   const [log, setLog] = useState<Entry[]>([]);
   const [answer, setAnswer] = useState("");
+  // several questions: the answer drafted for each and the one being answered
+  const [drafts, setDrafts] = useState<string[]>([]);
+  const [sel, setSel] = useState(0);
+  const pendingId = view?.pending?.id;
+  useEffect(() => {
+    setDrafts([]);
+    setSel(0);
+  }, [pendingId]);
   const [message, setMessage] = useState("");
   const [title, setTitle] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab_>("chat");
   const [picked, setPicked] = useState<string | null>(null);
-  const end = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -82,10 +90,6 @@ export function SessionView() {
   const d = useMemo(() => digest(log, names), [log, names]);
   const vmAlive = useMemo(() => [...d.runs.values()].filter((r) => r.vm !== "off").length, [d]);
 
-  useEffect(() => {
-    end.current?.scrollIntoView({ block: "end" });
-  }, [log.length, tab]);
-
   const act = async (cmd: string, args: Record<string, unknown> = {}) => {
     try {
       await call(cmd, { project, id: sid, ...args });
@@ -122,13 +126,55 @@ export function SessionView() {
     const all = turnResults.filter((r) => r.turn === i);
     return all[all.length - 1];
   };
+  // questions and approvals already put to the user, with the answers, by the turn they happened in
+  const exchanges = (() => {
+    const out: { turn: number; id: string; wait: Record<string, any>; reply?: Record<string, any> }[] = [];
+    let turn = 0;
+    for (const e of log) {
+      if (e.kind === "call_start" && typeof e.body.call === "string" && /^(r|t\d+)$/.test(e.body.call)) turn = e.body.call === "r" ? 0 : Number(e.body.call.slice(1));
+      else if (e.kind === "wait") out.push({ turn, id: String(e.body.id), wait: e.body });
+      else if (e.kind === "reply") {
+        const x = out.find((o) => o.id === String(e.body.id) && !o.reply);
+        if (x) x.reply = e.body;
+      }
+    }
+    return out.filter((x) => !(live && pending && x.id === pending.id));
+  })();
+  // while an agent's questions wait, the box at the bottom answers them; with several, the one picked in the list
+  const answering = !!pending && live && pending.kind === "questions";
+  const questions = answering ? pending.questions : [];
+  const multi = questions.length > 1;
+  const composed = multi ? (drafts[sel] ?? "") : answering ? answer : message;
+  const anyDraft = multi && drafts.some((x) => x?.trim());
+  const setComposed = (v: string) => {
+    if (multi) setDrafts((d) => Object.assign([...questions.map((_, i) => d[i] ?? "")], { [sel]: v }));
+    else if (answering) setAnswer(v);
+    else setMessage(v);
+  };
+  const sendAll = () => {
+    const text = questions.map((q, i) => `${q}\n→ ${drafts[i]?.trim() || "(not answered)"}`).join("\n\n");
+    void act("session_reply", { reply: { approved: null, text } });
+  };
+  // Enter: with several questions it keeps the answer and moves on to the next open one, the last one sends them all
+  const send = () => {
+    if (!multi) return answering ? void reply(null) : sendMessage();
+    const next = questions.findIndex((_, i) => i !== sel && !drafts[i]?.trim());
+    if (next >= 0 && composed.trim()) setSel(next);
+    else sendAll();
+  };
   const sendMessage = () => {
     const text = message.trim();
     if (text) void act("session_message", { text });
   };
   const pickedCalls = [...d.calls.values()].filter((c) => c.node === picked).sort((a, b) => b.t - a.t);
+  // the agent tab shows two panes that scroll on their own
+  const follows = [d, view];
+  const split = tab === "agent" && !!picked && pickedCalls.length > 0;
 
-  const reply = (approved: boolean | null) => act("session_reply", { reply: { approved, text: answer } });
+  const reply = async (approved: boolean | null) => {
+    await act("session_reply", { reply: { approved, text: answer } });
+    setAnswer("");
+  };
 
   return (
     <>
@@ -208,13 +254,27 @@ export function SessionView() {
             <Tab value="agent">{picked ? clip(names[picked] ?? "", 18) : t("session.tabs.agent")}</Tab>
           </TabList>
 
-          <div className={styles.scroll}>
+          <Follow key={tab} deps={follows} className={mergeClasses(styles.scroll, split && styles.split)}>
             {tab === "chat" && (
               <>
                 {session.task ? <div className={styles.user}>{session.task}</div> : <Body1 className={styles.muted}>{t("session.firstMessage")}</Body1>}
                 {[session.task, ...view.messages].map((m, i) => (
                   <Fragment key={i}>
                     {i > 0 && <div className={styles.user}>{m}</div>}
+                    {exchanges.filter((x) => x.turn === i).map((x) => (
+                      <Fragment key={x.id}>
+                        <Body1 className={styles.box}>
+                          <b>{t(`session.ask.${x.wait.kind}`, { label: x.wait.label })}</b>
+                          {"\n"}
+                          {x.wait.kind === "questions" ? [x.wait.prompt, ...(x.wait.questions ?? []).map((q: string) => `• ${q}`)].filter(Boolean).join("\n") : x.wait.prompt}
+                        </Body1>
+                        {x.reply && (
+                          <div className={styles.user}>
+                            {[x.reply.approved === true ? t("session.approve") : x.reply.approved === false ? t("session.reject") : "", x.reply.text].filter(Boolean).join(": ")}
+                          </div>
+                        )}
+                      </Fragment>
+                    ))}
                     {turnResult(i) && !(live && i === view.messages.length) && (
                       <div className={turnResult(i)?.status === "done" ? styles.outDone : styles.outFail}>{turnResult(i)?.text}</div>
                     )}
@@ -224,20 +284,30 @@ export function SessionView() {
                 {pending && live && (
                   <div className={styles.ask}>
                     <Body1><b>{t(`session.ask.${pending.kind}`, { label: pending.label })}</b></Body1>
-                    <Body1 className={styles.box}>{pending.kind === "questions" ? [pending.prompt, ...pending.questions.map((q) => `• ${q}`)].filter(Boolean).join("\n") : pending.prompt}</Body1>
-                    <Field label={pending.kind === "approve" ? t("session.comment") : t("session.answer")}>
-                      <Textarea rows={3} value={answer} onChange={(_, x) => setAnswer(x.value)} />
-                    </Field>
-                    <div className={styles.actions}>
-                      {pending.kind === "approve" ? (
-                        <>
-                          <Button appearance="primary" onClick={() => reply(true)}>{t("session.approve")}</Button>
-                          <Button onClick={() => reply(false)}>{t("session.reject")}</Button>
-                        </>
-                      ) : (
-                        <Button appearance="primary" disabled={!answer.trim()} onClick={() => reply(null)}>{t("session.send")}</Button>
-                      )}
-                    </div>
+                    {pending.kind === "questions" && pending.questions.length > 1 ? (
+                      <>
+                        {pending.prompt && <Body1 className={styles.box}>{pending.prompt}</Body1>}
+                        {pending.questions.map((q, i) => (
+                          <button key={i} type="button" className={mergeClasses(styles.question, i === sel && styles.questionSel)} onClick={() => setSel(i)}>
+                            <span>{drafts[i]?.trim() ? "✓" : `${i + 1}.`}</span>
+                            <span>{q}</span>
+                          </button>
+                        ))}
+                      </>
+                    ) : (
+                      <Body1 className={styles.box}>{pending.kind === "questions" ? [pending.prompt, ...pending.questions.map((q) => `• ${q}`)].filter(Boolean).join("\n") : pending.prompt}</Body1>
+                    )}
+                    {pending.kind === "approve" && (
+                      <Field label={t("session.comment")}>
+                        <Textarea rows={3} value={answer} onChange={(_, x) => setAnswer(x.value)} />
+                      </Field>
+                    )}
+                    {pending.kind === "approve" && (
+                      <div className={styles.actions}>
+                        <Button appearance="primary" onClick={() => reply(true)}>{t("session.approve")}</Button>
+                        <Button onClick={() => reply(false)}>{t("session.reject")}</Button>
+                      </div>
+                    )}
                   </div>
                 )}
                 {view.result && !live && turnResults.length === 0 && (
@@ -259,35 +329,36 @@ export function SessionView() {
                 <Caption1 className={styles.muted}>{t("session.noCalls")}</Caption1>
               ) : (
                 <>
-                  <section className={styles.section}>
+                  <section className={styles.pane} style={{ flex: "1 1 0" }}>
                     <Subtitle2>{t("session.logs")}</Subtitle2>
-                    {pickedCalls.map((c) => <CallCard key={c.path} c={c} d={d} names={names} />)}
+                    <Follow deps={follows} className={styles.paneBody}>{pickedCalls.map((c) => <CallCard key={c.path} c={c} d={d} names={names} />)}</Follow>
                   </section>
-                  <section className={styles.section}>
+                  <section className={styles.pane} style={{ flex: "1 1 0" }}>
                     <Subtitle2>{t("session.tabs.traffic")}</Subtitle2>
-                    <TrafficView calls={pickedCalls} d={d} />
+                    <Follow deps={follows} className={styles.paneBody}>
+                      <TrafficView calls={pickedCalls} d={d} />
+                    </Follow>
                   </section>
                 </>
               ))}
-            <div ref={end} />
-          </div>
+          </Follow>
 
           {!canStart && (
             <div className={styles.composer}>
               <Textarea
                 className={styles.grow}
                 rows={2}
-                placeholder={live ? t("session.followUpQueued") : t("session.followUp")}
-                value={message}
-                onChange={(_, x) => setMessage(x.value)}
+                placeholder={answering ? t("session.answerPlaceholder") : live ? t("session.followUpQueued") : t("session.followUp")}
+                value={composed}
+                onChange={(_, x) => setComposed(x.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && message.trim()) {
+                  if (e.key === "Enter" && !e.shiftKey && composed.trim()) {
                     e.preventDefault();
-                    sendMessage();
+                    send();
                   }
                 }}
               />
-              <Button appearance="primary" disabled={!message.trim()} onClick={sendMessage}>
+              <Button appearance="primary" disabled={multi ? !anyDraft && !composed.trim() : !composed.trim()} onClick={multi ? sendAll : send}>
                 {t("session.send")}
               </Button>
             </div>
