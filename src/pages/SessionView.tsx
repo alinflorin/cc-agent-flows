@@ -20,7 +20,7 @@ interface Pending {
 }
 
 interface View {
-  session: { name: string; task: string; status: string; autonomy: "ask" | "never" };
+  session: { name: string; task: string; status: string; workflow: string; autonomy: "ask" | "never" };
   pending: Pending | null;
   live: boolean;
   cost_usd: number;
@@ -42,7 +42,7 @@ interface WEdge {
   kind: "delegate" | "before";
 }
 
-type Tab_ = "chat" | "timeline" | "agent" | "traffic";
+type Tab_ = "chat" | "timeline" | "agent";
 
 const useStyles = makeStyles({
   head: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalXS, marginBottom: tokens.spacingVerticalM },
@@ -61,7 +61,8 @@ const useStyles = makeStyles({
   muted: { color: tokens.colorNeutralForeground3 },
   ask: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS, padding: tokens.spacingHorizontalM, border: `1px solid ${tokens.colorBrandStroke1}`, borderRadius: tokens.borderRadiusMedium },
   actions: { display: "flex", gap: tokens.spacingHorizontalS },
-  composer: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "flex-end", padding: tokens.spacingHorizontalM, borderTop: `1px solid ${tokens.colorNeutralStroke2}` },
+  composer: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "stretch", padding: tokens.spacingHorizontalM, borderTop: `1px solid ${tokens.colorNeutralStroke2}` },
+  section: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS, paddingBottom: tokens.spacingVerticalL, marginBottom: tokens.spacingVerticalL, borderBottom: `1px solid ${tokens.colorNeutralStroke2}`, ":last-of-type": { borderBottom: "none", marginBottom: 0 } },
   tl: { display: "flex", flexDirection: "column" },
   tlItem: { display: "grid", gridTemplateColumns: "14px minmax(0, 1fr)", columnGap: tokens.spacingHorizontalM, cursor: "pointer", paddingBottom: tokens.spacingVerticalL, ":hover": { backgroundColor: tokens.colorSubtleBackgroundHover } },
   rail: { display: "flex", flexDirection: "column", alignItems: "center" },
@@ -124,6 +125,12 @@ const useStyles = makeStyles({
   vm_starting: { backgroundColor: tokens.colorPaletteMarigoldBackground3 },
   vm_booting: { backgroundColor: tokens.colorPaletteMarigoldBackground3 },
   vm_running: { backgroundColor: tokens.colorPaletteGreenBackground3 },
+  a_idle: { backgroundColor: tokens.colorNeutralForeground4 },
+  a_running: { backgroundColor: tokens.colorBrandBackground },
+  a_busy: { backgroundColor: tokens.colorBrandStroke2 },
+  a_waiting: { backgroundColor: tokens.colorPaletteMarigoldBackground3 },
+  a_done: { backgroundColor: tokens.colorPaletteGreenBackground3 },
+  a_failed: { backgroundColor: tokens.colorPaletteRedBackground3 },
   vm_off: { backgroundColor: tokens.colorNeutralForeground4 },
   human: { borderTopStyle: "dashed", borderRightStyle: "dashed", borderBottomStyle: "dashed", borderLeftStyle: "dashed" },
 });
@@ -149,16 +156,29 @@ type LiveData = {
 type LiveNode = Node<LiveData, "live">;
 
 /** A coloured dot and the VM's state; pulses while the VM is on its way up. */
-function VmPill({ state, count }: { state: VmState; count?: number }) {
+function VmPill({ state, count }: { state: VmState | "none"; count?: number }) {
   const { t } = useTranslation();
   const styles = useStyles();
   const s = styles as Record<string, string>;
   const transient = state === "preparing" || state === "starting" || state === "booting";
   return (
     <span className={styles.vm} title={t("session.vm.title")}>
-      <span className={mergeClasses(styles.vmDot, s[`vm_${state}`], transient && styles.vmPulse)} />
+      <span className={mergeClasses(styles.vmDot, s[`vm_${state === "none" ? "off" : state}`], transient && styles.vmPulse)} />
       {t(`session.vm.${state}`)}
       {count && count > 1 ? ` ×${count}` : ""}
+    </span>
+  );
+}
+
+/** The agent's status, as a pill like the VM's. */
+function AgentPill({ state }: { state: NodeState }) {
+  const { t } = useTranslation();
+  const styles = useStyles();
+  const s = styles as Record<string, string>;
+  return (
+    <span className={styles.vm}>
+      <span className={mergeClasses(styles.vmDot, s[`a_${state}`], state === "running" && styles.vmPulse)} />
+      {t("session.agentState")} {t(`session.node.${state}`)}
     </span>
   );
 }
@@ -204,10 +224,10 @@ function Spark({ samples }: { samples: VmStats[] }) {
 const gb = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`);
 
 /** The VM line of a node: its state and, once it is sampled, what it takes, in the little room a node has. */
-function NodeVm({ vm }: { vm: { state: VmState; count: number; use: VmStats | null } }) {
+function NodeVm({ vm }: { vm: { state: VmState | "none"; count: number; use: VmStats | null } }) {
   const { t } = useTranslation();
   const styles = useStyles();
-  const use = vm.state !== "off" ? vm.use : null;
+  const use = vm.state !== "off" && vm.state !== "none" ? vm.use : null;
   const bar = (value: number) => (
     <div className={styles.track}>
       <div className={mergeClasses(styles.fill, value > 90 && styles.fillHot)} style={{ width: `${value}%` }} />
@@ -242,12 +262,15 @@ function LiveNodeView({ data }: NodeProps<LiveNode>) {
         {data.state === "running" && <Spinner size="extra-tiny" />}
       </div>
       {data.sub && data.sub !== data.label && <Caption1 block>{data.sub}</Caption1>}
-      <Caption1 block className={styles.muted}>
-        {t(`session.node.${data.state}`)}
-        {data.calls > 0 ? ` · ${t("session.callsCount", { count: data.calls })}` : ""}
-        {data.cost > 0 ? ` · $${data.cost.toFixed(2)}` : ""}
-      </Caption1>
-      {data.vm && <NodeVm vm={data.vm} />}
+      <div className={styles.vmRow}>
+        <AgentPill state={data.state} />
+        {(data.calls > 0 || data.cost > 0) && (
+          <span className={styles.usage}>
+            {[data.calls > 0 ? t("session.callsCount", { count: data.calls }) : "", data.cost > 0 ? `$${data.cost.toFixed(2)}` : ""].filter(Boolean).join(" · ")}
+          </span>
+        )}
+      </div>
+      {!data.human && <NodeVm vm={data.vm ?? { state: "none", count: 0, use: null }} />}
       <Handle type="source" position={Position.Right} />
       {!data.human && <Handle type="source" id="order-out" position={Position.Bottom} style={{ opacity: 0 }} />}
     </div>
@@ -255,6 +278,7 @@ function LiveNodeView({ data }: NodeProps<LiveNode>) {
 }
 
 const nodeTypes = { live: LiveNodeView };
+const ROW_SPREAD = 1.5;
 
 function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges: WEdge[] }; d: Digest; pending: Pending | null; picked: string | null; onPick: (id: string) => void }) {
   const { t } = useTranslation();
@@ -284,7 +308,8 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
         ...prev.find((p) => p.id === n.id),
         id: n.id,
         type: "live",
-        position: { x: n.x, y: n.y },
+        // the live boxes are taller than the editor's: spread the rows so the order arrows between them show
+        position: { x: n.x, y: n.y * ROW_SPREAD },
         draggable: false,
         connectable: false,
         data: {
@@ -308,7 +333,7 @@ function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges
     targetHandle: e.kind === "before" ? "order-in" : undefined,
     animated: active.has(e.id),
     label: e.kind === "before" ? t("wf.orderLabel") : undefined,
-    style: { strokeDasharray: e.kind === "before" ? "6 4" : undefined, strokeWidth: active.has(e.id) ? 3 : 1.5, opacity: e.kind === "before" ? 0.45 : 1 },
+    style: { strokeDasharray: e.kind === "before" ? "6 4" : undefined, strokeWidth: active.has(e.id) ? 3 : 1.5, opacity: e.kind === "before" ? 0.75 : 1 },
     markerEnd: { type: MarkerType.ArrowClosed },
   }));
   return (
@@ -513,6 +538,7 @@ export function SessionView() {
   const notify = useNotify();
   const [view, setView] = useState<View | null>(null);
   const [wf, setWf] = useState<{ nodes: WNode[]; edges: WEdge[] } | null>(null);
+  const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
   const [log, setLog] = useState<Entry[]>([]);
   const [answer, setAnswer] = useState("");
   const [message, setMessage] = useState("");
@@ -535,7 +561,7 @@ export function SessionView() {
     let gone = false;
     void (async () => {
       try {
-        setWf((await call<{ workflow: { nodes: WNode[]; edges: WEdge[] } }>("workflow_get")).workflow);
+        setWorkflows(await call<{ id: string; name: string }[]>("workflows_list"));
       } catch (e) {
         notify(String(e), "error");
       }
@@ -555,6 +581,18 @@ export function SessionView() {
       off?.();
     };
   }, [sid, refresh, notify]);
+
+  const wfId = view?.session.workflow;
+  useEffect(() => {
+    if (!inTauri() || !wfId) return;
+    void (async () => {
+      try {
+        setWf((await call<{ workflow: { nodes: WNode[]; edges: WEdge[] } }>("workflow_get", { id: wfId })).workflow);
+      } catch (e) {
+        notify(String(e), "error");
+      }
+    })();
+  }, [wfId, notify]);
 
   const names = useMemo(() => Object.fromEntries((wf?.nodes ?? []).map((n) => [n.id, n.label || n.profile || t("wf.kind.you")])), [wf, t]);
   const d = useMemo(() => digest(log, names), [log, names]);
@@ -627,6 +665,26 @@ export function SessionView() {
         {canContinue && <Button appearance="primary" onClick={() => act("session_continue")}>{t("session.continue")}</Button>}
         {live && <Button onClick={() => act("session_cancel")}>{t("runs.cancel")}</Button>}
         <span className={styles.grow} />
+        <Field className={styles.autonomy} orientation="horizontal" label={t("session.workflow")}>
+          <Select
+            value={session.workflow}
+            disabled={!canStart}
+            onChange={async (_, x) => {
+              try {
+                await call("sessions_workflow", { id: sid, workflow: x.value });
+                await refresh();
+              } catch (e) {
+                notify(String(e), "error");
+              }
+            }}
+          >
+            {workflows.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field className={styles.autonomy} orientation="horizontal" label={t("session.autonomy.label")} title={t(`session.autonomy.${session.autonomy}Hint`)}>
           <Select value={session.autonomy} onChange={(_, x) => act("sessions_autonomy", { autonomy: x.value })}>
             <option value="ask">{t("session.autonomy.ask")}</option>
@@ -651,7 +709,6 @@ export function SessionView() {
             <Tab value="chat">{t("session.tabs.chat")}{pending && live ? " ●" : ""}</Tab>
             <Tab value="timeline">{t("session.tabs.timeline")}</Tab>
             <Tab value="agent">{picked ? clip(names[picked] ?? "", 18) : t("session.tabs.agent")}</Tab>
-            <Tab value="traffic">{t("session.tabs.traffic")}</Tab>
           </TabList>
 
           <div className={styles.scroll}>
@@ -696,9 +753,17 @@ export function SessionView() {
               ) : pickedCalls.length === 0 ? (
                 <Caption1 className={styles.muted}>{t("session.noCalls")}</Caption1>
               ) : (
-                pickedCalls.map((c) => <CallCard key={c.path} c={c} d={d} names={names} />)
+                <>
+                  <section className={styles.section}>
+                    <Subtitle2>{t("session.logs")}</Subtitle2>
+                    {pickedCalls.map((c) => <CallCard key={c.path} c={c} d={d} names={names} />)}
+                  </section>
+                  <section className={styles.section}>
+                    <Subtitle2>{t("session.tabs.traffic")}</Subtitle2>
+                    <TrafficView calls={pickedCalls} d={d} />
+                  </section>
+                </>
               ))}
-            {tab === "traffic" && (!picked ? <Caption1 className={styles.muted}>{t("session.pickAgent")}</Caption1> : <TrafficView calls={pickedCalls} d={d} />)}
             <div ref={end} />
           </div>
 

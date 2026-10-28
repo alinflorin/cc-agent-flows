@@ -851,9 +851,9 @@ fn read_state(root: &std::path::Path, sid: &str) -> Option<State> {
 }
 
 /// Everything a run needs, checked before anything starts.
-fn prepare(app: &AppHandle) -> Result<(Workflow, String, HashMap<String, Profile>), String> {
+fn prepare(app: &AppHandle, workflow: &str) -> Result<(Workflow, String, HashMap<String, Profile>), String> {
     let root = crate::workflow::root(app)?;
-    let wf = crate::workflow::workflow(&root);
+    let wf = crate::workflow::workflow(&root, workflow);
     wf.validate()?;
     let profiles_dir = app.path().app_data_dir().map_err(|e| e.to_string())?.join("profiles");
     let profiles: HashMap<String, Profile> = crate::profiles::list(&profiles_dir).into_iter().map(|e| (e.id, e.profile)).collect();
@@ -872,7 +872,7 @@ fn prepare(app: &AppHandle) -> Result<(Workflow, String, HashMap<String, Profile
     if crate::secrets::claude_token().is_none() {
         return Err("no Claude token is set (Settings > LLM)".into());
     }
-    Ok((wf, crate::workflow::instructions(&root).system_prompt, profiles))
+    Ok((wf, crate::workflow::instructions(&root, workflow).system_prompt, profiles))
 }
 
 fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
@@ -886,7 +886,7 @@ fn launch(app: AppHandle, sid: String, fresh: bool) -> Result<(), String> {
         ("new", true) | ("interrupted" | "failed" | "cancelled", false) => {}
         _ => return Err(format!("a session that is {} cannot be {}", session.status, if fresh { "started" } else { "continued" })),
     }
-    let (wf, instructions, profiles) = prepare(&app)?;
+    let (wf, instructions, profiles) = prepare(&app, &session.workflow)?;
     let mut state = if fresh { State::default() } else { read_state(&root, &sid).unwrap_or_default() };
     state.rewind_failures();
 

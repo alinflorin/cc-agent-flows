@@ -133,6 +133,45 @@ impl Tunnel {
     }
 }
 
+/// Readiness check (About page): starts a tunnel the way a run does, logs in with its key like the
+/// guest's `ssh` would, opens the proxy channel and sends a `CONNECT` that must be denied (no host
+/// is allowed). Returns what it listened on.
+pub async fn self_check() -> Result<String, String> {
+    use russh::client;
+    use russh::keys::PrivateKeyWithHashAlg;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    struct Client;
+    impl client::Handler for Client {
+        type Error = russh::Error;
+        async fn check_server_key(&mut self, _: &russh::keys::PublicKeyOrCertificate) -> Result<bool, Self::Error> {
+            Ok(true)
+        }
+    }
+
+    let proxy = Proxy::new(crate::egress::Rules::default(), None);
+    let tunnel = Tunnel::start(proxy, Arc::new(|_| {})).await?;
+    let probe = async {
+        let stream = tokio::net::TcpStream::connect(("127.0.0.1", tunnel.port)).await.map_err(|e| e.to_string())?;
+        let mut h = client::connect_stream(Arc::new(client::Config::default()), stream, Client).await.map_err(|e| format!("handshake: {e}"))?;
+        let key = PrivateKey::from_openssh(&tunnel.client_key).map_err(|e| e.to_string())?;
+        let auth = h.authenticate_publickey(USER, PrivateKeyWithHashAlg::new(Arc::new(key), None)).await.map_err(|e| e.to_string())?;
+        if !auth.success() {
+            return Err("the run's key was refused".to_string());
+        }
+        let ch = h.channel_open_direct_tcpip(PROXY_HOST, PROXY_PORT, "127.0.0.1", 1).await.map_err(|e| format!("proxy channel: {e}"))?;
+        let mut s = ch.into_stream();
+        s.write_all(b"CONNECT example.com:443 HTTP/1.1\r\n\r\n").await.map_err(|e| e.to_string())?;
+        let mut buf = [0u8; 64];
+        let n = s.read(&mut buf).await.map_err(|e| e.to_string())?;
+        if !buf[..n].starts_with(b"HTTP/1.1 403") {
+            return Err("the proxy did not deny an unlisted host".to_string());
+        }
+        Ok(format!("127.0.0.1:{}", tunnel.port))
+    };
+    tokio::time::timeout(Duration::from_secs(5), probe).await.map_err(|_| "timed out".to_string())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,6 +193,12 @@ mod tests {
         let key = PrivateKey::from_openssh(key).unwrap();
         let ok = h.authenticate_publickey(USER, PrivateKeyWithHashAlg::new(Arc::new(key), None)).await.unwrap().success();
         ok.then_some(h)
+    }
+
+    #[tokio::test]
+    async fn the_readiness_check_passes() {
+        let addr = self_check().await.unwrap();
+        assert!(addr.starts_with("127.0.0.1:"));
     }
 
     #[tokio::test]

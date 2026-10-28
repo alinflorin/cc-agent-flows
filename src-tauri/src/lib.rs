@@ -14,6 +14,7 @@ mod protocol;
 mod qemu;
 mod runs;
 mod secrets;
+mod system;
 mod variables;
 mod tunnel;
 
@@ -77,6 +78,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             can_self_update,
             qemu::qemu_version,
+            system::system_status,
             images::images_list,
             images::images_save,
             images::images_delete,
@@ -89,13 +91,16 @@ pub fn run() {
             profiles::profiles_save,
             profiles::profiles_delete,
             profiles::profiles_reset_demo,
+            workflow::workflows_list,
             workflow::workflow_get,
+            workflow::workflow_delete,
             workflow::workflow_save,
             workflow::workflow_standard,
             workflow::sessions_list,
             workflow::sessions_create,
             workflow::sessions_rename,
             workflow::sessions_autonomy,
+            workflow::sessions_workflow,
             workflow::sessions_delete,
             engine::session_start,
             engine::session_continue,

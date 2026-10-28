@@ -167,7 +167,7 @@ struct Meta {
 
 #[derive(Serialize)]
 pub struct Info {
-    id: String,
+    pub id: String,
     /// The built-in image: not editable or deletable.
     builtin: bool,
     name: String,
@@ -176,14 +176,14 @@ pub struct Info {
     docs: Vec<Doc>,
     env: Vec<EnvVar>,
     /// `missing`, `queued`, `building`, `ready` or `stale`.
-    state: &'static str,
+    pub state: &'static str,
     /// Whether it can be built now (its parent must be built).
     can_build: bool,
     /// What it is built on (`base` for the base's own plain image).
     parent: Option<String>,
     built_at: Option<u64>,
     size: Option<u64>,
-    error: Option<String>,
+    pub error: Option<String>,
     log: Vec<String>,
 }
 

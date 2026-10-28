@@ -13,6 +13,7 @@ interface Session {
   task: string;
   created: number;
   status: string;
+  workflow: string;
 }
 
 const useStyles = makeStyles({
@@ -31,10 +32,12 @@ export function Sessions() {
   const navigate = useNavigate();
   const desktop = inTauri();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [workflows, setWorkflows] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     try {
       setSessions(await call<Session[]>("sessions_list"));
+      setWorkflows(Object.fromEntries((await call<{ id: string; name: string }[]>("workflows_list")).map((w) => [w.id, w.name])));
     } catch (e) {
       notify(String(e), "error");
     }
@@ -79,7 +82,7 @@ export function Sessions() {
           <Card key={s.id} onClick={() => navigate(`/sessions/${s.id}`)}>
             <CardHeader
               header={<Body1><b>{s.name || (s.task ? (s.task.length > 60 ? `${s.task.slice(0, 60)}…` : s.task) : t("sessions.untitled"))}</b></Body1>}
-              description={<Caption1>{new Date(s.created * 1000).toLocaleString()} · {t(`sessions.status.${s.status}`, s.status)}</Caption1>}
+              description={<Caption1>{new Date(s.created * 1000).toLocaleString()} · {t(`sessions.status.${s.status}`, s.status)} · {workflows[s.workflow] ?? s.workflow}</Caption1>}
               action={
                 <Button
                   appearance="subtle"

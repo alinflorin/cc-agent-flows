@@ -35,7 +35,49 @@
   },
   "about": {
     "version": "Version {{version}}",
-    "tagline": "Desktop app built with Tauri and Fluent UI."
+    "tagline": "Desktop app built with Tauri and Fluent UI.",
+    "readiness": "System readiness",
+    "refresh": "Check again",
+    "checking": "Checking…",
+    "allOk": "Ready to run agents",
+    "notReady": "Something needs attention",
+    "checks": {
+      "qemu": "QEMU",
+      "accel": "Hardware acceleration",
+      "image": "Base image",
+      "tunnel": "SSH tunnel server",
+      "token": "Claude token",
+      "network": "Network allowlist"
+    },
+    "status": {
+      "qemu": {
+        "ok": "Runs ({{detail}})",
+        "error": "Cannot run: {{detail}}"
+      },
+      "accel": {
+        "ok": "{{detail}} available",
+        "warn": "Not available ({{detail}}); VMs would use very slow emulation",
+        "info": "{{detail}}"
+      },
+      "image": {
+        "ok": "Built and up to date",
+        "warn": "Not ready ({{detail}}); see Settings > Images",
+        "error": "Failed: {{detail}}"
+      },
+      "tunnel": {
+        "ok": "Accepts the run's key and denies unlisted hosts ({{detail}})",
+        "error": "Failed: {{detail}}"
+      },
+      "token": {
+        "ok": "Set",
+        "warn": "Not set; add one in Settings > LLM",
+        "error": "Credential store unavailable: {{detail}}"
+      },
+      "network": {
+        "ok": "api.anthropic.com is allowed",
+        "error": "api.anthropic.com is not allowed (Settings > Network)"
+      }
+    }
   },
   "settings": {
     "title": "Settings",
@@ -281,7 +323,12 @@
     },
     "intro": "The agents and who may hand work to whom. A session runs this workflow for a request you write in chat.",
     "instructions": "Instructions for every agent",
-    "instructionsHint": "Added to the system prompt of every agent, before its profile's own."
+    "instructionsHint": "Added to the system prompt of every agent, before its profile's own.",
+    "name": "Name",
+    "workflow": "Workflow",
+    "new": "New workflow",
+    "delete": "Delete",
+    "newName": "New workflow"
   },
   "runs": {
     "title": "Run an agent",
@@ -327,7 +374,7 @@
       "traffic": "Traffic"
     },
     "node": {
-      "idle": "idle",
+      "idle": "not started",
       "running": "working",
       "busy": "waiting for the agents it called",
       "waiting": "waiting for you",
@@ -379,13 +426,17 @@
       "starting": "VM starting",
       "booting": "VM booting",
       "running": "VM running",
-      "off": "VM off",
+      "off": "VM stopped",
       "alive_one": "{{count}} VM up",
       "alive_other": "{{count}} VMs up",
       "cpu": "CPU",
       "mem": "RAM",
-      "usageTitle": "CPU and memory the VM takes from this computer (QEMU's process)"
-    }
+      "usageTitle": "CPU and memory the VM takes from this computer (QEMU's process)",
+      "none": "VM not started"
+    },
+    "workflow": "Workflow",
+    "logs": "Logs",
+    "agentState": "Agent"
   },
   "app": {
     "desktopOnly": "Only available in the desktop app."
