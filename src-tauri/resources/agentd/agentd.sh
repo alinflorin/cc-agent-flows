@@ -205,7 +205,7 @@ run_claude() {
 		{kind: "event", body: {seq: input_line_number, event:
 			(if utf8bytelength > $max
 			 then {truncated: true, size: utf8bytelength, head: .[0:4096]}
-			 else (try fromjson catch {type: "raw", text: .}) end)}}' >&4
+			 else (. as $l | try fromjson catch {type: "raw", text: $l}) end)}}' >&4
 	: >"$T/done"
 ) &
 

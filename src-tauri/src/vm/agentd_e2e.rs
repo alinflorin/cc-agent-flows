@@ -151,6 +151,7 @@ echo '{"type":"result","is_error":false,"result":"free text","structured_output"
         assert_eq!(events[1].seq, 2);
         assert_eq!(events[1].event["message"]["content"][0]["text"], "working \"quoted\" ünï");
         assert_eq!(events[2].event["type"], "raw", "a line that is not JSON is wrapped");
+        assert_eq!(events[2].event["text"], "not json at all", "and keeps its text");
         assert_eq!(fin.status, Status::NeedsInput);
         assert_eq!(fin.result, "half done");
         assert_eq!(fin.questions, ["which db?"]);
