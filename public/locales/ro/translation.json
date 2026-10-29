@@ -388,7 +388,7 @@
     "maxConnectionsHint": "Tunele pe care acest agent le poate avea deschise simultan. Gol folosește limita globală (Setări > Rețea).",
     "networkDefault": "Limita globală",
     "dataBudget": "Buget de date pe rulare",
-    "dataBudgetHint": "Trimis (↑) și primit (↓) pe toată rularea. Conexiunile se închid când unul e epuizat. Gol înseamnă fără limită.",
+    "dataBudgetHint": "Trimis (↑) și primit (↓) pe toată rularea. Include traficul către API-ul Claude. Când unul e epuizat, conexiunile se închid și rularea se oprește. Gol înseamnă fără limită.",
     "unlimited": "Fără limită"
   },
   "welcome": {

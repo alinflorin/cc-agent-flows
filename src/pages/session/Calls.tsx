@@ -92,7 +92,7 @@ export function TrafficLines({ traffic }: { traffic: Traffic[] }) {
       {traffic.map((x, i) => (
         <div key={i} className={mergeClasses(styles.step, styles.mono)}>
           <Caption1 className={styles.muted}>{fmtTime(x.t)} </Caption1>
-          <Badge size="extra-small" appearance="filled" color={x.kind === "denied" ? "danger" : x.kind === "injected" ? "brand" : x.kind === "allowed" ? "success" : "informative"}>
+          <Badge size="small" appearance="filled" color={x.kind === "denied" ? "danger" : x.kind === "injected" ? "brand" : x.kind === "allowed" ? "success" : "informative"}>
             {t(`session.traffic.kind.${x.kind}`)}
           </Badge>{" "}
           {clip(x.text, 300)}

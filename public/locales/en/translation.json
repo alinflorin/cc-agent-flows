@@ -388,7 +388,7 @@
     "maxConnectionsHint": "Tunnels this agent may have open at once. Empty uses the global limit (Settings > Network).",
     "networkDefault": "Global limit",
     "dataBudget": "Data budget per run",
-    "dataBudgetHint": "Sent (↑) and received (↓) over the whole run. The connections close when one is used up. Empty means no limit.",
+    "dataBudgetHint": "Sent (↑) and received (↓) over the whole run. It includes the traffic to the Claude API. When one is used up the connections close and the run stops. Empty means no limit.",
     "unlimited": "No limit"
   },
   "welcome": {

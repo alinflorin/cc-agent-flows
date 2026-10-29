@@ -107,9 +107,10 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
 
   const add = (kind: Kind = "agent") => {
     const id = crypto.randomUUID().slice(0, 8);
+    // right of the rightmost node (they are 190 wide), so a new one never lands on another
     const at = nodes.reduce((m, n) => Math.max(m, n.position.x), 0);
     const agent: Agent = { kind, profile: kind === "agent" ? (profiles[0]?.id ?? "") : "", prompt: "", max_calls: 20, timeout_mins: 30, trigger: { cron: kind === "cron" ? "0 9 * * 1-5" : "", token: "", autonomy: "never" } };
-    setNodes((ns) => [...ns, { id, type: "agent", position: { x: at + 40, y: 200 }, data: { label: "", agent } }]);
+    setNodes((ns) => [...ns, { id, type: "agent", position: { x: at + 230, y: 200 }, data: { label: "", agent } }]);
     setDirty(true);
   };
 
