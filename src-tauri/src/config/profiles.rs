@@ -52,6 +52,10 @@ pub struct Profile {
     /// Lowercase, no scheme, port or path. Empty means only the Claude API.
     #[serde(default)]
     pub allow_hosts: Vec<String>,
+    /// Names of integrations (Integrations page of the project or the global settings) whose
+    /// environment variables and allowed hosts this agent gets, on top of its own.
+    #[serde(default)]
+    pub integrations: Vec<String>,
 }
 
 /// Most entries in a profile's host allowlist.
@@ -145,6 +149,9 @@ impl Profile {
         }
         if self.allow_hosts.len() > MAX_ALLOW_HOSTS {
             return Err(format!("at most {MAX_ALLOW_HOSTS} allowed hosts"));
+        }
+        if self.integrations.len() > 50 || self.integrations.iter().any(|n| n.is_empty() || n.len() > 80) {
+            return Err("at most 50 integrations".into());
         }
         let mut seen = std::collections::HashSet::new();
         for h in &self.allow_hosts {
@@ -290,7 +297,7 @@ mod tests {
     use super::*;
 
     fn p(name: &str) -> Profile {
-        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: DEFAULT_MEMORY_MB, image: "base".into(), allow_hosts: vec![] }
+        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: DEFAULT_MEMORY_MB, image: "base".into(), allow_hosts: vec![], integrations: vec![] }
     }
 
     #[test]

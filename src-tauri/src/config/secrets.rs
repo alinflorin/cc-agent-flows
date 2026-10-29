@@ -147,31 +147,40 @@ pub fn secrets_list(app: tauri::AppHandle, project: Option<String>) -> Result<Ve
 }
 
 /// Creates a secret or replaces its value.
-#[tauri::command]
-pub fn secrets_set(app: tauri::AppHandle, project: Option<String>, name: String, value: String) -> Result<(), String> {
-    let scope = Scope::of(project)?;
-    if !valid_name(&name) {
+pub fn set(app: &tauri::AppHandle, scope: &Scope, name: &str, value: &str) -> Result<(), String> {
+    if !valid_name(name) {
         return Err("the name must be letters, digits and underscores, not starting with a digit (at most 64)".into());
     }
     if value.is_empty() || value.len() > MAX_VALUE || value.contains('\0') {
         return Err(format!("the value must be 1 to {MAX_VALUE} bytes"));
     }
-    let path = index_file(&app, &scope)?;
+    let path = index_file(app, scope)?;
     let mut index = load_index(&path);
-    if !index.names.contains(&name) {
+    if !index.names.iter().any(|n| n == name) {
         if index.names.len() >= MAX_SECRETS {
             return Err(format!("at most {MAX_SECRETS} secrets"));
         }
-        index.names.push(name.clone());
+        index.names.push(name.to_string());
         index.names.sort();
     }
-    secret_entry(&scope, &name)?.set_password(&value).map_err(|e| e.to_string())?;
+    secret_entry(scope, name)?.set_password(value).map_err(|e| e.to_string())?;
     save_index(&path, &index)
+}
+
+/// The names of the secrets saved in one scope (not merged).
+pub fn names(app: &tauri::AppHandle, scope: &Scope) -> Vec<String> {
+    index_file(app, scope).map(|f| load_index(&f).names).unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn secrets_set(app: tauri::AppHandle, project: Option<String>, name: String, value: String) -> Result<(), String> {
+    set(&app, &Scope::of(project)?, &name, &value)
 }
 
 #[tauri::command]
 pub fn secrets_delete(app: tauri::AppHandle, project: Option<String>, name: String) -> Result<(), String> {
     let scope = Scope::of(project)?;
+    crate::config::integrations::check_free(&app, &scope, "secret", &name)?;
     match secret_entry(&scope, &name)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => {}
         Err(e) => return Err(e.to_string()),

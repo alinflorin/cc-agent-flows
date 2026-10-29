@@ -16,6 +16,7 @@ import { NetworkSettings } from "./settings/Network";
 import { SecretsSettings } from "./settings/Secrets";
 import { VariablesSettings } from "./settings/Variables";
 import { InjectionsSettings } from "./settings/Injections";
+import { IntegrationsSettings } from "./settings/Integrations";
 
 const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "480px" },
@@ -113,6 +114,7 @@ export function Settings() {
     secrets: <SecretsSettings />,
     variables: <VariablesSettings />,
     injections: <InjectionsSettings />,
+    integrations: <IntegrationsSettings />,
   };
   const title = tab === "general" || tab === "llm" ? t(`settings.tabs.${tab}`) : t(`settings.globalTabs.${tab}`);
 

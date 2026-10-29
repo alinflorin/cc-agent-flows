@@ -82,7 +82,8 @@
       "network": "Rețea",
       "secrets": "Secrete",
       "variables": "Variabile",
-      "injections": "Injecții"
+      "injections": "Injecții",
+      "integrations": "Integrări"
     },
     "llm": {
       "token": "Setup token Claude Code",
@@ -220,7 +221,11 @@
         "raw": "Secretul ca atare"
       },
       "source": "Valoarea din",
-      "sources": { "secret": "Un secret", "var": "O variabilă", "text": "Text fix" },
+      "sources": {
+        "secret": "Un secret",
+        "var": "O variabilă",
+        "text": "Text fix"
+      },
       "variable": "Variabilă",
       "noVariables": "Creează mai întâi variabila în Variabile.",
       "text": "Text",
@@ -240,7 +245,39 @@
       "network": "Gazde permise globale",
       "secrets": "Secrete globale",
       "variables": "Variabile globale",
-      "injections": "Injecții globale"
+      "injections": "Injecții globale",
+      "integrations": "Integrări globale"
+    },
+    "integrations": {
+      "intro": "Un serviciu cu care lucrează agenții tăi (Jira, GitHub), configurat într-un singur loc: variabilele, secretele, injecțiile de credențiale, hosturile permise și variabilele de mediu pe care le primește agentul. La salvare, variabilele, secretele și injecțiile se scriu în paginile lor, unde le poți schimba valorile, dar nu le poți șterge cât timp o integrare le folosește. Apoi alege integrarea într-un profil de agent.",
+      "desktopOnly": "Integrările sunt disponibile doar în aplicația desktop.",
+      "new": "Integrare nouă",
+      "editTitle": "Editează integrarea",
+      "empty": "Nicio integrare încă.",
+      "noDescription": "Fără descriere",
+      "summary": "{{variables}} variabile, {{secrets}} secrete, {{injections}} injecții, {{hosts}} hosturi",
+      "edit": "Editează",
+      "delete": "Șterge",
+      "duplicate": "Duplică",
+      "copyName": "{{name}} (copie)",
+      "saved": "Integrare salvată.",
+      "name": "Nume",
+      "description": "Descriere",
+      "variables": "Variabile",
+      "variablesHint": "Valori simple, care nu sunt secrete (hostul unui site, o adresă de e-mail).",
+      "value": "Valoare",
+      "addVariable": "Adaugă variabilă",
+      "secrets": "Secrete",
+      "secretsHint": "Doar scriere: valoarea merge în depozitul de credențiale al sistemului și nu se mai afișează.",
+      "secretKeep": "Salvat. Scrie pentru a înlocui",
+      "addSecret": "Adaugă secret",
+      "injections": "Injecții de credențiale",
+      "injectionsHint": "Aplicația adaugă secretul la cererile care se potrivesc cu hostul și calea; agentul vede doar un placeholder.",
+      "injectionSecret": "Secret",
+      "addInjection": "Adaugă injecție",
+      "hostsHint": "Hosturile pe care le poate accesa agentul. Pune hostul fiecărei injecții de mai sus.",
+      "env": "Variabile de mediu pentru agent",
+      "envHint": "Se adaugă la fiecare profil de agent care folosește integrarea. Alege ${injection:NAME}, ${var:NAME} sau ${secret:NAME} din listă sau scrie o valoare."
     }
   },
   "updates": {
@@ -285,7 +322,10 @@
     "allowHosts": "Gazde permise",
     "allowHostsHint": "Gazdele de internet la care agentul poate ajunge prin HTTPS, câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Merge și o ${var:NUME} (Setări > Variabile). Gazdele din Setări > Rețea sunt mereu permise; restul sunt blocate. Pune în listă host-ul fiecărei injecții pe care o folosește agentul: nu îl adaugă nimic.",
     "envValue": "Valoare, ${secret:NUME}, ${injection:NUME} sau ${var:NUME}",
-    "secretWarning": "{{names}} primește un secret în text clar: valoarea ajunge în mediul VM-ului, unde agentul (și orice rulează el) o poate citi și trimite. Preferă o injecție (Setări > Injecții): VM-ul vede doar un înlocuitor, iar proxy-ul adaugă credențialul real."
+    "secretWarning": "{{names}} primește un secret în text clar: valoarea ajunge în mediul VM-ului, unde agentul (și orice rulează el) o poate citi și trimite. Preferă o injecție (Setări > Injecții): VM-ul vede doar un înlocuitor, iar proxy-ul adaugă credențialul real.",
+    "integrations": "Integrări",
+    "integrationsHint": "Fiecare integrare adaugă variabilele ei de mediu și hosturile permise acestui agent (cele din profil câștigă la același nume). Le configurezi la Integrări.",
+    "noIntegrations": "Nicio integrare încă"
   },
   "welcome": {
     "text": "Configurezi conținutul demo? Se creează un proiect demo cu trei imagini construite în fundal, Manager (CLI-ul Jira, jtk, pe imaginea de bază), apoi Developer (git, GitHub CLI, Python, Node.js) și Manual QA (Chromium headless cu agent-browser) peste ea, șapte profiluri de agent (orchestrator, manager de proiect, analist de business, arhitect, dezvoltator, revizor, tester), trei secrete cu valoare fictivă (tokenurile GITHUB, GITHUB_READONLY și JIRA) de înlocuit cu cele reale, câte o injecție pentru fiecare (GitHub, GitHub doar-citire, Jira; cea Jira își ia site-ul și e-mailul din două variabile, ATLASSIAN_HOST și ATLASSIAN_EMAIL, de editat în pagina Variabile a proiectului) legate de profilurile care le folosesc, și fluxul standard de livrare: orchestratorul trimite cererea ta managerului de proiect, care parcurge elementele de lucru pe rând și, pentru fiecare, pune analistul, arhitectul, dezvoltatorul, revizorul și testerul să-și facă partea, în ordinea asta. Poți edita sau șterge totul mai târziu.",

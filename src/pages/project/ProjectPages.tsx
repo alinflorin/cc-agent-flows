@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next";
 import { PageHeader } from "../../components/PageHeader";
 import { ImagesSettings } from "../settings/Images";
 import { InjectionsSettings } from "../settings/Injections";
+import { IntegrationsSettings } from "../settings/Integrations";
 import { SecretsSettings } from "../settings/Secrets";
 import { VariablesSettings } from "../settings/Variables";
 
@@ -44,6 +45,16 @@ export function ProjectInjections() {
     <>
       <PageHeader title={t("settings.tabs.injections")} />
       <InjectionsSettings />
+    </>
+  );
+}
+
+export function ProjectIntegrations() {
+  const { t } = useTranslation();
+  return (
+    <>
+      <PageHeader title={t("settings.tabs.integrations")} />
+      <IntegrationsSettings />
     </>
   );
 }

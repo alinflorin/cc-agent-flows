@@ -22,6 +22,7 @@ import {
 import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../../components/SettingsIntro";
 import { FormDialogSurface } from "../../components/FormDialogSurface";
+import { RefCombobox } from "../../components/RefCombobox";
 import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
@@ -175,7 +176,7 @@ export function InjectionsSettings() {
                     <div className={styles.form}>
                       {v.rules.map((r, i) => (
                         <div key={i} className={styles.rule}>
-                          <Input className={styles.mono} placeholder="api.github.com" value={r.host} onChange={(_, d) => setRule(i, { host: d.value })} />
+                          <RefCombobox placeholder="api.github.com" value={r.host} options={variables.map((n) => `\${var:${n}}`)} onChange={(host) => setRule(i, { host })} />
                           <Input className={styles.mono} placeholder="/*" value={r.path} onChange={(_, d) => setRule(i, { path: d.value })} />
                           <Dropdown
                             multiselect

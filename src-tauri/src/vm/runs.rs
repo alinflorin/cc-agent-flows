@@ -330,7 +330,8 @@ pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: Strin
 
     let run_id = new_run_id();
     let who = identity(&[("project", &project), ("profile", &entry.id)], &run_id);
-    let (env, injections) = crate::config::injections::prepare(&app, &scope, &entry.profile.env)?;
+    let (profile_env, profile_hosts) = crate::config::integrations::expand(&app, &scope, &entry.profile)?;
+    let (env, injections) = crate::config::injections::prepare(&app, &scope, &profile_env)?;
     let task = Task {
         prompt,
         model: entry.profile.model.clone(),
@@ -363,7 +364,7 @@ pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: Strin
             let _ = app.emit("agent-run", serde_json::json!({"run": id, "msg": msg}));
         };
         let mut emit = emit;
-        let spec = Spec { run_id: id.clone(), project: scope, image: entry.profile.image.clone(), identity: who, cpus: entry.profile.cpus, memory_mb: entry.profile.memory_mb, allow_hosts: entry.profile.allow_hosts.clone(), injections, task };
+        let spec = Spec { run_id: id.clone(), project: scope, image: entry.profile.image.clone(), identity: who, cpus: entry.profile.cpus, memory_mb: entry.profile.memory_mb, allow_hosts: profile_hosts, injections, task };
         if let Err(e) = run_vm(&app, spec, cancel_rx, &mut emit).await {
             emit(&Outbound::Final(failed(e)));
         }
