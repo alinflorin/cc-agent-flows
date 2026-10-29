@@ -5,6 +5,11 @@
 //!
 //! Everything in a profile travels in the `Task` when a run starts, nothing is baked into an
 //! image (variables baked into an image are set on the image itself).
+//!
+//! Profiles exist in the global settings (`<app data>/profiles`) and in each project, and a
+//! profile may **extend** another (`Profile::extends`): a project's profile can extend a global one
+//! or another of the project, a global one only a global one. [`resolve`] turns a profile and its
+//! ancestors into the one a run uses. A project's profile wins over a global one with the same id.
 
 use std::path::{Path, PathBuf};
 
@@ -41,12 +46,12 @@ pub struct Profile {
     /// vCPUs, not their share of time).
     #[serde(default)]
     pub cpus: Option<u32>,
-    /// RAM of the VM in MB.
-    #[serde(default = "default_memory")]
-    pub memory_mb: u32,
-    /// The image the agent runs on.
-    #[serde(default = "base_image")]
-    pub image: String,
+    /// RAM of the VM in MB; `None`: the parent's, else [`DEFAULT_MEMORY_MB`].
+    #[serde(default)]
+    pub memory_mb: Option<u32>,
+    /// The image the agent runs on; `None`: the parent's, else `base`.
+    #[serde(default)]
+    pub image: Option<String>,
     /// Hosts the agent may reach over HTTPS (port 443), besides the Claude API which is always
     /// allowed: an exact name (`github.com`) or all the subdomains of one (`*.github.com`).
     /// Lowercase, no scheme, port or path. Empty means only the Claude API.
@@ -65,6 +70,9 @@ pub struct Profile {
     /// ... and bytes it may take in. The connections close when one is used up.
     #[serde(default)]
     pub max_download_mb: Option<u32>,
+    /// The id of the profile this one builds on (see [`resolve`]); `None` for a plain profile.
+    #[serde(default)]
+    pub extends: Option<String>,
 }
 
 /// Most entries in a profile's host allowlist.
@@ -90,13 +98,8 @@ pub fn clean_host(entry: &str) -> Result<String, String> {
 
 pub const DEFAULT_MEMORY_MB: u32 = 2048;
 
-fn default_memory() -> u32 {
-    DEFAULT_MEMORY_MB
-}
-
-fn base_image() -> String {
-    "base".into()
-}
+/// How many profiles a chain of `extends` may have.
+const MAX_DEPTH: usize = 8;
 
 /// A profile as listed to the UI.
 #[derive(Debug, Clone, Serialize)]
@@ -104,6 +107,8 @@ pub struct Entry {
     pub id: String,
     #[serde(flatten)]
     pub profile: Profile,
+    /// It is one of the global profiles (not the project's own).
+    pub global: bool,
 }
 
 /// Checks environment variable names (and values, where given) for a profile or an image.
@@ -129,6 +134,16 @@ pub fn validate_env<'a>(vars: impl Iterator<Item = (&'a str, Option<&'a str>)>) 
 }
 
 impl Profile {
+    /// The image to boot (of a resolved profile; an unresolved one may still inherit it).
+    pub fn image_id(&self) -> &str {
+        self.image.as_deref().unwrap_or(crate::vm::images::BASE)
+    }
+
+    /// The VM's memory in MB (of a resolved profile).
+    pub fn memory(&self) -> u32 {
+        self.memory_mb.unwrap_or(DEFAULT_MEMORY_MB)
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.name.trim().is_empty() || self.name.len() > 80 {
             return Err("the name must be 1 to 80 characters".into());
@@ -150,11 +165,14 @@ impl Profile {
         if self.cpus.is_some_and(|c| !(1..=256).contains(&c)) {
             return Err("CPUs must be between 1 and 256".into());
         }
-        if !(1024..=262_144).contains(&self.memory_mb) {
+        if self.memory_mb.is_some_and(|m| !(1024..=262_144).contains(&m)) {
             return Err("memory must be between 1024 and 262144 MB".into());
         }
-        if self.image.is_empty() {
+        if self.image.as_deref().is_some_and(str::is_empty) {
             return Err("pick an image".into());
+        }
+        if self.extends.as_deref().is_some_and(|e| user_path(Path::new(""), e).is_err()) {
+            return Err("the parent profile is not a valid id".into());
         }
         if self.max_connections.is_some_and(|c| !(1..=1000).contains(&c)) {
             return Err("connections must be between 1 and 1000".into());
@@ -201,7 +219,7 @@ fn read_dir(dir: &Path) -> Vec<Entry> {
             && let Ok(profile) = serde_json::from_str::<Profile>(&text)
             && profile.validate().is_ok()
         {
-            out.push(Entry { id: id.to_string(), profile });
+            out.push(Entry { id: id.to_string(), profile, global: false });
         }
     }
     out
@@ -223,6 +241,12 @@ fn user_path(user: &Path, id: &str) -> Result<PathBuf, String> {
 
 /// Saves a profile. `id` is `None` for a new one (derived from the name). Returns the id.
 pub fn save(user: &Path, id: Option<&str>, profile: &Profile) -> Result<String, String> {
+    save_avoiding(user, id, profile, &[])
+}
+
+/// [`save`], where a new id also steers clear of `avoid` (the ids of the global profiles, when a
+/// project's profile is saved).
+fn save_avoiding(user: &Path, id: Option<&str>, profile: &Profile, avoid: &[String]) -> Result<String, String> {
     // Normalize the allowlist (case, blanks, duplicates) before checking it.
     let mut profile = profile.clone();
     let mut hosts: Vec<String> = vec![];
@@ -245,7 +269,7 @@ pub fn save(user: &Path, id: Option<&str>, profile: &Profile) -> Result<String, 
             }
             let mut id = base.clone();
             let mut n = 2;
-            while user.join(format!("{id}.json")).exists() {
+            while user.join(format!("{id}.json")).exists() || avoid.contains(&id) {
                 id = format!("{base}-{n}");
                 n += 1;
             }
@@ -263,12 +287,149 @@ pub fn delete(user: &Path, id: &str) -> Result<(), String> {
 
 /// Where a project's profiles are.
 pub fn dir(app: &tauri::AppHandle, project: &str) -> Result<PathBuf, String> {
-    Ok(Scope::project(project).dir(app)?.join("profiles"))
+    dir_of(app, &Scope::project(project))
 }
 
-/// Ids of the images that the profiles of a project use.
-pub fn used_images(app: &tauri::AppHandle, project: &str) -> Vec<String> {
-    dir(app, project).map(|d| list(&d).into_iter().map(|e| e.profile.image).collect()).unwrap_or_default()
+/// Where the profiles of a scope are (the global ones in the app data dir).
+pub fn dir_of(app: &tauri::AppHandle, scope: &Scope) -> Result<PathBuf, String> {
+    Ok(scope.dir(app)?.join("profiles"))
+}
+
+/// The global profiles.
+fn global(app: &tauri::AppHandle) -> Vec<Entry> {
+    dir_of(app, &Scope::global())
+        .map(|d| list(&d).into_iter().map(|e| Entry { global: true, ..e }).collect())
+        .unwrap_or_default()
+}
+
+/// What a scope's profiles can pick from: the project's own, then the global ones (those with an
+/// id the project has itself are hidden); only the global ones for the global scope.
+pub fn available(app: &tauri::AppHandle, project: Option<&str>) -> Vec<Entry> {
+    let mut all = match project {
+        Some(p) => dir(app, p).map(|d| list(&d)).unwrap_or_default(),
+        None => vec![],
+    };
+    for g in global(app) {
+        if !all.iter().any(|e| e.id == g.id) {
+            all.push(g);
+        }
+    }
+    all
+}
+
+/// Joins two system prompts, the parent's first.
+fn join_prompts(parent: &str, child: &str) -> String {
+    crate::workflow::combine_system_prompts(parent, child).unwrap_or_default()
+}
+
+/// `child` on top of `parent`: the child's own settings win, the lists (hosts, integrations) are
+/// added together, the environment is merged by name, the system prompts are joined (parent first).
+fn inherit(parent: Profile, child: Profile) -> Profile {
+    let mut env = parent.env;
+    for v in child.env {
+        match env.iter_mut().find(|e| e.name == v.name) {
+            Some(e) => e.value = v.value,
+            None => env.push(v),
+        }
+    }
+    let union = |mut a: Vec<String>, b: Vec<String>| {
+        for x in b {
+            if !a.contains(&x) {
+                a.push(x);
+            }
+        }
+        a
+    };
+    Profile {
+        name: child.name,
+        description: child.description,
+        system_prompt: join_prompts(&parent.system_prompt, &child.system_prompt),
+        env,
+        model: child.model.or(parent.model),
+        effort: child.effort.or(parent.effort),
+        cpus: child.cpus.or(parent.cpus),
+        memory_mb: child.memory_mb.or(parent.memory_mb),
+        image: child.image.or(parent.image),
+        allow_hosts: union(parent.allow_hosts, child.allow_hosts),
+        integrations: union(parent.integrations, child.integrations),
+        max_connections: child.max_connections.or(parent.max_connections),
+        max_upload_mb: child.max_upload_mb.or(parent.max_upload_mb),
+        max_download_mb: child.max_download_mb.or(parent.max_download_mb),
+        extends: None,
+    }
+}
+
+/// The ancestors of a profile, nearest first, found among `all`. Fails on a missing parent, a
+/// cycle or a chain over [`MAX_DEPTH`].
+fn ancestors(profile: &Profile, all: &[Entry]) -> Result<Vec<Profile>, String> {
+    let mut chain: Vec<Profile> = vec![];
+    let mut seen: Vec<&str> = vec![];
+    let mut next = profile.extends.as_deref();
+    while let Some(id) = next {
+        if seen.contains(&id) {
+            return Err(format!("the profile {id} extends itself through its parents"));
+        }
+        if seen.len() >= MAX_DEPTH {
+            return Err(format!("profiles extend each other more than {MAX_DEPTH} deep"));
+        }
+        seen.push(id);
+        let parent = all.iter().find(|e| e.id == id).ok_or_else(|| format!("the parent profile {id} does not exist"))?;
+        chain.push(parent.profile.clone());
+        next = parent.profile.extends.as_deref();
+    }
+    Ok(chain)
+}
+
+/// The profile a run uses: `profile` on top of its ancestors found among `all`. The result has no
+/// `extends`.
+pub fn resolve(profile: &Profile, all: &[Entry]) -> Result<Profile, String> {
+    let mut chain = ancestors(profile, all)?;
+    let mut out = match chain.pop() {
+        Some(root) => root,
+        None => return Ok(Profile { extends: None, ..profile.clone() }),
+    };
+    while let Some(p) = chain.pop() {
+        out = inherit(out, p);
+    }
+    Ok(inherit(out, profile.clone()))
+}
+
+/// Every profile of `all` resolved, by id; a profile that cannot be resolved has its reason.
+pub fn resolve_all(all: &[Entry]) -> std::collections::HashMap<String, Result<Profile, String>> {
+    all.iter().map(|e| (e.id.clone(), resolve(&e.profile, all))).collect()
+}
+
+/// Checks the parent of a profile about to be saved: it exists among `all` (what the scope can
+/// see), is not the profile itself and does not lead back to it.
+fn check_extends(id: Option<&str>, profile: &Profile, all: &[Entry]) -> Result<(), String> {
+    let Some(parent) = profile.extends.as_deref() else { return Ok(()) };
+    if id == Some(parent) {
+        return Err("a profile cannot extend itself".into());
+    }
+    if !all.iter().any(|e| e.id == parent) {
+        return Err(format!("the parent profile {parent} does not exist"));
+    }
+    // missing parents, loops among the ancestors and chains that are too deep
+    ancestors(profile, all)?;
+    // the ancestors are known by content, not by id, so walk the ids to see whether it comes back
+    let mut next = Some(parent);
+    while let Some(n) = next {
+        if Some(n) == id {
+            return Err("the parent extends this profile: that would be a loop".into());
+        }
+        next = all.iter().find(|e| e.id == n).and_then(|e| e.profile.extends.as_deref());
+    }
+    Ok(())
+}
+
+/// Ids of the images that the profiles of a project (`None`: the global ones) use, after
+/// inheritance.
+pub fn used_images(app: &tauri::AppHandle, project: Option<&str>) -> Vec<String> {
+    let all = available(app, project);
+    let own: Vec<&Entry> = all.iter().filter(|e| e.global == project.is_none()).collect();
+    own.into_iter()
+        .map(|e| resolve(&e.profile, &all).map_or_else(|_| e.profile.image_id().to_string(), |p| p.image_id().to_string()))
+        .collect()
 }
 
 /// The starter profiles of the demo project (`demo/demo.yaml`): the ones that work on code (developer, architect, reviewer) on the `developer` image, `qa` on its own, the rest on the base image; existing ones are left alone.
@@ -291,20 +452,56 @@ pub fn profiles_reset_demo(app: tauri::AppHandle, project: String) -> Result<(),
     provision_defaults(&app, &project, true)
 }
 
+/// The profiles of the project (`project` null: the global ones), not the inherited global ones.
 #[tauri::command]
-pub fn profiles_list(app: tauri::AppHandle, project: String) -> Result<Vec<Entry>, String> {
-    Ok(list(&dir(&app, &project)?))
+pub fn profiles_list(app: tauri::AppHandle, project: Option<String>) -> Result<Vec<Entry>, String> {
+    let scope = Scope::of(project)?;
+    let global = scope.is_global();
+    Ok(list(&dir_of(&app, &scope)?).into_iter().map(|e| Entry { global, ..e }).collect())
+}
+
+/// The profiles a project can use: its own and the global ones.
+#[tauri::command]
+pub fn profiles_available(app: tauri::AppHandle, project: String) -> Result<Vec<Entry>, String> {
+    Scope::of(Some(project.clone()))?.dir(&app)?;
+    Ok(available(&app, Some(&project)))
 }
 
 /// Creates (`id` null) or updates a profile; returns its id.
 #[tauri::command]
-pub fn profiles_save(app: tauri::AppHandle, project: String, id: Option<String>, profile: Profile) -> Result<String, String> {
-    save(&dir(&app, &project)?, id.as_deref(), &profile)
+pub fn profiles_save(app: tauri::AppHandle, project: Option<String>, id: Option<String>, profile: Profile) -> Result<String, String> {
+    let scope = Scope::of(project)?;
+    let dir = dir_of(&app, &scope)?;
+    let all = available(&app, scope.id());
+    check_extends(id.as_deref(), &profile, &all)?;
+    // a project's profile never takes the id of a global one
+    let taken: Vec<String> = if scope.is_global() { vec![] } else { global(&app).into_iter().map(|e| e.id).collect() };
+    if id.as_deref().is_some_and(|i| taken.iter().any(|t| t == i) && !user_path(&dir, i).is_ok_and(|p| p.exists())) {
+        return Err("a global profile has this id".into());
+    }
+    save_avoiding(&dir, id.as_deref(), &profile, &taken)
 }
 
+/// Deletes a profile; refused while another profile extends it (for a global one, in any project).
 #[tauri::command]
-pub fn profiles_delete(app: tauri::AppHandle, project: String, id: String) -> Result<(), String> {
-    delete(&dir(&app, &project)?, &id)
+pub fn profiles_delete(app: tauri::AppHandle, project: Option<String>, id: String) -> Result<(), String> {
+    let scope = Scope::of(project)?;
+    let dir = dir_of(&app, &scope)?;
+    let mut scopes: Vec<Scope> = vec![scope.clone()];
+    if scope.is_global() {
+        scopes.extend(crate::config::projects::ids(&app).iter().map(|p| Scope::project(p)));
+    }
+    for s in scopes {
+        let in_scope = dir_of(&app, &s)?;
+        // a project's profile with the same id hides the global one, so it does not count
+        if !s.is_global() && scope.is_global() && user_path(&in_scope, &id).is_ok_and(|p| p.exists()) {
+            continue;
+        }
+        if let Some(e) = list(&in_scope).into_iter().find(|e| e.profile.extends.as_deref() == Some(id.as_str())) {
+            return Err(format!("the agent profile {} extends it", e.profile.name));
+        }
+    }
+    delete(&dir, &id)
 }
 
 #[cfg(test)]
@@ -312,7 +509,7 @@ mod tests {
     use super::*;
 
     fn p(name: &str) -> Profile {
-        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: DEFAULT_MEMORY_MB, image: "base".into(), allow_hosts: vec![], integrations: vec![], max_connections: None, max_upload_mb: None, max_download_mb: None }
+        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: Some(DEFAULT_MEMORY_MB), image: Some("base".into()), allow_hosts: vec![], integrations: vec![], max_connections: None, max_upload_mb: None, max_download_mb: None, extends: None }
     }
 
     #[test]
@@ -363,6 +560,90 @@ mod tests {
         }
     }
 
+    fn entry(id: &str, profile: Profile) -> Entry {
+        Entry { id: id.into(), profile, global: false }
+    }
+
+    #[test]
+    fn a_child_is_built_on_its_parents() {
+        let mut base = p("Base");
+        base.system_prompt = "base rules".into();
+        base.env = vec![EnvVar { name: "A".into(), value: "1".into() }, EnvVar { name: "B".into(), value: "1".into() }];
+        base.allow_hosts = vec!["github.com".into()];
+        base.integrations = vec!["Jira".into()];
+        base.model = Some("opus".into());
+        base.cpus = Some(2);
+        base.memory_mb = Some(4096);
+        base.image = Some("developer".into());
+        let mut mid = p("Mid");
+        mid.extends = Some("base".into());
+        mid.system_prompt = "mid rules".into();
+        mid.env = vec![EnvVar { name: "B".into(), value: "2".into() }];
+        mid.allow_hosts = vec!["npmjs.org".into(), "github.com".into()];
+        mid.memory_mb = None;
+        mid.image = None;
+        mid.model = None;
+        let mut leaf = p("Leaf");
+        leaf.extends = Some("mid".into());
+        leaf.system_prompt = String::new();
+        leaf.env = vec![EnvVar { name: "C".into(), value: "3".into() }];
+        leaf.effort = Some("high".into());
+        leaf.memory_mb = None;
+        leaf.image = None;
+        let all = vec![entry("base", base), entry("mid", mid)];
+        let r = resolve(&leaf, &all).unwrap();
+        assert_eq!(r.name, "Leaf");
+        assert_eq!(r.system_prompt, "base rules\n\nmid rules");
+        let env: Vec<(&str, &str)> = r.env.iter().map(|v| (v.name.as_str(), v.value.as_str())).collect();
+        assert_eq!(env, [("A", "1"), ("B", "2"), ("C", "3")]);
+        assert_eq!(r.allow_hosts, ["github.com", "npmjs.org"]);
+        assert_eq!(r.integrations, ["Jira"]);
+        assert_eq!((r.model.as_deref(), r.effort.as_deref(), r.cpus), (Some("opus"), Some("high"), Some(2)));
+        assert_eq!((r.memory(), r.image_id()), (4096, "developer"));
+        assert!(r.extends.is_none());
+        // a plain profile resolves to itself
+        assert_eq!(resolve(&p("x"), &all).unwrap().system_prompt, "sp");
+    }
+
+    #[test]
+    fn a_missing_parent_or_a_loop_fails_to_resolve() {
+        let mut a = p("A");
+        a.extends = Some("b".into());
+        let mut b = p("B");
+        b.extends = Some("a".into());
+        let all = vec![entry("a", a.clone()), entry("b", b)];
+        assert!(resolve(&a, &all).unwrap_err().contains("itself"));
+        assert!(resolve(&a, &[]).unwrap_err().contains("does not exist"));
+        let resolved = resolve_all(&all);
+        assert!(resolved["a"].is_err() && resolved["b"].is_err());
+    }
+
+    #[test]
+    fn saving_checks_the_parent() {
+        let mut a = p("A");
+        a.extends = Some("b".into());
+        let mut b = p("B");
+        b.extends = Some("c".into());
+        let c = p("C");
+        let all = vec![entry("b", b), entry("c", c)];
+        assert!(check_extends(Some("a"), &a, &all).is_ok());
+        // a new profile may extend any, none leads back to it
+        assert!(check_extends(None, &a, &all).is_ok());
+        // c would extend a, which extends b, which extends c
+        let mut c2 = p("C");
+        c2.extends = Some("a".into());
+        let mut all2 = all.clone();
+        all2.push(entry("a", a.clone()));
+        assert!(check_extends(Some("c"), &c2, &all2).unwrap_err().contains("loop"));
+        let mut me = p("Me");
+        me.extends = Some("me".into());
+        assert!(check_extends(Some("me"), &me, &all2).is_err());
+        me.extends = Some("nobody".into());
+        assert!(check_extends(None, &me, &all2).unwrap_err().contains("does not exist"));
+        me.extends = Some("../x".into());
+        assert!(me.validate().is_err());
+    }
+
     #[test]
     fn validates_env() {
         let mut x = p("a");
@@ -392,19 +673,20 @@ mod tests {
         // old files have neither
         let old: Profile = serde_json::from_str(r#"{"name":"o"}"#).unwrap();
         assert!(old.model.is_none() && old.effort.is_none());
-        assert_eq!((old.cpus, old.memory_mb), (None, 2048));
+        assert_eq!((old.cpus, old.memory(), old.image_id()), (None, 2048, "base"));
+        assert!(old.extends.is_none());
     }
 
     #[test]
     fn validates_resources() {
         let mut x = p("a");
         x.cpus = Some(4);
-        x.memory_mb = 4096;
+        x.memory_mb = Some(4096);
         assert!(x.validate().is_ok());
         x.cpus = Some(0);
         assert!(x.validate().is_err());
         x.cpus = None;
-        x.memory_mb = 256;
+        x.memory_mb = Some(256);
         assert!(x.validate().is_err());
     }
 

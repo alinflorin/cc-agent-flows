@@ -78,7 +78,7 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
   useEffect(() => {
     void (async () => {
       try {
-        setProfiles(await call<ProfileInfo[]>("profiles_list", { project }));
+        setProfiles(await call<ProfileInfo[]>("profiles_available", { project }));
         if (id) load(await call<View>("workflow_get", { project, id }), false);
         else {
           load({ id: "", name: "", workflow: { nodes: [], edges: [] }, problems: [], system_prompt: "" }, false);

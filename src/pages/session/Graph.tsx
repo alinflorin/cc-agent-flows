@@ -155,7 +155,7 @@ export function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   useEffect(() => {
     void import("@tauri-apps/api/core").then(({ invoke }) =>
-      invoke<{ id: string; name: string }[]>("profiles_list", { project }).then((ps) => setProfileNames(Object.fromEntries(ps.map((p) => [p.id, p.name])))),
+      invoke<{ id: string; name: string }[]>("profiles_available", { project }).then((ps) => setProfileNames(Object.fromEntries(ps.map((p) => [p.id, p.name])))),
     ).catch(() => {});
   }, [project]);
   const kinds = useMemo(() => new Map(wf.nodes.map((n) => [n.id, n.kind as string])), [wf]);

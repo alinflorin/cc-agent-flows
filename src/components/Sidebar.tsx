@@ -244,6 +244,7 @@ export function Sidebar({
             {setting("general", t("settings.tabs.general"), <GeneralIcon />)}
             {setting("llm", t("settings.tabs.llm"), <LlmIcon />)}
             {setting("vm", t("settings.tabs.vm"), <VmIcon />)}
+            {setting("profiles", t("settings.globalTabs.profiles"), <ProfilesIcon />)}
             {setting("images", t("settings.globalTabs.images"), <ImagesIcon />)}
             {setting(
               "network",

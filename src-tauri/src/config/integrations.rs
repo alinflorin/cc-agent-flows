@@ -314,13 +314,14 @@ mod tests {
             model: None,
             effort: None,
             cpus: None,
-            memory_mb: 2048,
-            image: "base".into(),
+            memory_mb: Some(2048),
+            image: Some("base".into()),
             allow_hosts: vec!["github.com".into(), "api.media.atlassian.com".into()],
             integrations: integrations.iter().map(|s| s.to_string()).collect(),
             max_connections: None,
             max_upload_mb: None,
             max_download_mb: None,
+            extends: None,
         }
     }
 

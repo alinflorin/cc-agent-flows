@@ -216,7 +216,7 @@ mod tests {
         let images: Vec<String> = images().into_iter().map(|(id, _)| id).collect();
         let profiles = profiles();
         for (id, p) in &profiles {
-            assert!(p.image == crate::vm::images::BASE || images.contains(&p.image), "profile {id}: unknown image {}", p.image);
+            assert!(p.image_id() == crate::vm::images::BASE || images.iter().any(|i| i == p.image_id()), "profile {id}: unknown image {}", p.image_id());
         }
         let w = workflow().workflow;
         assert!(w.validate().is_ok() && w.problems(&profiles.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>()).is_empty());

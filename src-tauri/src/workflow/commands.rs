@@ -32,8 +32,7 @@ pub struct WorkflowView {
 }
 
 fn view(app: &tauri::AppHandle, project: &str, id: String, name: String, wf: Workflow, system_prompt: String) -> Result<WorkflowView, String> {
-    let dir = crate::config::profiles::dir(app, project)?;
-    let ids: Vec<String> = crate::config::profiles::list(&dir).into_iter().map(|e| e.id).collect();
+    let ids: Vec<String> = crate::config::profiles::available(app, Some(project)).into_iter().map(|e| e.id).collect();
     Ok(WorkflowView { problems: wf.problems(&ids), id, name, workflow: wf, system_prompt })
 }
 
