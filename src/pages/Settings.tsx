@@ -100,8 +100,6 @@ function GeneralSettings() {
           )}
         </div>
       </div>
-
-      <VmSettingsSection />
     </>
   );
 }
@@ -113,6 +111,7 @@ export function Settings() {
   const pages: Record<string, ReactElement> = {
     general: <GeneralSettings />,
     llm: <LlmSettings />,
+    vm: <VmSettingsSection />,
     images: <ImagesSettings />,
     network: <NetworkSettings />,
     secrets: <SecretsSettings />,
@@ -121,7 +120,7 @@ export function Settings() {
     integrations: <IntegrationsSettings />,
     transfer: <TransferSettings />,
   };
-  const title = tab === "general" || tab === "llm" || tab === "transfer" ? t(`settings.tabs.${tab}`) : t(`settings.globalTabs.${tab}`);
+  const title = tab === "general" || tab === "llm" || tab === "vm" || tab === "transfer" ? t(`settings.tabs.${tab}`) : t(`settings.globalTabs.${tab}`);
 
   return (
     <>

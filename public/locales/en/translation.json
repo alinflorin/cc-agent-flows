@@ -87,6 +87,7 @@
       "variables": "Variables",
       "injections": "Injections",
       "integrations": "Integrations",
+      "vm": "Virtual machines",
       "transfer": "Import / Export"
     },
     "llm": {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Dropdown, Field, Input, Option, Subtitle1, makeStyles, tokens } from "@fluentui/react-components";
+import { Button, Dropdown, Field, Input, Option, makeStyles, tokens } from "@fluentui/react-components";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
@@ -20,7 +20,7 @@ export interface VmSettings {
 }
 
 const useStyles = makeStyles({
-  section: { marginTop: tokens.spacingVerticalXXL, paddingTop: tokens.spacingVerticalXL, borderTop: `1px solid ${tokens.colorNeutralStroke2}`, display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, maxWidth: "480px" },
+  section: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, maxWidth: "480px" },
   pair: { display: "grid", gridTemplateColumns: "1fr 1fr", alignItems: "start", gap: tokens.spacingHorizontalM },
   actions: { display: "flex", gap: tokens.spacingHorizontalS },
 });
@@ -74,7 +74,6 @@ export function VmSettingsSection() {
 
   return (
     <div className={styles.section}>
-      <Subtitle1 block>{t("settings.vm.title")}</Subtitle1>
       <Field label={t("settings.vm.accel")} hint={t(`settings.vm.accelHint.${v.accel}`)}>
         <Dropdown value={t(`settings.vm.accels.${v.accel}`)} selectedOptions={[v.accel]} onOptionSelect={(_, d) => set({ accel: (d.optionValue ?? "auto") as Accel })}>
           {(["auto", "hardware", "software"] as const).map((a) => (

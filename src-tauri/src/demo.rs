@@ -8,7 +8,7 @@ use crate::config::injections::Injection;
 use crate::config::profiles::{self, Profile};
 use crate::config::projects::Project;
 use crate::config::scope::Scope;
-use crate::workflow::{Edge, EdgeKind, Node, Workflow};
+use crate::workflow::{Edge, EdgeKind, Node, NodeKind, Workflow};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -51,10 +51,20 @@ struct RawNode {
     id: String,
     #[serde(default)]
     label: String,
+    /// `agent` (default) or a trigger such as `chat`.
+    #[serde(default)]
+    kind: NodeKind,
+    #[serde(default)]
     profile: String,
     position: [i32; 2],
+    #[serde(default = "one")]
     max_calls: u32,
+    #[serde(default)]
     prompt: String,
+}
+
+fn one() -> u32 {
+    1
 }
 
 #[derive(Deserialize)]
@@ -160,7 +170,7 @@ pub fn workflow() -> DemoWorkflow {
             label: n.label.clone(),
             x: n.position[0],
             y: n.position[1],
-            kind: Default::default(),
+            kind: n.kind,
             profile: n.profile.clone(),
             prompt: n.prompt.clone(),
             max_calls: n.max_calls,
@@ -210,7 +220,7 @@ mod tests {
         }
         let w = workflow().workflow;
         assert!(w.validate().is_ok() && w.problems(&profiles.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>()).is_empty());
-        for n in &w.nodes {
+        for n in w.nodes.iter().filter(|n| n.kind == NodeKind::Agent) {
             assert!(profiles.iter().any(|(id, _)| *id == n.profile), "node {}: unknown profile {}", n.id, n.profile);
         }
         for i in injections() {

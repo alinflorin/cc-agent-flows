@@ -125,16 +125,14 @@ export function LiveNodeView({ data }: NodeProps<LiveNode>) {
         )}
       </div>
       {!data.human && <NodeVm vm={data.vm ?? { state: "none", count: 0, use: null }} />}
-      {!data.human && data.net && data.net.up + data.net.down > 0 && (
-        <div className={styles.vmRow} title={t("session.net.title")}>
-          <span className={styles.usage}>
-            ↓ {fmtBytes(data.net.down)} · ↑ {fmtBytes(data.net.up)}
+      {!data.human && (
+        <div className={styles.netRows} title={t("session.net.title")}>
+          <span className={styles.netLine}>
+            ↓ {fmtBytes(data.net?.down ?? 0)} · ↑ {fmtBytes(data.net?.up ?? 0)}
           </span>
-          {data.net.speed.up + data.net.speed.down > 0 && (
-            <span className={styles.usage}>
-              {data.net.speed.down > 0 ? `↓ ${fmtRate(data.net.speed.down)}` : ""} {data.net.speed.up > 0 ? `↑ ${fmtRate(data.net.speed.up)}` : ""}
-            </span>
-          )}
+          <span className={styles.netLine}>
+            {data.net && data.net.speed.up + data.net.speed.down > 0 ? `↓ ${fmtRate(data.net.speed.down)} · ↑ ${fmtRate(data.net.speed.up)}` : "\u00a0"}
+          </span>
         </div>
       )}
       <Handle type="source" position={Position.Right} />
@@ -144,7 +142,9 @@ export function LiveNodeView({ data }: NodeProps<LiveNode>) {
 }
 
 export const nodeTypes = { live: LiveNodeView };
-export const ROW_SPREAD = 1.5;
+// the live boxes are bigger than the editor's (220x118 against 190x58): spread the positions by the same ratio so nothing overlaps
+export const ROW_SPREAD = 2;
+export const COL_SPREAD = 1.2;
 
 export function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]; edges: WEdge[] }; d: Digest; pending: Pending | null; picked: string | null; onPick: (id: string) => void }) {
   const { t } = useTranslation();
@@ -176,8 +176,7 @@ export function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]
         ...prev.find((p) => p.id === n.id),
         id: n.id,
         type: "live",
-        // the live boxes are taller than the editor's: spread the rows so the order arrows between them show
-        position: { x: n.x, y: n.y * ROW_SPREAD },
+        position: { x: n.x * COL_SPREAD, y: n.y * ROW_SPREAD },
         draggable: false,
         connectable: false,
         data: {
