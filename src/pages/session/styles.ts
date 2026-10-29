@@ -63,8 +63,11 @@ export const useStyles = makeStyles({
   summaryRow: { cursor: "pointer", color: tokens.colorNeutralForeground3, fontSize: tokens.fontSizeBase200 },
   link: { cursor: "pointer", color: tokens.colorBrandForeground1, fontSize: tokens.fontSizeBase200, background: "none", border: "none", padding: 0, textAlign: "left" },
   node: {
-    minWidth: "170px",
-    maxWidth: "230px",
+    // fixed size: live figures change all the time and must not move the graph
+    width: "220px",
+    height: "118px",
+    boxSizing: "border-box",
+    overflow: "hidden",
     overflowWrap: "anywhere",
     padding: `${tokens.spacingVerticalS} ${tokens.spacingHorizontalM}`,
     borderRadius: tokens.borderRadiusLarge,
@@ -86,6 +89,8 @@ export const useStyles = makeStyles({
   s_idle: { borderLeftColor: tokens.colorNeutralStroke2 },
   vm: { display: "inline-flex", alignItems: "center", gap: tokens.spacingHorizontalXS, fontSize: tokens.fontSizeBase100, lineHeight: tokens.lineHeightBase100, whiteSpace: "nowrap", color: tokens.colorNeutralForeground3 },
   agentState: { display: "inline-flex", alignItems: "center", gap: tokens.spacingHorizontalXS, fontSize: tokens.fontSizeBase200, fontWeight: tokens.fontWeightSemibold },
+  netRows: { display: "flex", flexDirection: "column", marginTop: tokens.spacingVerticalXXS },
+  netLine: { fontSize: tokens.fontSizeBase100, color: tokens.colorNeutralForeground3, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   vmRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: tokens.spacingHorizontalS, marginTop: tokens.spacingVerticalXXS },
   usage: { fontSize: tokens.fontSizeBase100, color: tokens.colorNeutralForeground3, whiteSpace: "nowrap" },
   bars: { display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: tokens.spacingHorizontalXS, marginTop: "3px" },

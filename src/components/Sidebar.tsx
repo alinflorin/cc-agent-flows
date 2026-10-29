@@ -47,6 +47,8 @@ import {
   Settings24Filled,
   Settings24Regular,
   bundleIcon,
+  Server24Filled,
+  Server24Regular,
 } from "@fluentui/react-icons";
 
 const ProjectsIcon = bundleIcon(Folder24Filled, Folder24Regular);
@@ -58,6 +60,7 @@ const InjectionsIcon = bundleIcon(
   PlugConnected24Regular,
 );
 const IntegrationsIcon = bundleIcon(Link24Filled, Link24Regular);
+const VmIcon = bundleIcon(Server24Filled, Server24Regular);
 const TransferIcon = bundleIcon(ArrowSwap24Filled, ArrowSwap24Regular);
 const WorkflowIcon = bundleIcon(Flowchart24Filled, Flowchart24Regular);
 const SessionsIcon = bundleIcon(Chat24Filled, Chat24Regular);
@@ -240,6 +243,7 @@ export function Sidebar({
             <div className={styles.project}>{t("nav.settings")}</div>
             {setting("general", t("settings.tabs.general"), <GeneralIcon />)}
             {setting("llm", t("settings.tabs.llm"), <LlmIcon />)}
+            {setting("vm", t("settings.tabs.vm"), <VmIcon />)}
             {setting("images", t("settings.globalTabs.images"), <ImagesIcon />)}
             {setting(
               "network",

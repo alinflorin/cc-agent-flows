@@ -256,6 +256,10 @@ workflow:
   id: "standard"
   name: "Standard workflow"
   nodes:
+    - id: "chat"
+      label: "Chat"
+      kind: "chat"
+      position: [-280, 200]
     - id: "orch"
       label: "Orchestrator"
       profile: "orchestrator"
@@ -343,6 +347,7 @@ workflow:
         each problem with the steps to reproduce, what you expected and what happened. Leave the
         results as a comment on the ticket and attach screenshots of the problems.
   edges:
+    - {from: "chat", to: "orch"}
     - {from: "orch", to: "pm"}
     - {from: "pm", to: "ba"}
     - {from: "pm", to: "arch"}

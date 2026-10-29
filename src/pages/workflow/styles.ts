@@ -19,8 +19,14 @@ export const useStyles = makeStyles({
   },
   node: {
     overflowWrap: "anywhere",
-    minWidth: "150px",
-    maxWidth: "220px",
+    // every node the same size, whatever it holds
+    width: "190px",
+    height: "58px",
+    boxSizing: "border-box",
+    overflow: "hidden",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
     padding: `${tokens.spacingVerticalS} ${tokens.spacingHorizontalM}`,
     borderRadius: tokens.borderRadiusMedium,
     border: `1px solid ${tokens.colorNeutralStroke1}`,

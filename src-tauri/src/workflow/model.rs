@@ -478,12 +478,13 @@ pub(crate) mod tests {
         assert!(wf.validate().is_err(), "one edge per pair");
 
         let mut wf = standard_workflow();
-        wf.nodes[0].max_calls = 0;
+        let orch = wf.nodes.iter().position(|n| n.id == "orch").unwrap();
+        wf.nodes[orch].max_calls = 0;
         assert!(wf.validate().is_err());
-        wf.nodes[0].max_calls = 20;
-        wf.nodes[0].timeout_mins = 481;
+        wf.nodes[orch].max_calls = 20;
+        wf.nodes[orch].timeout_mins = 481;
         assert!(wf.validate().is_err());
-        wf.nodes[0].timeout_mins = 90;
+        wf.nodes[orch].timeout_mins = 90;
         assert!(wf.validate().is_ok());
     }
 
@@ -556,8 +557,8 @@ pub(crate) mod tests {
         let mut wf = standard_workflow();
         wf.nodes.push(trig("cron", NodeKind::Cron, "0 9 * * 1-5"));
         wf.nodes.push(trig("hook", NodeKind::Webhook, ""));
-        wf.nodes.push(trig("chat", NodeKind::Chat, ""));
-        wf.edges.extend([edge("cron", "orch"), edge("hook", "pm"), edge("chat", "orch")]);
+        // the standard workflow has its chat node already, pointing at the orchestrator
+        wf.edges.extend([edge("cron", "orch"), edge("hook", "pm")]);
         wf.validate().unwrap();
         assert_eq!(wf.trigger_target("hook").unwrap().id, "pm");
         assert_eq!(wf.chat_entry().unwrap().id, "orch");
