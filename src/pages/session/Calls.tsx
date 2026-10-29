@@ -26,7 +26,7 @@ export function Clamp({ text, className }: { text: string; className?: string })
 }
 
 /** Two lines over the last reports: bytes per second received (brand) and sent (muted), on a scale of their own. */
-function SpeedSpark({ samples }: { samples: NetSpeed[] }) {
+export function SpeedSpark({ samples }: { samples: NetSpeed[] }) {
   const styles = useStyles();
   if (samples.length < 2) return null;
   const max = Math.max(1, ...samples.flatMap((s) => [s.up, s.down]));
@@ -39,36 +39,66 @@ function SpeedSpark({ samples }: { samples: NetSpeed[] }) {
   );
 }
 
-/** What the picked agent's network has carried: bytes in and out over its runs, how fast now, and the connections open. */
-export function NetSummary({ calls, d }: { calls: CallInfo[]; d: Digest }) {
+/** Bytes in and out, how fast now, the connections open and a graph of the speed. `alive` is false once the VM is gone (no speed to show). */
+export function NetStats({ up, down, speed, speeds, open, connections, alive }: { up: number; down: number; speed: NetSpeed; speeds: NetSpeed[]; open: number; connections: number; alive: boolean }) {
   const { t } = useTranslation();
   const styles = useStyles();
-  const runs = calls.flatMap((c) => c.runs).map((k) => d.runs.get(k)).filter((r): r is Run => !!r);
-  const up = runs.reduce((a, r) => a + r.net.up, 0);
-  const down = runs.reduce((a, r) => a + r.net.down, 0);
-  const alive = runs.filter((r) => r.vm !== "off");
-  const speed = alive.reduce((a, r) => ({ up: a.up + r.speed.up, down: a.down + r.speed.down }), { up: 0, down: 0 });
-  const open = alive.reduce((a, r) => a + r.net.open, 0);
-  const latest = [...alive].sort((a, b) => b.t - a.t)[0];
   return (
     <div className={styles.netGrid}>
       <div>
         <Caption1 className={styles.muted}>{t("session.net.received")}</Caption1>
         <div className={styles.netValue}>{fmtBytes(down)}</div>
-        <Caption1 className={styles.muted}>{alive.length ? fmtRate(speed.down) : "–"}</Caption1>
+        <Caption1 className={styles.muted}>{alive ? fmtRate(speed.down) : "–"}</Caption1>
       </div>
       <div>
         <Caption1 className={styles.muted}>{t("session.net.sent")}</Caption1>
         <div className={styles.netValue}>{fmtBytes(up)}</div>
-        <Caption1 className={styles.muted}>{alive.length ? fmtRate(speed.up) : "–"}</Caption1>
+        <Caption1 className={styles.muted}>{alive ? fmtRate(speed.up) : "–"}</Caption1>
       </div>
       <div>
         <Caption1 className={styles.muted}>{t("session.net.connections")}</Caption1>
         <div className={styles.netValue}>{open}</div>
-        <Caption1 className={styles.muted}>{t("session.net.total", { count: runs.reduce((a, r) => a + r.net.connections, 0) })}</Caption1>
+        <Caption1 className={styles.muted}>{t("session.net.total", { count: connections })}</Caption1>
       </div>
-      {latest && <div className={styles.netSpark}><SpeedSpark samples={latest.speeds} /></div>}
+      {speeds.length > 1 && <div className={styles.netSpark}><SpeedSpark samples={speeds} /></div>}
     </div>
+  );
+}
+
+/** What the picked agent's network has carried: bytes in and out over its runs, how fast now, and the connections open. */
+export function NetSummary({ calls, d }: { calls: CallInfo[]; d: Digest }) {
+  const runs = calls.flatMap((c) => c.runs).map((k) => d.runs.get(k)).filter((r): r is Run => !!r);
+  const alive = runs.filter((r) => r.vm !== "off");
+  const latest = [...alive].sort((a, b) => b.t - a.t)[0];
+  return (
+    <NetStats
+      up={runs.reduce((a, r) => a + r.net.up, 0)}
+      down={runs.reduce((a, r) => a + r.net.down, 0)}
+      speed={alive.reduce((a, r) => ({ up: a.up + r.speed.up, down: a.down + r.speed.down }), { up: 0, down: 0 })}
+      speeds={latest?.speeds ?? []}
+      open={alive.reduce((a, r) => a + r.net.open, 0)}
+      connections={runs.reduce((a, r) => a + r.net.connections, 0)}
+      alive={alive.length > 0}
+    />
+  );
+}
+
+/** The proxy's lines for one run: a time, what was decided and the request. */
+export function TrafficLines({ traffic }: { traffic: Traffic[] }) {
+  const { t } = useTranslation();
+  const styles = useStyles();
+  return (
+    <>
+      {traffic.map((x, i) => (
+        <div key={i} className={mergeClasses(styles.step, styles.mono)}>
+          <Caption1 className={styles.muted}>{fmtTime(x.t)} </Caption1>
+          <Badge size="extra-small" appearance="filled" color={x.kind === "denied" ? "danger" : x.kind === "injected" ? "brand" : x.kind === "allowed" ? "success" : "informative"}>
+            {t(`session.traffic.kind.${x.kind}`)}
+          </Badge>{" "}
+          {clip(x.text, 300)}
+        </div>
+      ))}
+    </>
   );
 }
 
@@ -99,15 +129,7 @@ export function TrafficView({ calls, d }: { calls: CallInfo[]; d: Digest }) {
             <Caption1 className={styles.muted}>
               {t("session.run")} {n + 1} · {fmtTime(r.t)}
             </Caption1>
-            {r.traffic.map((x, i) => (
-              <div key={i} className={mergeClasses(styles.step, styles.mono)}>
-                <Caption1 className={styles.muted}>{fmtTime(x.t)} </Caption1>
-                <Badge size="extra-small" appearance="filled" color={x.kind === "denied" ? "danger" : x.kind === "injected" ? "brand" : x.kind === "allowed" ? "success" : "informative"}>
-                  {t(`session.traffic.kind.${x.kind}`)}
-                </Badge>{" "}
-                {clip(x.text, 300)}
-              </div>
-            ))}
+            <TrafficLines traffic={r.traffic} />
           </div>
         ),
       )}
