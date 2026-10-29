@@ -16,9 +16,10 @@ pub struct Sessions(Mutex<HashMap<String, Live>>);
 /// VMs running in the whole app: sessions share them, a run waits for a free one.
 pub struct VmSlots(Semaphore);
 
-impl Default for VmSlots {
-    fn default() -> Self {
-        VmSlots(Semaphore::new(MAX_TOTAL_VMS))
+impl VmSlots {
+    /// The limit comes from the settings as they are when the app starts.
+    pub fn new(app: &AppHandle) -> Self {
+        VmSlots(Semaphore::new(crate::config::vm_settings::current(app).max_vms as usize))
     }
 }
 
@@ -83,7 +84,9 @@ impl Host for RealHost {
             env,
             timeout_secs: u64::from(req.timeout_mins) * 60,
         };
-        let spec = Spec { run_id, project: Scope::project(&self.project), image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, allow_hosts: profile_hosts, injections, task };
+        let scope = Scope::project(&self.project);
+        let watch = crate::net::leaks::watched(&profile_env, &|n| crate::config::secrets::secret_value(&scope, n));
+        let spec = Spec { run_id, project: scope, image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, allow_hosts: profile_hosts, injections, max_connections: profile.max_connections, max_upload_mb: profile.max_upload_mb, max_download_mb: profile.max_download_mb, watch, task };
         // Cancelling the session cancels this VM.
         let (tx, rx) = oneshot::channel();
         let mut c = self.cancel.clone();
@@ -102,8 +105,22 @@ impl Host for RealHost {
             forward.abort();
             return failed("cancelled while waiting for a free VM");
         };
-        let res = crate::vm::runs::run_vm(&self.app, spec, rx, |m| self.on_msg((&req.node, &req.call, req.depth), m)).await;
+        // the last traffic totals the run reported, for the session's log (analytics)
+        let net = std::sync::Mutex::new((0u64, 0u64));
+        let res = crate::vm::runs::run_vm(&self.app, spec, rx, |m| {
+            if let Outbound::Event(e) = m
+                && e.event.get("type").and_then(Value::as_str) == Some("net")
+            {
+                *net.lock().unwrap() = (e.event.get("up").and_then(Value::as_u64).unwrap_or(0), e.event.get("down").and_then(Value::as_u64).unwrap_or(0));
+            }
+            self.on_msg((&req.node, &req.call, req.depth), m)
+        })
+        .await;
         forward.abort();
+        let (up, down) = *net.lock().unwrap();
+        if up + down > 0 {
+            self.log("run_net", json!({"call": req.call, "node": req.node, "up": up, "down": down}));
+        }
         res.unwrap_or_else(failed)
     }
 
@@ -139,6 +156,10 @@ impl Host for RealHost {
 
     fn entry(&self) -> Option<String> {
         self.entry.clone()
+    }
+
+    fn max_vms(&self) -> usize {
+        crate::config::vm_settings::current(&self.app).max_vms_per_session as usize
     }
 }
 

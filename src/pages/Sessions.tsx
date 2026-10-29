@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { PageHeader } from "../components/PageHeader";
+import { fmtDateTime } from "../text";
 import { useTranslation } from "react-i18next";
-import { Body1, Button, Card, CardHeader, Caption1, Select, makeStyles, tokens } from "@fluentui/react-components";
+import { Body1, Button, Card, CardHeader, Caption1, Select, Subtitle2, makeStyles, tokens } from "@fluentui/react-components";
 import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
+import { EmptyState, useConfirmDelete } from "../components/Confirm";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 import { call } from "../tauri";
@@ -29,10 +31,13 @@ export function Sessions() {
   const navigate = useNavigate();
   const project = useProjectId();
   const desktop = inTauri();
+  const confirm = useConfirmDelete();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [workflows, setWorkflows] = useState<Record<string, string>>({});
   const [filter, setFilter] = useState("");
   const shown = filter ? sessions.filter((s) => s.workflow === filter) : sessions;
+
+  const label = (s: Session) => s.name || (s.task ? (s.task.length > 60 ? `${s.task.slice(0, 60)}…` : s.task) : t("sessions.untitled"));
 
   const load = useCallback(async () => {
     try {
@@ -111,29 +116,30 @@ export function Sessions() {
           ))}
         </Select>
       )}
-      {desktop && sessions.length === 0 && <Body1 block style={{ color: tokens.colorNeutralForeground3 }}>{t("sessions.empty")}</Body1>}
+      {desktop && sessions.length === 0 && <EmptyState>{t("sessions.empty")}</EmptyState>}
       <div className={styles.list}>
         {shown.map((s) => (
           <Card key={s.id} onClick={() => navigate(projectPath(project, `/sessions/${s.id}`))}>
             <CardHeader
-              header={<Body1><b>{s.name || (s.task ? (s.task.length > 60 ? `${s.task.slice(0, 60)}…` : s.task) : t("sessions.untitled"))}</b></Body1>}
-              description={<Caption1>{new Date(s.created * 1000).toLocaleString()} · {t(`sessions.status.${s.status}`, s.status)} · {workflows[s.workflow] ?? s.workflow}</Caption1>}
+              header={<Subtitle2>{label(s)}</Subtitle2>}
+              description={<Caption1>{fmtDateTime(s.created)} · {t(`sessions.status.${s.status}`, s.status)} · {workflows[s.workflow] ?? s.workflow}</Caption1>}
               action={
                 <Button
                   appearance="subtle"
                   icon={<Delete20Regular />}
                   aria-label={t("sessions.delete")}
+                  disabled={s.status === "running" || s.status === "waiting"}
                   onClick={(ev) => {
                     ev.stopPropagation();
-                    void remove(s.id);
+                    confirm.ask(label(s), () => remove(s.id));
                   }}
                 />
               }
             />
-            
           </Card>
         ))}
       </div>
+      {confirm.dialog}
     </>
   );
 }

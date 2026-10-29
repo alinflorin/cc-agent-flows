@@ -69,8 +69,8 @@ pub fn boot_args(dir: &Path, arch: &str, agent: bool) -> Vec<std::ffi::OsString>
     ]
 }
 
-/// Most vCPUs a VM gets when its profile does not say: more only slow the boot and oversubscribe a
-/// host that runs several VMs.
+/// Most vCPUs a VM gets when neither its profile nor the settings say: more only slow the boot and
+/// oversubscribe a host that runs several VMs.
 const DEFAULT_VCPUS: u32 = 4;
 
 /// A QEMU command for a headless guest of this machine's architecture: hardware acceleration with
@@ -88,15 +88,26 @@ pub fn machine(app: &AppHandle, mem_mb: u32, cpus: Option<u32>, agent: bool) -> 
     } else {
         "whpx"
     };
-    let hw = hw_accel();
+    let settings = crate::config::vm_settings::current(app);
+    use crate::config::vm_settings::Accel;
+    let hw = match settings.accel {
+        Accel::Software => false,
+        Accel::Auto => hw_accel(),
+        Accel::Hardware if hw_accel() => true,
+        Accel::Hardware => return Err(format!("hardware acceleration is not available on this computer ({accel} cannot be used): change the accelerator in Settings > General > Virtual machines")),
+    };
     // pauth-impdef: without it software emulation spends minutes on pointer authentication. Only
     // TCG has the option: under hvf/kvm `max` is the host CPU and QEMU refuses to start with it.
     let cpu = if arch == "aarch64" && !hw { "max,pauth-impdef=on" } else { "max" };
-    let vcpus = cpus.unwrap_or_else(|| host_cpus().min(DEFAULT_VCPUS));
+    let vcpus = cpus.or(settings.default_cpus).unwrap_or_else(|| host_cpus().min(DEFAULT_VCPUS));
     if hw {
         cmd.args(["-accel", accel]);
     }
-    cmd.args(["-accel", "tcg", "-cpu", cpu, "-m", &mem_mb.to_string(), "-smp", &vcpus.to_string()]);
+    // hardware only: no software fallback, QEMU refuses to start when the accelerator fails
+    if settings.accel != Accel::Hardware {
+        cmd.args(["-accel", "tcg"]);
+    }
+    cmd.args(["-cpu", cpu, "-m", &mem_mb.to_string(), "-smp", &vcpus.to_string()]);
     cmd.args(if arch == "aarch64" { ["-M", "virt"] } else { ["-M", "pc,usb=off,vmport=off"] });
     // no VGA, CD-ROM, floppy, parallel port or default NIC to probe: the caller adds what the VM has
     cmd.args(["-nodefaults", "-no-user-config", "-display", "none", "-monitor", "none", "-no-reboot"]);

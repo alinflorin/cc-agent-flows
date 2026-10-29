@@ -3,4 +3,5 @@
 
 pub mod egress;
 pub mod inspect;
+pub mod leaks;
 pub mod tunnel;

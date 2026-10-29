@@ -37,6 +37,9 @@ pub struct SessionStat {
     runs: u32,
     failed_runs: u32,
     turns: u32,
+    /// Bytes the agents sent out and took in over the network.
+    net_up: u64,
+    net_down: u64,
 }
 
 /// One agent profile over all sessions.
@@ -49,6 +52,8 @@ pub struct AgentStat {
     total_secs: u64,
     avg_secs: u64,
     longest_secs: u64,
+    net_up: u64,
+    net_down: u64,
 }
 
 #[derive(Serialize, Default, Debug, PartialEq)]
@@ -58,6 +63,8 @@ pub struct DayStat {
     sessions: u32,
     runs: u32,
     tokens: u64,
+    net_up: u64,
+    net_down: u64,
 }
 
 #[derive(Serialize, Default, Debug, PartialEq)]
@@ -68,6 +75,8 @@ pub struct Analytics {
     total_tokens: u64,
     total_runs: u32,
     failed_runs: u32,
+    total_net_up: u64,
+    total_net_down: u64,
 }
 
 fn day(t: u64) -> String {
@@ -88,6 +97,8 @@ fn fold(sid: &str, session: &workflow::Session, entries: &[Value], agents: &mut 
         runs: 0,
         failed_runs: 0,
         turns: 1 + session.messages.len() as u32,
+        net_up: 0,
+        net_down: 0,
     };
     let mut started: HashMap<&str, (u64, &str)> = HashMap::new();
     let (mut first, mut last) = (u64::MAX, 0);
@@ -100,6 +111,18 @@ fn fold(sid: &str, session: &workflow::Session, entries: &[Value], agents: &mut 
         match e.get("kind").and_then(Value::as_str) {
             Some("run_start") => {
                 started.insert(text("call"), (t, text("profile")));
+            }
+            Some("run_net") => {
+                let profile = started.get(text("call")).map_or("", |s| s.1);
+                let (up, down) = (body.get("up").and_then(Value::as_u64).unwrap_or(0), body.get("down").and_then(Value::as_u64).unwrap_or(0));
+                stat.net_up += up;
+                stat.net_down += down;
+                let a = agents.entry(profile.to_string()).or_insert_with(|| AgentStat { profile: profile.to_string(), ..Default::default() });
+                a.net_up += up;
+                a.net_down += down;
+                let d = days.entry(day(t)).or_insert_with(|| DayStat { day: day(t), ..Default::default() });
+                d.net_up += up;
+                d.net_down += down;
             }
             Some("run_end") => {
                 let (t0, profile) = started.remove(text("call")).unwrap_or((t, ""));
@@ -135,12 +158,14 @@ pub fn compute(roots: &[(String, std::path::PathBuf)]) -> Analytics {
     let (mut agents, mut days) = (HashMap::new(), BTreeMap::new());
     for (project, root) in roots {
         for s in workflow::sessions(root).into_iter().filter(|s| s.session.status != "new") {
-            let entries = log_entries(root, &s.id, &["started", "status", "run_start", "run_end"]);
+            let entries = log_entries(root, &s.id, &["started", "status", "run_start", "run_end", "run_net"]);
             let mut stat = fold(&s.id, &s.session, &entries, &mut agents, &mut days);
             stat.project = project.clone();
             out.total_tokens += stat.tokens;
             out.total_runs += stat.runs;
             out.failed_runs += stat.failed_runs;
+            out.total_net_up += stat.net_up;
+            out.total_net_down += stat.net_down;
             out.sessions.push(stat);
         }
     }
@@ -177,6 +202,7 @@ mod tests {
         let entries = vec![
             e(100, "started", json!({})),
             e(110, "run_start", json!({"call": "r", "profile": "dev"})),
+            e(149, "run_net", json!({"call": "r", "up": 1000, "down": 5000})),
             e(150, "run_end", json!({"call": "r", "status": "done", "tokens": 500})),
             e(150, "run_start", json!({"call": "r/1.1", "profile": "dev"})),
             e(160, "run_end", json!({"call": "r/1.1", "status": "failed", "tokens": 250})),
@@ -188,5 +214,6 @@ mod tests {
         let a = &agents["dev"];
         assert_eq!((a.runs, a.failed, a.total_secs, a.longest_secs), (2, 1, 50, 40));
         assert_eq!(days.values().map(|d| d.runs).sum::<u32>(), 2);
+        assert_eq!((s.net_up, s.net_down, a.net_up, a.net_down), (1000, 5000, 1000, 5000));
     }
 }

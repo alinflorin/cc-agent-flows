@@ -21,6 +21,7 @@ import {
 } from "@fluentui/react-components";
 import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../../components/SettingsIntro";
+import { EmptyState, useConfirmDelete } from "../../components/Confirm";
 import { FormDialogSurface } from "../../components/FormDialogSurface";
 import { RefCombobox } from "../../components/RefCombobox";
 import { ResetDemoButton } from "../../components/ResetDemoButton";
@@ -77,6 +78,8 @@ export function InjectionsSettings() {
   const notify = useNotify();
   const desktop = inTauri();
   const project = useProject();
+  const confirm = useConfirmDelete();
+  const [saving, setSaving] = useState(false);
 
   const [list, setList] = useState<Injection[]>([]);
   const [secrets, setSecrets] = useState<string[]>([]);
@@ -118,10 +121,12 @@ export function InjectionsSettings() {
     if (!editing) return;
     const value = editing.value;
     const next = editing.at === null ? [...list, value] : list.map((x, i) => (i === editing.at ? value : x));
+    setSaving(true);
     if (await persist(next)) {
       setOpen(false);
       notify(t("settings.injections.saved"), "success");
     }
+    setSaving(false);
   };
 
   const set = (patch: Partial<Injection>) => editing && setEditing({ ...editing, value: { ...editing.value, ...patch } });
@@ -142,25 +147,26 @@ export function InjectionsSettings() {
           <ResetDemoButton command="injections_reset_demo" what="injections" onDone={() => void load()} />
         </div>
       </SettingsIntro>
-      {desktop && list.length === 0 && <Caption1 block style={{ marginTop: 16 }}>{t("settings.injections.empty")}</Caption1>}
+      {desktop && list.length === 0 && <EmptyState>{t("settings.injections.empty")}</EmptyState>}
       <div className={styles.list}>
         {list.map((x, i) => (
-          <Card key={x.name} style={{ height: "100%" }}>
+          <Card key={x.name} style={{ height: "100%" }} onClick={() => edit(i, x)}>
             <CardHeader
               header={<Body1 className={styles.mono}>{`\${injection:${x.name}}`}</Body1>}
               description={<Caption1>{x.rules.map((r) => r.host + (r.path || "")).join(", ")}</Caption1>}
             />
             <Caption1>{t("settings.injections.summary", { header: x.header, kind: t(`settings.injections.kinds.${x.kind}`), secret: x.source === "secret" ? x.secret : x.source === "var" ? `\${var:${x.value}}` : t("settings.injections.fixedText") })}</Caption1>
             <div className={styles.row}>
-              <Button onClick={() => edit(i, x)}>
+              <Button onClick={(ev) => { ev.stopPropagation(); edit(i, x); }}>
                 {t("settings.injections.edit")}
               </Button>
-              <Button appearance="subtle" icon={<Delete20Regular />} aria-label={t("settings.injections.delete")} onClick={() => void persist(list.filter((_, j) => j !== i))} />
+              <Button appearance="subtle" icon={<Delete20Regular />} aria-label={t("settings.injections.delete")} onClick={(ev) => { ev.stopPropagation(); confirm.ask(x.name, () => persist(list.filter((_, j) => j !== i))); }} />
             </div>
           </Card>
         ))}
       </div>
 
+      {confirm.dialog}
       <Dialog surfaceMotion={null} open={open} onOpenChange={(_, d) => setOpen(d.open)}>
         <FormDialogSurface>
           <DialogBody>
@@ -302,7 +308,7 @@ export function InjectionsSettings() {
               <Button appearance="secondary" onClick={() => setOpen(false)}>
                 {t("common.cancel")}
               </Button>
-              <Button appearance="primary" disabled={!ready} onClick={() => void save()}>
+              <Button appearance="primary" disabled={!ready || saving} onClick={() => void save()}>
                 {t("common.save")}
               </Button>
             </DialogActions>

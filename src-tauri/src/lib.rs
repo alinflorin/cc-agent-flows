@@ -2,6 +2,7 @@ mod config;
 mod demo;
 mod net;
 mod system;
+mod transfer;
 mod util;
 mod vm;
 mod workflow;
@@ -68,6 +69,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build());
 
     #[cfg(desktop)]
@@ -78,6 +80,10 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             can_self_update,
+            config::vm_settings::vm_settings_get,
+            config::vm_settings::vm_settings_set,
+            transfer::transfer_export,
+            transfer::transfer_import,
             system::app_log_open,
             vm::qemu::qemu_version,
             system::system_status,
@@ -151,7 +157,7 @@ pub fn run() {
             app.manage(vm::images::Images::default());
             app.manage(vm::runs::Runs::default());
             app.manage(workflow::engine::Sessions::default());
-            app.manage(workflow::engine::VmSlots::default());
+            app.manage(workflow::engine::VmSlots::new(app.handle()));
             workflow::engine::recover(app.handle());
             vm::images::ensure_base(app.handle());
             app.manage(workflow::webhook::Webhook::default());

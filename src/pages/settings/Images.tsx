@@ -1,5 +1,6 @@
 import { useFollow } from "../../follow";
 import { useCallback, useEffect, useState } from "react";
+import { capitalize, fmtDateTime } from "../../text";
 import { useTranslation } from "react-i18next";
 import {
   Badge,
@@ -20,6 +21,7 @@ import {
 } from "@fluentui/react-components";
 import { Add20Regular, Delete20Regular, Edit20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../../components/SettingsIntro";
+import { useConfirmDelete } from "../../components/Confirm";
 import { FormDialogSurface } from "../../components/FormDialogSurface";
 import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
@@ -113,6 +115,8 @@ export function ImagesSettings() {
   const notify = useNotify();
   const desktop = inTauri();
   const project = useProject();
+  const confirm = useConfirmDelete();
+  const [saving, setSaving] = useState(false);
   const [images, setImages] = useState<Image[] | null>(null);
   const [editing, setEditing] = useState<{ id: string | null; spec: Spec } | null>(null);
 
@@ -186,7 +190,7 @@ export function ImagesSettings() {
                     icon={<Delete20Regular />}
                     aria-label={t("profiles.delete")}
                     disabled={i.state === "building"}
-                    onClick={() => run("images_delete", { id: i.id })}
+                    onClick={() => confirm.ask(i.name, () => run("images_delete", { id: i.id }))}
                   />
                 </>
               )}
@@ -195,16 +199,17 @@ export function ImagesSettings() {
             {i.parent && <Caption1>{t("settings.images.basedOn", { name: nameOf(i.parent) })}</Caption1>}
             {i.built_at && (
               <Caption1>
-                {t("settings.images.builtAt", { date: new Date(i.built_at * 1000).toLocaleString() })}
+                {t("settings.images.builtAt", { date: fmtDateTime(i.built_at) })}
                 {i.size ? ` · ${(i.size / 1e6).toFixed(0)} MB` : ""}
               </Caption1>
             )}
-            {i.error && i.state !== "building" && <Body1 style={{ color: tokens.colorPaletteRedForeground1 }}>{i.error}</Body1>}
+            {i.error && i.state !== "building" && <Body1 style={{ color: tokens.colorPaletteRedForeground1 }}>{capitalize(i.error)}</Body1>}
             {i.log.length > 0 && (i.state === "building" || i.error) && <BuildLog className={styles.log} lines={i.log} />}
           </div>
         ))}
       </div>
 
+      {confirm.dialog}
       <Dialog surfaceMotion={null} open={editing !== null} onOpenChange={(_, d) => !d.open && setEditing(null)}>
         <FormDialogSurface>
           <DialogBody>
@@ -319,8 +324,13 @@ export function ImagesSettings() {
               </Button>
               <Button
                 appearance="primary"
-                disabled={!editing?.spec.name.trim()}
-                onClick={async () => editing && (await run("images_save", { id: editing.id, spec: editing.spec })) && setEditing(null)}
+                disabled={saving || !editing?.spec.name.trim()}
+                onClick={async () => {
+                  if (!editing) return;
+                  setSaving(true);
+                  if (await run("images_save", { id: editing.id, spec: editing.spec })) setEditing(null);
+                  setSaving(false);
+                }}
               >
                 {t("common.save")}
               </Button>

@@ -11,3 +11,4 @@ pub mod projects;
 pub mod scope;
 pub mod secrets;
 pub mod variables;
+pub mod vm_settings;

@@ -682,7 +682,8 @@ async fn build_in(app: &AppHandle, r: &Ref, spec: Option<&Spec>, source: &Path, 
             "/tmp/setup/image.sh"
         }
     };
-    let code = within(1500, "the setup script", con.run(&script_cmd(script), |l| say(l))).await?;
+    let script_secs = u64::from(crate::config::vm_settings::current(app).image_script_mins) * 60;
+    let code = within(script_secs, "the setup script", con.run(&script_cmd(script), |l| say(l))).await?;
     if code != 0 {
         return Err(format!("the script failed (exit {code}), see the log"));
     }
@@ -714,7 +715,8 @@ async fn build_in(app: &AppHandle, r: &Ref, spec: Option<&Spec>, source: &Path, 
 }
 
 fn launch(app: &AppHandle, disk: &Path, serial: &Serial) -> Result<tokio::process::Child, String> {
-    let mut cmd = machine(app, 1024, Some(2), false)?;
+    let s = crate::config::vm_settings::current(app);
+    let mut cmd = machine(app, s.builder_memory_mb, Some(s.builder_cpus), false)?;
     // builders need the internet (package managers, installers)
     cmd.args(["-nic", "user,model=virtio-net-pci"])
         .arg("-drive")

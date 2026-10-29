@@ -5,7 +5,10 @@
     "save": "Salvează",
     "reset": "Resetează",
     "cancel": "Anulează",
-    "copy": "Copiază"
+    "copy": "Copiază",
+    "delete": "Șterge",
+    "deleteTitle": "Ștergi?",
+    "deleteText": "Ștergi „{{name}}”? Acțiunea nu poate fi anulată."
   },
   "nav": {
     "menu": "Meniu",
@@ -13,7 +16,7 @@
     "settings": "Setări globale",
     "profiles": "Profiluri de agent",
     "runs": "Rulări",
-    "workflow": "Workflow",
+    "workflow": "Flux",
     "sessions": "Sesiuni",
     "analytics": "Statistici",
     "projects": "Proiecte",
@@ -83,7 +86,8 @@
       "secrets": "Secrete",
       "variables": "Variabile",
       "injections": "Injecții",
-      "integrations": "Integrări"
+      "integrations": "Integrări",
+      "transfer": "Import / Export"
     },
     "llm": {
       "token": "Setup token Claude Code",
@@ -102,7 +106,7 @@
         "max": "Maxim"
       },
       "accounts": "Conturi Claude",
-      "accountsHint": "Adaugă mai multe tokenuri de configurare (abonamente personale). Rulările folosesc conturile pe rând. Când Claude refuză unul (limită de utilizare, token respins), acesta se odihnește, iar rularea reîncepe pe următorul, dacă nu făcuse încă muncă taxată.",
+      "accountsHint": "Adaugă unul sau mai multe token-uri de configurare (abonamente personale). Rulările le folosesc pe rând; un cont care atinge limita se odihnește, iar rularea trece la următorul.",
       "accountName": "Nume",
       "accountOn": "Folosește acest cont",
       "state": {
@@ -130,7 +134,7 @@
     },
     "saved": "Setările au fost salvate.",
     "images": {
-      "intro": "Sistemele pe care rulează agenții. Imaginea de bază este inclusă; adaugă-le pe ale tale cu un script care rulează peste ea sau peste altă imagine a ta. Un profil de agent alege imaginea.",
+      "intro": "Pe ce rulează agenții. Imaginea de bază e inclusă; adaugă-le pe ale tale cu un script peste ea. Un profil alege imaginea.",
       "new": "Imagine nouă",
       "edit": "Editează imaginea",
       "base": "Bază",
@@ -146,15 +150,15 @@
       "build": "Construiește",
       "rebuild": "Reconstruiește",
       "script": "Script (sh)",
-      "scriptHint": "Rulează o dată ca root la construirea imaginii, peste imaginea pe care se bazează (Alpine; apk este disponibil). Salvarea pornește construirea; o modificare ulterioară face imaginea depășită până o reconstruiești.",
+      "scriptHint": "Rulează o dată ca root peste imaginea părinte (Alpine, apk disponibil). Salvarea o construiește.",
       "needBase": "Construiește mai întâi imaginea pe care se bazează.",
       "basedOn": "Bazată pe {{name}}",
       "parent": "Bazată pe",
       "parentHint": "Imaginea peste care rulează scriptul. Reconstruirea ei face această imagine depășită.",
       "env": "Variabile de mediu",
-      "envHint": "Incluse în imagine, pentru fiecare agent care rulează pe ea (și pe imaginile construite peste ea). Sunt salvate în clar în imagine, deci nu pune secrete aici.",
+      "envHint": "Incluse în imagine și în copiii ei, în text simplu: fără secrete.",
       "docs": "Documentația uneltelor pentru system prompt",
-      "docsHint": "Se adaugă la finalul system prompt-ului fiecărui agent care rulează pe această imagine (și pe imaginile construite peste ea). O comandă se rulează o singură dată la construirea imaginii, după script, iar ce afișează se salvează (de exemplu jira --help); textul se adaugă așa cum e scris, folosește-l pentru titluri (## Jira) și sfaturi scurte. Păstrează-l scurt: se trimite la fiecare rulare.",
+      "docsHint": "Adăugat la promptul de sistem al fiecărui agent de pe această imagine. O comandă rulează o dată la construire și rezultatul se salvează (ex. jira --help); textul se adaugă ca atare. Păstrează-l scurt: se trimite la fiecare rulare.",
       "addCommand": "Adaugă comandă",
       "addText": "Adaugă text",
       "docText": "Text",
@@ -163,19 +167,24 @@
       "global": "Global"
     },
     "network": {
-      "intro": "Gazdele de internet la care toți agenții pot ajunge prin HTTPS. Un profil poate permite și altele, peste acestea. Agenții nu au alt acces la rețea.",
+      "intro": "Gazde la care orice agent poate ajunge prin HTTPS. Profilele pot adăuga altele. Fără alt acces la rețea.",
       "allowHosts": "Gazde permise",
-      "allowHostsHint": "Câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Tot ce nu e listat aici sau în profilul agentului este blocat. Valorile implicite sunt ce îi trebuie lui Claude Code ca să funcționeze; o listă goală taie agenții de la API-ul Claude.",
+      "allowHostsHint": "Câte una pe linie: un nume (github.com) sau subdomeniile lui (*.github.com). Restul e blocat. O listă goală taie agenții de la API-ul Claude.",
       "defaults": "Restaurează valorile implicite",
+      "webhook": "Webhook",
       "webhookPort": "Portul webhook",
-      "webhookPortHint": "Nodurile webhook ale unui workflow ascultă pe acest port, doar pe acest calculator (127.0.0.1). Ca să le atingi din exterior, redirecționează portul sau folosește un tunel; secretul din fiecare URL este ce autorizează un apel.",
-      "projectIntro": "Gazde de internet pe care orice agent al acestui proiect le poate accesa prin HTTPS, pe lângă cele globale (Setări) și cele ale profilului. O intrare poate fi o variabilă ${var:NAME}."
+      "webhookPortHint": "Nodurile webhook ascultă pe acest port, doar pe acest calculator (127.0.0.1). Secretul din fiecare URL autorizează apelul.",
+      "projectIntro": "Gazde la care agenții acestui proiect pot ajunge prin HTTPS, peste cele globale și ale profilului. O intrare poate fi o ${var:NAME}.",
+      "maxConnections": "Conexiuni per agent",
+      "maxConnectionsHint": "Tunele pe care un agent le poate avea deschise simultan. Un profil poate seta propria limită.",
+      "leak": "Detectarea scurgerilor",
+      "leakHint": "Refuză o cerere care duce un secret din mediul unui agent către o gazdă pe care profilul său nu o listează. Inspectează traficul TLS al acelor rulări."
     },
     "secrets": {
-      "intro": "Valori cu nume, păstrate în depozitul de credențiale al sistemului, niciodată în fișiere în clar. Le folosești în variabilele de mediu ale unui profil ca ${secret:NUME}. Valoarea se citește când pornește o rulare și ajunge în mediul agentului, deci folosește tokenuri cu drepturi cât mai mici și doar la profilurile care au nevoie.",
+      "intro": "Valori păstrate în depozitul de credențiale al sistemului. Folosește-le în mediul unui profil ca ${secret:NAME}; ajung în mediul agentului, deci folosește token-uri cu privilegii minime.",
       "desktopOnly": "Secretele sunt disponibile doar în aplicația desktop.",
       "new": "Secret nou",
-      "newHint": "Un nume (litere, cifre, underscore) și valoarea. Valorile nu pot fi citite înapoi, doar înlocuite.",
+      "newHint": "Un nume și o valoare. Valorile nu pot fi citite înapoi, doar înlocuite.",
       "badName": "Litere, cifre și underscore, fără cifră la început.",
       "value": "Valoare",
       "saved": "Secret salvat.",
@@ -184,7 +193,7 @@
       "delete": "Șterge secretul"
     },
     "variables": {
-      "intro": "Valori cu nume care nu sunt secrete, de exemplu adresa unui site sau un e-mail. Folosește una ca ${var:NAME} într-o variabilă de mediu a unui profil de agent (și în interiorul unei valori mai lungi, https://${var:HOST}) sau în gazda, calea ori utilizatorul unei injecții. Se completează când pornește o rulare, deci schimbarea ei aici schimbă toate locurile unde e folosită. Valorile se salvează în clar, așa că secretele pune-le în Setări > Secrete.",
+      "intro": "Valori cu nume care nu sunt secrete, ca adresa unui site. Folosește-le ca ${var:NAME} în mediul unui profil sau în gazda ori utilizatorul unei injecții. Salvate în text simplu: secretele merg la Secrete.",
       "desktopOnly": "Variabilele sunt disponibile doar în aplicația desktop.",
       "new": "Variabilă nouă",
       "newHint": "Un nume (litere, cifre, underscore) și valoarea, pe un singur rând.",
@@ -195,7 +204,7 @@
       "delete": "Șterge variabila"
     },
     "injections": {
-      "intro": "Credențiale pe care aplicația le adaugă cererilor unui agent către anumite hosturi, astfel încât secretul nu intră niciodată în VM. Folosește una într-o variabilă de mediu a profilului ca ${injection:NAME}: agentul vede doar un înlocuitor, iar aplicația pune valoarea reală pe cererile potrivite. Hostul trebuie să fie și printre hosturile permise ale profilului (sau în Setări > Rețea).",
+      "intro": "Credențiale pe care aplicația le adaugă cererilor agentului către anumite gazde, astfel încât secretul nu ajunge în VM. Folosește-le ca ${injection:NAME} în mediul unui profil; gazda trebuie să fie printre gazdele permise.",
       "desktopOnly": "Injecțiile sunt disponibile doar în aplicația desktop.",
       "new": "Injecție nouă",
       "editTitle": "Editează injecția",
@@ -206,7 +215,7 @@
       "name": "Nume",
       "nameHint": "Litere, cifre și underscore. Nu poate fi schimbat ulterior.",
       "rules": "Unde",
-      "rulesHint": "Host (api.exemplu.com sau *.exemplu.com; aici merge și un ${var:NUME}, ca și la utilizator), tipar de cale (* potrivește orice, gol înseamnă toate) și metode (niciuna selectată înseamnă toate). Doar HTTPS. Cererile cu segmente cu punct sau slash-uri codate în cale nu se potrivesc niciodată.",
+      "rulesHint": "Gazdă (api.example.com sau *.example.com), tipar de cale (* potrivește orice; gol = toate) și metode (niciuna = toate). Doar HTTPS.",
       "allMethods": "Toate metodele",
       "addRule": "Adaugă adresă",
       "header": "Header",
@@ -234,11 +243,11 @@
       "secret": "Secret",
       "noSecrets": "Creează mai întâi secretul în Setări > Secrete.",
       "placeholder": "Placeholder",
-      "placeholderHint": "Ce vede agentul în variabilă. Dă-i forma unui token dacă o unealtă verifică formatul (de exemplu ghp_…). Implicit: ccaf-injected.",
+      "placeholderHint": "Ce vede agentul în variabilă. Fă-l să semene cu un token dacă o unealtă verifică formatul. Implicit: ccaf-injected.",
       "summary": "{{header}}: {{kind}} din {{secret}}"
     },
     "notifications": "Notificări pe desktop când o sesiune are nevoie de mine sau se termină",
-    "globalIntro": "Setările globale se aplică tuturor proiectelor: conturile Claude, imaginea de bază, gazdele de care au nevoie toți agenții (API-ul Claude) și orice vrei să partajezi. Restul se gestionează în fiecare proiect.",
+    "globalIntro": "Setările globale se aplică tuturor proiectelor: conturile Claude, imaginea de bază și gazdele de care au nevoie toți agenții.",
     "globalNote": "Global: disponibil în orice proiect. Un element al proiectului cu același nume are prioritate.",
     "globalTabs": {
       "images": "Imagini globale",
@@ -249,7 +258,7 @@
       "integrations": "Integrări globale"
     },
     "integrations": {
-      "intro": "Un serviciu cu care lucrează agenții tăi (Jira, GitHub), configurat într-un singur loc: variabilele, secretele, injecțiile de credențiale, hosturile permise și variabilele de mediu pe care le primește agentul. La salvare, variabilele, secretele și injecțiile se scriu în paginile lor, unde le poți schimba valorile, dar nu le poți șterge cât timp o integrare le folosește. Apoi alege integrarea într-un profil de agent.",
+      "intro": "Un serviciu folosit de agenți (Jira, GitHub), configurat într-un singur loc: variabile, secrete, injecții, gazde și mediu. Alege-l într-un profil de agent.",
       "desktopOnly": "Integrările sunt disponibile doar în aplicația desktop.",
       "new": "Integrare nouă",
       "editTitle": "Editează integrarea",
@@ -277,7 +286,54 @@
       "addInjection": "Adaugă injecție",
       "hostsHint": "Hosturile pe care le poate accesa agentul. Pune hostul fiecărei injecții de mai sus.",
       "env": "Variabile de mediu pentru agent",
-      "envHint": "Se adaugă la fiecare profil de agent care folosește integrarea. Alege ${injection:NAME}, ${var:NAME} sau ${secret:NAME} din listă sau scrie o valoare."
+      "envHint": "Adăugate fiecărui profil care folosește această integrare. Alege o referință sau scrie o valoare."
+    },
+    "transfer": {
+      "desktopOnly": "Importul și exportul sunt disponibile doar în aplicația desktop.",
+      "exportTitle": "Export",
+      "exportIntro": "Salvează totul într-un singur fișier YAML criptat: toate proiectele, setările globale, profilurile, fluxurile, definițiile imaginilor, secretele și token-urile Claude. Nu include: jurnalele sesiunilor, discurile imaginilor construite și preferințele aplicației.",
+      "exportWarning": "Fișierul conține secretele și token-urile tale. Parola este singura protecție și nu poate fi recuperată: păstrează ambele în siguranță.",
+      "password": "Parolă",
+      "passwordHint": "Cel puțin {{min}} caractere. Este cheia de criptare.",
+      "tooShort": "Cel puțin {{min}} caractere.",
+      "confirm": "Repetă parola",
+      "mismatch": "Parolele nu se potrivesc.",
+      "export": "Exportă…",
+      "exported": "Exportat în {{path}}",
+      "importTitle": "Import",
+      "importIntro": "Citește un fișier de export și adaugă conținutul. Nu se șterge nimic. Imaginile se importă ca definiții: construiește-le după aceea. Repornește aplicația pentru a aplica un port webhook schimbat.",
+      "overwrite": "Înlocuiește elementele care există deja (altfel rămân cum sunt)",
+      "import": "Importă…",
+      "imported": "Importat: {{written}} fișiere, {{secrets}} secrete, {{tokens}} token-uri Claude; {{skipped}} lăsate neschimbate."
+    },
+    "vm": {
+      "title": "Mașini virtuale",
+      "accel": "Accelerator",
+      "accels": {
+        "auto": "Automat",
+        "hardware": "Doar hardware",
+        "software": "Doar emulare software"
+      },
+      "accelHint": {
+        "auto": "Folosește KVM, HVF sau WHPX când calculatorul le are, altfel emulare software lentă.",
+        "hardware": "Un VM care nu primește accelerare hardware eșuează în loc să ruleze foarte încet.",
+        "software": "Mereu emulat: foarte lent. Pentru depanare sau un hipervizor defect."
+      },
+      "defaultCpus": "vCPU implicite",
+      "defaultCpusHint": "Pentru profilurile fără valoare. Gol: nucleele gazdei, cel mult 4.",
+      "automatic": "Automat",
+      "defaultMemory": "Memorie implicită (MB)",
+      "defaultMemoryHint": "Cu ce pornește un profil de agent nou.",
+      "maxVms": "VM-uri simultane, toată aplicația",
+      "maxVmsHint": "Se aplică la pornirea aplicației.",
+      "maxPerSession": "VM-uri simultane, pe sesiune",
+      "grace": "Timp de grație al rulării (s)",
+      "graceHint": "Adăugat timpului unui agent pentru pornirea și oprirea VM-ului.",
+      "imageScript": "Limită script imagine (min)",
+      "imageScriptHint": "Cât poate rula scriptul de construire al unei imagini.",
+      "builderCpus": "vCPU constructor",
+      "builderHint": "VM-ul care construiește imaginile.",
+      "builderMemory": "Memorie constructor (MB)"
     }
   },
   "updates": {
@@ -304,7 +360,7 @@
     "systemPrompt": "Prompt de sistem",
     "systemPromptHint": "Adăugat la promptul de sistem al lui Claude pentru fiecare sarcină a acestui agent.",
     "env": "Variabile de mediu",
-    "envHint": "Trimise agentului la fiecare sarcină. O valoare poate fi un ${secret:NUME} (Setări > Secrete, valoarea ajunge în VM), un ${injection:NUME} (Setări > Injecții, VM-ul vede doar un placeholder) sau un ${var:NUME} (Setări > Variabile, o valoare simplă, folosibilă și în interiorul unui text).",
+    "envHint": "Trimise agentului la fiecare sarcină. O valoare poate fi ${secret:NAME}, ${injection:NAME} (VM-ul vede doar un substituent) sau ${var:NAME}.",
     "addVar": "Adaugă variabilă",
     "image": "Imagine",
     "imageHint": "Sistemul pe care rulează acest agent. Imaginile se gestionează în Setări.",
@@ -316,28 +372,38 @@
     "effortDefault": "Implicit",
     "cpus": "CPU-uri",
     "cpusAll": "Toate ale gazdei",
-    "cpusHint": "CPU-uri virtuale ale VM-ului. Gol înseamnă nucleele gazdei, cel mult 4. Limitează câte nuclee poate folosi, nu cât timp din ele.",
+    "cpusHint": "CPU-uri virtuale ale VM-ului. Gol = nucleele gazdei, cel mult 4.",
     "memory": "Memorie (MB)",
     "memoryHint": "RAM-ul VM-ului, minimum 1024. Implicit 2048.",
     "allowHosts": "Gazde permise",
-    "allowHostsHint": "Gazdele de internet la care agentul poate ajunge prin HTTPS, câte una pe linie: un nume (github.com) sau toate subdomeniile lui (*.github.com). Merge și o ${var:NUME} (Setări > Variabile). Gazdele din Setări > Rețea sunt mereu permise; restul sunt blocate. Pune în listă host-ul fiecărei injecții pe care o folosește agentul: nu îl adaugă nimic.",
+    "allowHostsHint": "Gazde la care acest agent poate ajunge prin HTTPS, câte una pe linie (github.com sau *.github.com; merge și ${var:NAME}). Se adaugă la cele globale. Listează gazda fiecărei injecții folosite.",
     "envValue": "Valoare, ${secret:NUME}, ${injection:NUME} sau ${var:NUME}",
     "secretWarning": "{{names}} primește un secret în text clar: valoarea ajunge în mediul VM-ului, unde agentul (și orice rulează el) o poate citi și trimite. Preferă o injecție (Setări > Injecții): VM-ul vede doar un înlocuitor, iar proxy-ul adaugă credențialul real.",
     "integrations": "Integrări",
-    "integrationsHint": "Fiecare integrare adaugă variabilele ei de mediu și hosturile permise acestui agent (cele din profil câștigă la același nume). Le configurezi la Integrări.",
-    "noIntegrations": "Nicio integrare încă"
+    "integrationsHint": "Fiecare integrare adaugă mediul și gazdele ei acestui agent. Configurează-le la Integrări.",
+    "noIntegrations": "Nicio integrare încă",
+    "saved": "Profil salvat.",
+    "maxConnections": "Limită de conexiuni",
+    "maxConnectionsHint": "Tunele pe care acest agent le poate avea deschise simultan. Gol folosește limita globală (Setări > Rețea).",
+    "networkDefault": "Limita globală",
+    "dataBudget": "Buget de date pe rulare",
+    "dataBudgetHint": "Trimis (↑) și primit (↓) pe toată rularea. Conexiunile se închid când unul e epuizat. Gol înseamnă fără limită.",
+    "unlimited": "Fără limită"
   },
   "welcome": {
-    "text": "Configurezi conținutul demo? Se creează un proiect demo cu trei imagini construite în fundal, Manager (CLI-ul Jira, jtk, pe imaginea de bază), apoi Developer (git, GitHub CLI, Python, Node.js) și Manual QA (Chromium headless cu agent-browser) peste ea, șapte profiluri de agent (orchestrator, manager de proiect, analist de business, arhitect, dezvoltator, revizor, tester), trei secrete cu valoare fictivă (tokenurile GITHUB, GITHUB_READONLY și JIRA) de înlocuit cu cele reale, câte o injecție pentru fiecare (GitHub, GitHub doar-citire, Jira; cea Jira își ia site-ul și e-mailul din două variabile, ATLASSIAN_HOST și ATLASSIAN_EMAIL, de editat în pagina Variabile a proiectului) legate de profilurile care le folosesc, și fluxul standard de livrare: orchestratorul trimite cererea ta managerului de proiect, care parcurge elementele de lucru pe rând și, pentru fiecare, pune analistul, arhitectul, dezvoltatorul, revizorul și testerul să-și facă partea, în ordinea asta. Poți edita sau șterge totul mai târziu.",
+    "text": "Configurezi conținut demo? Creează un proiect demo: trei imagini (construite în fundal), șapte profiluri de agent, secrete fictive și injecții pentru GitHub și Jira, plus fluxul standard de livrare (orchestrator → manager de proiect → analist, arhitect, dezvoltator, revizor, tester). Poți edita sau șterge totul mai târziu.",
     "yes": "Da, configurează",
     "no": "Sari peste",
     "done": "Conținutul demo a fost creat. Imaginile se construiesc.",
-    "step": "Pasul {{n}} din 2",
+    "step": "Pasul {{n}} din 3",
     "step1Title": "Limbă și temă",
     "step1Text": "Alege cum arată și în ce limbă vorbește aplicația. Le poți schimba oricând din Setări.",
     "step2Title": "Conținut demo",
     "next": "Înainte",
-    "back": "Înapoi"
+    "back": "Înapoi",
+    "step0Title": "Ce este CC Agent Flows?",
+    "step0Text": "CC Agent Flows rulează echipe de agenți Claude Code care livrează munca cap-coadă. Scrii o cerere într-o sesiune; agenții unui flux își predau munca între ei, fiecare în propriul VM izolat, fără secrete înăuntru și doar cu gazdele de rețea permise de tine. Folosesc abonamentul tău Claude, fără chei API.",
+    "readHelp": "Citește ajutorul complet"
   },
   "sessions": {
     "allWorkflows": "Toate fluxurile de lucru",
@@ -355,20 +421,20 @@
       "interrupted": "Întreruptă"
     },
     "untitled": "Fără titlu",
-    "intro": "O sesiune rulează workflow-ul pentru o cerere pe care o scrii în chat."
+    "intro": "O sesiune rulează fluxul pentru o cerere pe care o scrii în chat."
   },
   "wf": {
-    "saved": "Workflow salvat.",
+    "saved": "Flux salvat.",
     "addAgent": "Adaugă agent",
-    "loadStandard": "Încarcă workflow-ul standard",
+    "loadStandard": "Încarcă fluxul standard",
     "pick": "O săgeată de la A la B înseamnă că A poate da de lucru lui B. Agentul căruia nimeni nu-i dă de lucru este rădăcina și primește cererea utilizatorului; un agent cu săgeți coordonează agenții spre care arată și decide ce deleagă, în ce ordine și de câte ori. Trage din mânerul din dreapta al unui agent spre alt agent ca să-i legi; selectează o săgeată ca să ceri aprobare.",
     "agent": "Agent",
     "coordinates": "Coordonează {{count}} agent(ți): decide ce deleagă și când a terminat.",
     "worker": "Își face treaba și raportează; nu cheamă pe nimeni.",
     "label": "Etichetă",
     "profile": "Profil de agent",
-    "prompt": "Rolul în acest workflow",
-    "agentPromptHint": "Ce face agentul aici. Coordonatorii îl folosesc și ca să decidă cum lucrează cu agenții pe care îi cheamă (ordine, bucle, când se opresc).",
+    "prompt": "Rolul în acest flux",
+    "agentPromptHint": "Ce face acest agent aici. Coordonatorii îl folosesc și pentru a decide ordinea și buclele.",
     "maxCalls": "Apeluri maxime",
     "maxCallsHint": "De câte ori poate fi chemat agentul într-o sesiune. Limitează buclele.",
     "timeout": "Timeout (minute)",
@@ -376,7 +442,7 @@
     "remove": "Șterge agentul",
     "root": "rădăcină",
     "problem": {
-      "empty": "Workflow-ul nu are niciun agent.",
+      "empty": "Fluxul nu are niciun agent.",
       "no_root": "Niciun agent nu este rădăcină: fiecare e chemat de altul (ciclu).",
       "many_roots": "Mai mulți agenți nu sunt chemați de nimeni; este nevoie de exact o rădăcină.",
       "unreachable": "„{{node}}” nu poate fi atins din rădăcină.",
@@ -415,21 +481,21 @@
       "delegate": "Primul poate da de lucru celui de-al doilea (sau poate întreba utilizatorul, dacă al doilea e utilizatorul).",
       "before": "Între doi agenți chemați de același coordonator: al doilea poate fi chemat doar după ce primul a terminat. Coordonatorul e ținut de regulă; îi poate chema din nou mai târziu (bucle)."
     },
-    "intro": "Agenții și cine poate da de lucru cui. O sesiune rulează acest workflow pentru o cerere pe care o scrii în chat.",
+    "intro": "Agenții și cine poate da de lucru cui. O sesiune rulează acest flux pentru o cerere pe care o scrii în chat.",
     "instructions": "Instrucțiuni pentru toți agenții",
     "instructionsHint": "Se adaugă la promptul de sistem al fiecărui agent, înaintea celui din profilul lui.",
     "name": "Nume",
-    "workflow": "Workflow",
-    "new": "Workflow nou",
+    "workflow": "Flux",
+    "new": "Flux nou",
     "delete": "Șterge",
-    "newName": "Workflow nou",
+    "newName": "Flux nou",
     "addChat": "Adaugă chat",
     "addCron": "Adaugă program",
     "addWebhook": "Adaugă webhook",
     "noIntoTrigger": "Nimic nu duce la un declanșator.",
     "triggerOneAgent": "Un declanșator dă cererea unui singur agent.",
     "cron": "Program (cron)",
-    "cronHint": "minut oră zi-din-lună lună zi-din-săptămână, în ora locală. De exemplu 0 9 * * 1-5 este 09:00 în zilele lucrătoare; și @hourly, @daily, @weekly.",
+    "cronHint": "minut oră zi-din-lună lună zi-din-săptămână, ora locală. Ex. 0 9 * * 1-5; și @daily.",
     "cronNext": "Următoarele",
     "cronRequest": "Cerere",
     "cronRequestHint": "Ce i se cere sesiunii de fiecare dată.",
@@ -437,7 +503,7 @@
     "webhookTextHint": "Instrucțiuni opționale puse înaintea corpului, de exemplu „Tratează acest eveniment.” Corpul însuși este transmis neschimbat.",
     "triggerAutonomy": "Întrebări",
     "triggerAutonomyHint": "Nimeni nu urmărește aceste sesiuni, deci alegerea obișnuită este ca agenții să decidă singuri.",
-    "saveFirst": "Salvează workflow-ul ca să vezi detaliile și să-l încerci.",
+    "saveFirst": "Salvează fluxul ca să vezi detaliile și să-l încerci.",
     "webhookUrl": "URL",
     "webhookUrlHint": "Trimite-i o cerere (orice metodă). Tratează-l ca pe o parolă: oricine are URL-ul poate porni sesiuni.",
     "webhookSample": "Corp de probă",
@@ -449,7 +515,7 @@
   },
   "runs": {
     "title": "Rulează un agent",
-    "hint": "Pornește un agent cu profilul ales în propriul VM, pe imaginea profilului, cu tokenul tău Claude (Setări > LLM). Jurnalul este păstrat în folderul de date al aplicației.",
+    "hint": "Pornește un agent al unui profil în propriul VM, cu token-ul tău Claude (Setări > LLM).",
     "prompt": "Sarcină",
     "start": "Pornește",
     "cancel": "Anulează",
@@ -511,20 +577,20 @@
     "pickAgent": "Fă click pe un agent din graf ca să-i vezi apelurile.",
     "noCalls": "Acest agent nu a fost chemat încă.",
     "noEvents": "Nu s-a întâmplat nimic încă.",
-    "noWorkflow": "Proiectul nu are încă un workflow.",
+    "noWorkflow": "Proiectul nu are încă un flux.",
     "more": "arată mai mult",
     "less": "arată mai puțin",
     "askedBy": "cerut de {{name}}",
     "ev": {
-      "start": "a primit o sarcină de la {{from}}",
-      "you": "tine",
-      "end_done": "a terminat",
-      "end_failed": "a eșuat",
-      "end_needs_input": "are întrebări",
+      "start": "Sarcină predată",
+      "you": "Tu",
+      "end_done": "A raportat: gata",
+      "end_failed": "A raportat: eșec",
+      "end_needs_input": "A raportat: are întrebări",
       "end_open": "",
-      "wait": "te așteaptă",
-      "reply": "ai răspuns",
-      "error": "eroare"
+      "wait": "Așteaptă răspunsul tău",
+      "reply": "Răspunsul tău",
+      "error": "Eroare"
     },
     "traffic": {
       "allowed": "{{count}} permise",
@@ -553,7 +619,7 @@
       "usageTitle": "CPU și memoria pe care VM-ul le ia de la acest calculator (procesul QEMU)",
       "none": "VM nepornit"
     },
-    "workflow": "Workflow",
+    "workflow": "Flux",
     "logs": "Jurnal",
     "agentState": "Agent",
     "source": {
@@ -570,7 +636,19 @@
       "done": "Sesiunea s-a terminat",
       "failed": "Sesiunea a eșuat"
     },
-    "tokens": "{{n}} tokeni"
+    "tokens": "{{n}} tokeni",
+    "out": {
+      "done": "Rezultat",
+      "failed": "Eșuat",
+      "ask": "Întrebări"
+    },
+    "net": {
+      "title": "Traficul de rețea al agenților: primit de pe internet și trimis spre internet",
+      "received": "Primit",
+      "sent": "Trimis",
+      "connections": "Conexiuni",
+      "total": "{{count}} până acum"
+    }
   },
   "app": {
     "desktopOnly": "Disponibil doar în aplicația desktop."
@@ -614,15 +692,18 @@
       "status": "Stare",
       "turns": "Ture",
       "duration": "Durată",
-      "tokens": "Tokeni"
+      "tokens": "Tokeni",
+      "traffic": "Trafic"
     },
     "tokens": "Tokeni",
     "avgTokens": "Tokeni pe sesiune",
-    "heaviest": "Sesiunile cu cei mai mulți tokeni"
+    "heaviest": "Sesiunile cu cei mai mulți tokeni",
+    "received": "Date primite",
+    "sent": "Date trimise"
   },
   "projects": {
     "title": "Proiecte",
-    "intro": "Un proiect își are propriile fluxuri, sesiuni, profiluri de agent, imagini, variabile, secrete și injecții, plus gazde permise și un prompt de sistem pentru toți agenții lui. Setările globale se aplică tuturor proiectelor.",
+    "intro": "Un proiect își are propriile fluxuri, sesiuni, profiluri, imagini, variabile, secrete și injecții, plus gazde permise și un prompt de sistem.",
     "new": "Proiect nou",
     "empty": "Niciun proiect încă. Creează unul sau configurează proiectul demo.",
     "noDescription": "Fără descriere",
@@ -645,6 +726,39 @@
     "delete": "Șterge proiectul",
     "deleteText": "Șterge proiectul cu fluxurile, sesiunile, profilurile de agent, imaginile, variabilele, injecțiile și secretele lui. Nu se poate anula.",
     "deleteConfirm": "Șterge tot",
-    "scopeNote": "Acestea aparțin proiectului. Cele globale din Setări sunt disponibile și ele; când un nume există în ambele, cel al proiectului are prioritate."
+    "scopeNote": "Acestea aparțin proiectului. Cele globale se aplică și ele; la același nume câștigă cel al proiectului."
+  },
+  "help": {
+    "link": "Ajutor",
+    "title": "Cum funcționează CC Agent Flows",
+    "close": "Închide",
+    "overview": {
+      "title": "Ideea",
+      "text": "Descrii ce vrei într-o sesiune. Un flux, o organigramă de agenți, o livrează: coordonatorii decid cine lucrează mai departe, executanții fac treaba și raportează. Tot ce face un agent se vede live în sesiune."
+    },
+    "projects": {
+      "title": "Proiecte",
+      "text": "Un proiect își are fluxurile, sesiunile, profilurile de agent, imaginile, variabilele, secretele, injecțiile și gazdele permise. Setările globale conțin ce împart toate proiectele: conturile Claude, imaginea de bază și gazdele de care agenții au mereu nevoie."
+    },
+    "agents": {
+      "title": "Profiluri de agent și imagini",
+      "text": "Un profil definește un agent: prompt de sistem, model, resurse, mediu și gazde permise. Rulează pe o imagine, un disc cu uneltele de care are nevoie. Fiecare rulare e un VM nou, de unică folosință."
+    },
+    "workflow": {
+      "title": "Fluxuri",
+      "text": "Casetele sunt agenți, săgețile arată cine poate preda cui. Săgețile punctate stabilesc o ordine. Un nod Tu permite agenților să-ți pună întrebări, un nod de aprobare cere acordul înainte de predare. Nodurile chat, cron și webhook pornesc sesiuni."
+    },
+    "sessions": {
+      "title": "Sesiuni",
+      "text": "O sesiune e o conversație cu un flux. Urmărești graful, cronologia și traficul fiecărui agent, răspunzi la întrebări, aprobi predările și trimiți mesaje ulterioare. O sesiune oprită poate continua de unde a rămas."
+    },
+    "security": {
+      "title": "Siguranță",
+      "text": "Agenții nu au rețea în afara gazdelor permise. Credențialele sunt adăugate de aplicație cererilor potrivite (injecții), deci nu ajung niciodată în VM. Secretele date ca variabile de mediu ajung totuși la agent: folosește token-uri cu privilegii minime."
+    },
+    "start": {
+      "title": "Primii pași",
+      "text": "Adaugă un token Claude la Setări globale > LLM, creează un proiect (sau demo-ul), verifică fluxul și profilurile de agent, apoi deschide Sesiuni și scrie cererea."
+    }
   }
 }

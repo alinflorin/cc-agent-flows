@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { capitalize, fmtDateTime } from "../../text";
 import { Button, Caption1, Field, Input, Select, Subtitle2, Textarea, tokens } from "@fluentui/react-components";
 import { Copy20Regular, Delete20Regular, Send20Regular } from "@fluentui/react-icons";
 import { useNotify } from "../../notifications";
@@ -46,6 +48,7 @@ export function TriggerPanel(p: {
   const project = useProjectId();
   const styles = useStyles();
   const notify = useNotify();
+  const [firing, setFiring] = useState(false);
   const agent = node.data.agent;
   return (
     <>
@@ -61,9 +64,9 @@ export function TriggerPanel(p: {
             value={agent.trigger.cron}
             onChange={(_, d) => {
               patchAgent(node.id, { trigger: { ...agent.trigger, cron: d.value } });
-              call<string[]>("cron_preview", { cron: d.value }).then(setPreview, (e) => setPreview(String(e)));
+              call<string[]>("cron_preview", { cron: d.value }).then(setPreview, (e) => setPreview(capitalize(String(e))));
             }}
-            onFocus={() => call<string[]>("cron_preview", { cron: agent.trigger.cron }).then(setPreview, (e) => setPreview(String(e)))}
+            onFocus={() => call<string[]>("cron_preview", { cron: agent.trigger.cron }).then(setPreview, (e) => setPreview(capitalize(String(e))))}
           />
         </Field>
       )}
@@ -106,21 +109,24 @@ export function TriggerPanel(p: {
             )}
             <Button
               icon={<Send20Regular />}
+              disabled={firing}
               onClick={async () => {
+                setFiring(true);
                 try {
                   await call<string>("trigger_fire", { project, workflow: id, node: node.id, payload: info.kind === "webhook" ? sample : null });
                   notify(t("wf.fired"), "success");
                 } catch (e) {
                   notify(String(e), "error");
                 }
+                setFiring(false);
                 void loadInfos();
               }}
             >
               {info.kind === "webhook" ? t("wf.webhookTest") : t("wf.cronRunNow")}
             </Button>
             {info.next && <Caption1 block>{t("wf.cronNextRun", { when: info.next })}</Caption1>}
-            {info.last_run && <Caption1 block>{t("wf.lastRun", { when: new Date(info.last_run * 1000).toLocaleString() })}</Caption1>}
-            {info.last_error && <Caption1 block style={{ color: tokens.colorPaletteRedForeground1 }}>{info.last_error}</Caption1>}
+            {info.last_run && <Caption1 block>{t("wf.lastRun", { when: fmtDateTime(info.last_run) })}</Caption1>}
+            {info.last_error && <Caption1 block style={{ color: tokens.colorPaletteRedForeground1 }}>{capitalize(info.last_error)}</Caption1>}
           </>
         );
       })()}

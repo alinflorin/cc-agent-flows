@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useId, type ReactNode } from "react";
+import { capitalize } from "./text";
 import { Toast, ToastTitle, Toaster, useToastController } from "@fluentui/react-components";
 
 type Intent = "info" | "success" | "warning" | "error";
@@ -16,7 +17,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     (message, intent = "info") =>
       dispatchToast(
         <Toast>
-          <ToastTitle>{message}</ToastTitle>
+          <ToastTitle>{capitalize(message)}</ToastTitle>
         </Toast>,
         { intent, timeout: 4000 },
       ),

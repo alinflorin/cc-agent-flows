@@ -54,6 +54,23 @@ pub fn secret_value(project: &Scope, name: &str) -> Option<String> {
     own.or_else(|| secret_entry(&Scope::global(), name).ok()?.get_password().ok())
 }
 
+/// The stored value of a secret of exactly this scope (the export reads it).
+pub fn raw_value(scope: &Scope, name: &str) -> Option<String> {
+    secret_entry(scope, name).ok()?.get_password().ok()
+}
+
+/// Stores a value for a secret of this scope; `overwrite` false leaves an existing one alone. True if written.
+pub fn restore_value(scope: &Scope, name: &str, value: &str, overwrite: bool) -> Result<bool, String> {
+    if !valid_name(name) || value.is_empty() || value.len() > MAX_VALUE {
+        return Err(format!("the secret {name} is not valid"));
+    }
+    if !overwrite && raw_value(scope, name).is_some() {
+        return Ok(false);
+    }
+    secret_entry(scope, name)?.set_password(value).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 /// Removes every secret of a scope from the credential store (when a project is deleted).
 pub fn forget_all(app: &tauri::AppHandle, scope: &Scope) {
     let Ok(path) = index_file(app, scope) else { return };

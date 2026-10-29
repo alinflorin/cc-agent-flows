@@ -333,6 +333,7 @@ pub async fn drive<H: Host>(host: Arc<H>, wf: Workflow, task: String, state: Sta
     let Some(root) = host.entry().filter(|e| wf.nodes.iter().any(|n| n.id == *e)).or_else(|| wf.chat_entry().map(|n| n.id.clone())) else {
         return (Ended::Failed("the workflow has no agent to start with: one that no other agent hands work to, or the one a trigger points to".into()), state);
     };
+    let max_vms = host.max_vms().max(1);
     let ctx = Arc::new(Ctx {
         host,
         wf,
@@ -341,7 +342,7 @@ pub async fn drive<H: Host>(host: Arc<H>, wf: Workflow, task: String, state: Sta
         state: Mutex::new(state),
         visits: Mutex::new(HashMap::new()),
         human: tokio::sync::Mutex::new(replies),
-        vms: Semaphore::new(MAX_VMS),
+        vms: Semaphore::new(max_vms),
         asked_user: AtomicU32::new(0),
     });
     // The first turn is the user's request; each message they send afterwards is a turn of its own,

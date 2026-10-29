@@ -12,6 +12,8 @@ import {
 } from "@fluentui/react-components";
 import {
   ArrowLeft24Regular,
+  ArrowSwap24Filled,
+  ArrowSwap24Regular,
   Bot24Filled,
   Bot24Regular,
   Chat24Filled,
@@ -56,6 +58,7 @@ const InjectionsIcon = bundleIcon(
   PlugConnected24Regular,
 );
 const IntegrationsIcon = bundleIcon(Link24Filled, Link24Regular);
+const TransferIcon = bundleIcon(ArrowSwap24Filled, ArrowSwap24Regular);
 const WorkflowIcon = bundleIcon(Flowchart24Filled, Flowchart24Regular);
 const SessionsIcon = bundleIcon(Chat24Filled, Chat24Regular);
 const AnalyticsIcon = bundleIcon(
@@ -263,6 +266,7 @@ export function Sidebar({
               t("settings.globalTabs.integrations"),
               <IntegrationsIcon />,
             )}
+            {setting("transfer", t("settings.tabs.transfer"), <TransferIcon />)}
           </>
         ) : (
           <>
