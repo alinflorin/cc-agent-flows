@@ -211,6 +211,9 @@
       "header": "Header",
       "kind": "Format",
       "username": "User name",
+      "usernameHint": "Pick a variable or a secret from the list, or type a fixed name",
+      "userVar": "Variable: {{name}}",
+      "userSecret": "Secret: {{name}}",
       "kinds": {
         "bearer": "Bearer token",
         "basic": "Basic (user:secret)",
@@ -256,6 +259,8 @@
     "empty": "No agent profiles yet. Create one to define how an agent is set up.",
     "desktopOnly": "Only available in the desktop app.",
     "noDescription": "No description",
+    "duplicate": "Duplicate",
+    "copyName": "{{name}} (copy)",
     "delete": "Delete",
     "name": "Name",
     "description": "Description",

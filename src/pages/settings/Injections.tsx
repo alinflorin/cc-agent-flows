@@ -11,6 +11,7 @@ import {
   DialogBody,
   DialogContent,
   DialogTitle,
+  Combobox,
   Dropdown,
   Field,
   Input,
@@ -230,8 +231,25 @@ export function InjectionsSettings() {
                     </Field>
                   </div>
                   {v.kind === "basic" && (
-                    <Field label={t("settings.injections.username")}>
-                      <Input value={v.username} onChange={(_, d) => set({ username: d.value })} />
+                    <Field required label={t("settings.injections.username")} hint={t("settings.injections.usernameHint")}>
+                      <Combobox
+                        freeform
+                        value={v.username}
+                        selectedOptions={[v.username]}
+                        onChange={(e) => set({ username: e.target.value })}
+                        onOptionSelect={(_, d) => set({ username: d.optionValue ?? "" })}
+                      >
+                        {variables.map((n) => (
+                          <Option key={`var:${n}`} value={`\${var:${n}}`} text={`\${var:${n}}`}>
+                            {t("settings.injections.userVar", { name: n })}
+                          </Option>
+                        ))}
+                        {secrets.map((n) => (
+                          <Option key={`secret:${n}`} value={`\${secret:${n}}`} text={`\${secret:${n}}`}>
+                            {t("settings.injections.userSecret", { name: n })}
+                          </Option>
+                        ))}
+                      </Combobox>
                     </Field>
                   )}
 

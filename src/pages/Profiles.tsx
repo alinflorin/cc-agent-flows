@@ -25,7 +25,7 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
+import { Add20Regular, Copy20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { FormDialogSurface } from "../components/FormDialogSurface";
 import { ResetDemoButton } from "../components/ResetDemoButton";
 import { inTauri } from "../prefs";
@@ -162,15 +162,26 @@ export function Profiles() {
               header={<Subtitle2>{e.name}</Subtitle2>}
               description={<Caption1 className={styles.desc}>{e.description || t("profiles.noDescription")}</Caption1>}
               action={
-                <Button
-                  appearance="subtle"
-                  icon={<Delete20Regular />}
-                  aria-label={t("profiles.delete")}
-                  onClick={(ev) => {
-                    ev.stopPropagation();
-                    void remove(e.id);
-                  }}
-                />
+                <>
+                  <Button
+                    appearance="subtle"
+                    icon={<Copy20Regular />}
+                    aria-label={t("profiles.duplicate")}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      edit({ id: null, profile: { ...e, name: t("profiles.copyName", { name: e.name }) } });
+                    }}
+                  />
+                  <Button
+                    appearance="subtle"
+                    icon={<Delete20Regular />}
+                    aria-label={t("profiles.delete")}
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      void remove(e.id);
+                    }}
+                  />
+                </>
               }
             />
             <div className={styles.chips}>
