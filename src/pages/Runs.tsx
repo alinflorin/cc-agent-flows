@@ -24,7 +24,7 @@ type Msg =
 
 interface Line {
   key: string;
-  kind: "text" | "tool" | "final";
+  kind: "user" | "text" | "tool" | "final";
   text: string;
   status?: string;
 }
@@ -75,6 +75,7 @@ const useStyles = makeStyles({
   line: { whiteSpace: "pre-wrap", wordBreak: "break-word", padding: tokens.spacingVerticalS, borderRadius: tokens.borderRadiusMedium, backgroundColor: tokens.colorNeutralBackground2 },
   bar: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: tokens.spacingHorizontalM, marginBottom: tokens.spacingVerticalM },
   panel: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, maxWidth: "720px", marginTop: tokens.spacingVerticalM },
+  user: { backgroundColor: tokens.colorBrandBackground2 },
   tool: { fontFamily: tokens.fontFamilyMonospace, color: tokens.colorNeutralForeground3 },
 });
 
@@ -142,6 +143,7 @@ export function Runs() {
       setInfo(fresh());
       setTab("output");
       const id = await call<string>("agent_run", { project, profile, prompt });
+      setLines([{ key: `${id}-user`, kind: "user", text: prompt }]);
       current.current = id;
       setRun(id);
       setFinished(false);
@@ -215,9 +217,9 @@ export function Runs() {
             </div>
           ) : (
             <div className={styles.feed}>
-              {!finished && lines.length === 0 && <Caption1>{t("runs.booting")}</Caption1>}
+              {!finished && !lines.some((l) => l.kind !== "user") && <Caption1>{t("runs.booting")}</Caption1>}
               {lines.map((l) => (
-                <div key={l.key} className={`${styles.line} ${l.kind === "tool" ? styles.tool : ""}`}>
+                <div key={l.key} className={`${styles.line} ${l.kind === "tool" ? styles.tool : l.kind === "user" ? styles.user : ""}`}>
                   {l.kind === "final" && (
                     <Badge appearance="filled" color={l.status === "done" ? "success" : l.status === "failed" ? "danger" : "warning"}>
                       {t(`runs.status.${l.status}`)}
