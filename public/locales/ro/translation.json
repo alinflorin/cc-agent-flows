@@ -211,6 +211,9 @@
       "header": "Header",
       "kind": "Format",
       "username": "Utilizator",
+      "usernameHint": "Alege o variabilă sau un secret din listă, sau scrie un nume fix",
+      "userVar": "Variabilă: {{name}}",
+      "userSecret": "Secret: {{name}}",
       "kinds": {
         "bearer": "Token Bearer",
         "basic": "Basic (utilizator:secret)",
@@ -256,6 +259,8 @@
     "empty": "Încă nu există profiluri de agent. Creează unul pentru a defini cum este configurat un agent.",
     "desktopOnly": "Disponibil doar în aplicația desktop.",
     "noDescription": "Fără descriere",
+    "duplicate": "Duplică",
+    "copyName": "{{name}} (copie)",
     "delete": "Șterge",
     "name": "Nume",
     "description": "Descriere",

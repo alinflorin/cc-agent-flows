@@ -92,6 +92,10 @@ fn has_var(s: &str) -> bool {
     s.contains("${var:")
 }
 
+fn has_ref(s: &str) -> bool {
+    has_var(s) || s.contains("${secret:")
+}
+
 fn authorization() -> String {
     "Authorization".into()
 }
@@ -128,7 +132,7 @@ impl Injection {
         {
             return Err(format!("{}: {h:?} cannot be used as the header", self.name));
         }
-        if self.kind == Kind::Basic && (self.username.is_empty() || (self.username.contains(':') && !has_var(&self.username)) || self.username.chars().any(|c| c.is_control())) {
+        if self.kind == Kind::Basic && (self.username.is_empty() || (self.username.contains(':') && !has_ref(&self.username)) || self.username.chars().any(|c| c.is_control())) {
             return Err(format!("{}: Basic needs a user name without a colon", self.name));
         }
         match self.source {
@@ -348,7 +352,7 @@ pub fn build(list: &[Injection], vars: &[EnvVar], secret: &dyn Fn(&str) -> Optio
     }
     let mut active = vec![];
     for i in used.into_inner() {
-        let i = &resolved(i, var).map_err(|e| format!("the injection {}: {e}", i.name))?;
+        let i = &resolved(i, var, secret).map_err(|e| format!("the injection {}: {e}", i.name))?;
         let value = match i.source {
             Source::Secret => secret(&i.secret).ok_or_else(|| format!("the injection {}: the secret {} is not set (Settings > Secrets)", i.name, i.secret))?,
             Source::Var => var(&i.value).ok_or_else(|| format!("the injection {}: the variable {} is not set (Settings > Variables)", i.name, i.value))?,
@@ -359,16 +363,16 @@ pub fn build(list: &[Injection], vars: &[EnvVar], secret: &dyn Fn(&str) -> Optio
     Ok((env, active))
 }
 
-/// The injection with its `${var:NAME}` references (hosts, path patterns, user name) filled in,
+/// The injection with its `${var:NAME}` references (hosts, path patterns, user name; the user name may also be `${secret:NAME}`) filled in,
 /// and checked as a whole now that the values are known.
-fn resolved(i: &Injection, var: &dyn Fn(&str) -> Option<String>) -> Result<Injection, String> {
+fn resolved(i: &Injection, var: &dyn Fn(&str) -> Option<String>, secret: &dyn Fn(&str) -> Option<String>) -> Result<Injection, String> {
     let fill = |s: &str| crate::config::secrets::resolve(s, "var", var);
     let mut i = i.clone();
     for r in &mut i.rules {
         r.host = fill(&r.host)?;
         r.path = fill(&r.path)?;
     }
-    i.username = fill(&i.username)?;
+    i.username = fill(&crate::config::secrets::resolve(&i.username, "secret", secret)?)?;
     Ok(cleaned(&[i])?.remove(0))
 }
 
