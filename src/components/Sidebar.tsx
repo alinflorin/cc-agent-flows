@@ -38,6 +38,8 @@ import {
   Brain24Regular,
   Globe24Filled,
   Globe24Regular,
+  Link24Filled,
+  Link24Regular,
   Options24Filled,
   Options24Regular,
   Settings24Filled,
@@ -53,6 +55,7 @@ const InjectionsIcon = bundleIcon(
   PlugConnected24Filled,
   PlugConnected24Regular,
 );
+const IntegrationsIcon = bundleIcon(Link24Filled, Link24Regular);
 const WorkflowIcon = bundleIcon(Flowchart24Filled, Flowchart24Regular);
 const SessionsIcon = bundleIcon(Chat24Filled, Chat24Regular);
 const AnalyticsIcon = bundleIcon(
@@ -219,6 +222,11 @@ export function Sidebar({
               t("settings.tabs.injections"),
               <InjectionsIcon />,
             )}
+            {item(
+              "integrations",
+              t("settings.tabs.integrations"),
+              <IntegrationsIcon />,
+            )}
             {item("network", t("settings.tabs.network"), <NetworkIcon />)}
           </>
         ) : inSettings ? (
@@ -249,6 +257,11 @@ export function Sidebar({
               "injections",
               t("settings.globalTabs.injections"),
               <InjectionsIcon />,
+            )}
+            {setting(
+              "integrations",
+              t("settings.globalTabs.integrations"),
+              <IntegrationsIcon />,
             )}
           </>
         ) : (

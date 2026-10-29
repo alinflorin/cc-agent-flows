@@ -141,7 +141,10 @@ pub fn run() {
             config::variables::variables_reset_demo,
             config::injections::injections_get,
             config::injections::injections_save,
-            config::injections::injections_reset_demo
+            config::injections::injections_reset_demo,
+            config::integrations::integrations_list,
+            config::integrations::integrations_save,
+            config::integrations::integrations_delete
         ])
         .setup(|app| {
             use tauri::Manager;

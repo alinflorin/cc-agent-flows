@@ -82,7 +82,8 @@
       "network": "Network",
       "secrets": "Secrets",
       "variables": "Variables",
-      "injections": "Injections"
+      "injections": "Injections",
+      "integrations": "Integrations"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -220,7 +221,11 @@
         "raw": "The secret as is"
       },
       "source": "Value from",
-      "sources": { "secret": "A secret", "var": "A variable", "text": "Fixed text" },
+      "sources": {
+        "secret": "A secret",
+        "var": "A variable",
+        "text": "Fixed text"
+      },
       "variable": "Variable",
       "noVariables": "Create the variable in Variables first.",
       "text": "Text",
@@ -240,7 +245,39 @@
       "network": "Global allowed hosts",
       "secrets": "Global secrets",
       "variables": "Global variables",
-      "injections": "Global injections"
+      "injections": "Global injections",
+      "integrations": "Global integrations"
+    },
+    "integrations": {
+      "intro": "A service your agents work with (Jira, GitHub), set up in one place: its variables, secrets, credential injections, allowed hosts and the environment variables the agent gets. Saving writes the variables, secrets and injections into their own pages, where you can still change their values but not delete them while an integration uses them. Then pick the integration in an agent profile.",
+      "desktopOnly": "Integrations are only available in the desktop app.",
+      "new": "New integration",
+      "editTitle": "Edit integration",
+      "empty": "No integrations yet.",
+      "noDescription": "No description",
+      "summary": "{{variables}} variables, {{secrets}} secrets, {{injections}} injections, {{hosts}} hosts",
+      "edit": "Edit",
+      "delete": "Delete",
+      "duplicate": "Duplicate",
+      "copyName": "{{name}} (copy)",
+      "saved": "Integration saved.",
+      "name": "Name",
+      "description": "Description",
+      "variables": "Variables",
+      "variablesHint": "Plain values that are not secret (a site's host, an e-mail address).",
+      "value": "Value",
+      "addVariable": "Add variable",
+      "secrets": "Secrets",
+      "secretsHint": "Write-only: the value goes to the OS credential store and is never shown again.",
+      "secretKeep": "Saved. Type to replace",
+      "addSecret": "Add secret",
+      "injections": "Credential injections",
+      "injectionsHint": "The app adds the secret to requests that match the host and path; the agent only sees a placeholder.",
+      "injectionSecret": "Secret",
+      "addInjection": "Add injection",
+      "hostsHint": "Hosts the agent may reach. List the host of every injection above.",
+      "env": "Environment variables for the agent",
+      "envHint": "Added to every agent profile that uses this integration. Pick ${injection:NAME}, ${var:NAME} or ${secret:NAME} from the list or type a value."
     }
   },
   "updates": {
@@ -285,7 +322,10 @@
     "allowHosts": "Allowed hosts",
     "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). A ${var:NAME} (Settings > Variables) works too. The hosts in Settings > Network are always allowed; everything else is blocked. List the host of every injection the agent uses: nothing adds it.",
     "envValue": "Value, ${secret:NAME}, ${injection:NAME} or ${var:NAME}",
-    "secretWarning": "{{names}} gets a secret in plain text: the value reaches the VM's environment, where the agent (and anything it runs) can read and send it. Prefer an injection (Settings > Injections): the VM then only sees a placeholder and the proxy adds the real credential."
+    "secretWarning": "{{names}} gets a secret in plain text: the value reaches the VM's environment, where the agent (and anything it runs) can read and send it. Prefer an injection (Settings > Injections): the VM then only sees a placeholder and the proxy adds the real credential.",
+    "integrations": "Integrations",
+    "integrationsHint": "Each integration adds its environment variables and allowed hosts to this agent (the profile's own win on a name). Set them up under Integrations.",
+    "noIntegrations": "No integrations yet"
   },
   "welcome": {
     "text": "Set up demo content? This creates a demo project with three images built in the background, Manager (the Jira CLI, jtk, on the base image), then Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with agent-browser) on top of it, seven agent profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, tester), three secrets with a dummy value (GITHUB, GITHUB_READONLY and JIRA tokens) to replace with real ones, an injection for each (GitHub, GitHub read-only, Jira; the Jira one takes its site and e-mail from two variables, ATLASSIAN_HOST and ATLASSIAN_EMAIL, to edit on the project's Variables page) wired into the profiles that need them, and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one and, for each, has the analyst, architect, developer, reviewer and tester do their part, in that order. You can edit or delete all of it later.",

@@ -198,12 +198,40 @@ pub fn injections_get(app: tauri::AppHandle, project: Option<String>) -> Result<
 #[tauri::command]
 pub fn injections_save(app: tauri::AppHandle, project: Option<String>, injections: Vec<Injection>) -> Result<Vec<Injection>, String> {
     let list = cleaned(&injections)?;
-    let path = file(&app, &Scope::of(project)?)?;
+    let scope = Scope::of(project)?;
+    for old in load(&file(&app, &scope)?) {
+        if !list.iter().any(|i| i.name == old.name) {
+            crate::config::integrations::check_free(&app, &scope, "injection", &old.name)?;
+        }
+    }
+    let path = file(&app, &scope)?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     std::fs::write(&path, serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     Ok(list)
+}
+
+/// Adds the injections or replaces the ones with the same names; others are left alone.
+pub fn upsert(app: &tauri::AppHandle, scope: &Scope, new: &[Injection]) -> Result<(), String> {
+    let path = file(app, scope)?;
+    let mut list = load(&path);
+    for i in new {
+        match list.iter_mut().find(|o| o.name == i.name) {
+            Some(o) => *o = i.clone(),
+            None => list.push(i.clone()),
+        }
+    }
+    let list = cleaned(&list)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+/// The injections saved in one scope (not merged).
+pub fn in_scope(app: &tauri::AppHandle, scope: &Scope) -> Vec<Injection> {
+    file(app, scope).map(|f| load(&f)).unwrap_or_default()
 }
 
 /// Part of the demo content: adds the demo injections that do not exist yet.

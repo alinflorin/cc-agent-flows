@@ -8,6 +8,7 @@ import {
   Card,
   Subtitle2,
   Combobox,
+  Dropdown,
   Option,
   CardHeader,
   Caption1,
@@ -50,6 +51,7 @@ interface Profile {
   memory_mb: number;
   image: string;
   allow_hosts: string[];
+  integrations: string[];
 }
 
 interface ImageInfo {
@@ -62,7 +64,7 @@ interface Entry extends Profile {
   id: string;
 }
 
-const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: null, cpus: null, memory_mb: 2048, image: "base", allow_hosts: [] };
+const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: null, cpus: null, memory_mb: 2048, image: "base", allow_hosts: [], integrations: [] };
 
 const useStyles = makeStyles({
   list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalL },
@@ -87,6 +89,7 @@ export function Profiles() {
   const [secrets, setSecrets] = useState<string[]>([]);
   const [injections, setInjections] = useState<string[]>([]);
   const [variables, setVariables] = useState<string[]>([]);
+  const [integrations, setIntegrations] = useState<string[]>([]);
   const [editing, setEditing] = useState<{ id: string | null; profile: Profile } | null>(null);
   // closing only hides the dialog: its content stays until the next open, so the title cannot flip to "New profile" while it fades out
   const [open, setOpen] = useState(false);
@@ -107,6 +110,7 @@ export function Profiles() {
       setSecrets(await both<string>("secrets_list", (n) => n));
       setInjections(await both<{ name: string }>("injections_get", (i) => i.name));
       setVariables(await both<{ name: string }>("variables_list", (v) => v.name));
+      setIntegrations(await both<{ name: string }>("integrations_list", (i) => i.name));
     } catch (e) {
       notify(String(e), "error");
     }
@@ -207,6 +211,20 @@ export function Profiles() {
                   </Field>
                   <Field label={t("profiles.systemPrompt")} hint={t("profiles.systemPromptHint")}>
                     <Textarea rows={5} value={editing.profile.system_prompt} onChange={(_, d) => set({ system_prompt: d.value })} />
+                  </Field>
+                  <Field label={t("profiles.integrations")} hint={integrations.length === 0 ? t("profiles.noIntegrations") : t("profiles.integrationsHint")}>
+                    <Dropdown
+                      multiselect
+                      value={editing.profile.integrations.join(", ")}
+                      selectedOptions={editing.profile.integrations}
+                      onOptionSelect={(_, d) => set({ integrations: d.selectedOptions })}
+                    >
+                      {[...new Set([...integrations, ...editing.profile.integrations])].map((n) => (
+                        <Option key={n} value={n}>
+                          {n}
+                        </Option>
+                      ))}
+                    </Dropdown>
                   </Field>
                   <Field label={t("profiles.env")} hint={t("profiles.envHint")}>
                     <div className={styles.form}>

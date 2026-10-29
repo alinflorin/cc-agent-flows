@@ -64,7 +64,11 @@ impl Host for RealHost {
         };
         let run_id = crate::vm::runs::new_run_id();
         let identity = crate::vm::runs::identity(&[("project", &self.project), ("session", &self.sid), ("step", &req.node)], &run_id);
-        let (env, injections) = match crate::config::injections::prepare(&self.app, &Scope::project(&self.project), &profile.env) {
+        let (profile_env, profile_hosts) = match crate::config::integrations::expand(&self.app, &Scope::project(&self.project), profile) {
+            Ok(v) => v,
+            Err(e) => return failed(format!("the profile {}: {e}", req.profile)),
+        };
+        let (env, injections) = match crate::config::injections::prepare(&self.app, &Scope::project(&self.project), &profile_env) {
             Ok(v) => v,
             Err(e) => return failed(format!("the profile {}: {e}", req.profile)),
         };
@@ -79,7 +83,7 @@ impl Host for RealHost {
             env,
             timeout_secs: u64::from(req.timeout_mins) * 60,
         };
-        let spec = Spec { run_id, project: Scope::project(&self.project), image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, allow_hosts: profile.allow_hosts.clone(), injections, task };
+        let spec = Spec { run_id, project: Scope::project(&self.project), image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, allow_hosts: profile_hosts, injections, task };
         // Cancelling the session cancels this VM.
         let (tx, rx) = oneshot::channel();
         let mut c = self.cancel.clone();

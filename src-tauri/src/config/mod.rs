@@ -4,6 +4,7 @@
 
 pub mod accounts;
 pub mod injections;
+pub mod integrations;
 pub mod network;
 pub mod profiles;
 pub mod projects;

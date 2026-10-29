@@ -78,6 +78,11 @@ pub fn variables_reset_demo(app: tauri::AppHandle, project: Option<String>) -> R
     provision_demo(&app, &Scope::of(project)?, true)
 }
 
+/// The variables defined in one scope (not merged).
+pub fn own(app: &tauri::AppHandle, scope: &Scope) -> BTreeMap<String, String> {
+    file(app, scope).map(|f| load(&f)).unwrap_or_default()
+}
+
 /// The variables defined in the global settings or in one project (not merged).
 #[tauri::command]
 pub fn variables_list(app: tauri::AppHandle, project: Option<String>) -> Result<Vec<Variable>, String> {
@@ -85,21 +90,27 @@ pub fn variables_list(app: tauri::AppHandle, project: Option<String>) -> Result<
 }
 
 /// Creates a variable or replaces its value.
-#[tauri::command]
-pub fn variables_set(app: tauri::AppHandle, project: Option<String>, name: String, value: String) -> Result<(), String> {
-    check(&name, &value)?;
-    let path = file(&app, &Scope::of(project)?)?;
+pub fn set(app: &tauri::AppHandle, scope: &Scope, name: &str, value: &str) -> Result<(), String> {
+    check(name, value)?;
+    let path = file(app, scope)?;
     let mut map = load(&path);
-    if !map.contains_key(&name) && map.len() >= MAX_VARIABLES {
+    if !map.contains_key(name) && map.len() >= MAX_VARIABLES {
         return Err(format!("at most {MAX_VARIABLES} variables"));
     }
-    map.insert(name, value);
+    map.insert(name.to_string(), value.to_string());
     save(&path, &map)
 }
 
 #[tauri::command]
+pub fn variables_set(app: tauri::AppHandle, project: Option<String>, name: String, value: String) -> Result<(), String> {
+    set(&app, &Scope::of(project)?, &name, &value)
+}
+
+#[tauri::command]
 pub fn variables_delete(app: tauri::AppHandle, project: Option<String>, name: String) -> Result<(), String> {
-    let path = file(&app, &Scope::of(project)?)?;
+    let scope = Scope::of(project)?;
+    crate::config::integrations::check_free(&app, &scope, "variable", &name)?;
+    let path = file(&app, &scope)?;
     let mut map = load(&path);
     map.remove(&name);
     save(&path, &map)
