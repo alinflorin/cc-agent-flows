@@ -307,6 +307,10 @@ async fn boot_and_drive(
                     last_net = now;
                     on_msg(&net_event(&now));
                 }
+                // the budget counts Claude's own traffic too: past it the agent cannot reach its API and would only retry until the deadline
+                if meter.exhausted() {
+                    break failed("the data budget of this agent is used up, the run was stopped");
+                }
             }
             _ = sample.tick(), if exit.is_none() && pid.is_some() => {
                 let pid = pid.unwrap();

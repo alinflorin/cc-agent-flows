@@ -96,8 +96,9 @@ impl Meter {
         over
     }
 
-    /// Whether either budget is used up: new connections are refused then.
-    fn exhausted(&self) -> bool {
+    /// Whether either budget is used up: new connections are refused then, and the run is stopped (Claude's own
+    /// traffic is counted too, so an agent over its budget cannot reach its API any more).
+    pub fn exhausted(&self) -> bool {
         self.over_up() | self.over_down()
     }
 

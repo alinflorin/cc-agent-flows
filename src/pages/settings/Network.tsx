@@ -15,6 +15,7 @@ interface Network {
 }
 
 const DEFAULT_HOSTS = ["api.anthropic.com", "statsig.anthropic.com"];
+const DEFAULT_LIMITS = { max_connections: 64, leak_detection: true };
 
 const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "480px" },
@@ -40,6 +41,8 @@ export function NetworkSettings() {
   // the global limits that are stored with the hosts
   const [limits, setLimits] = useState({ max_connections: 64, leak_detection: true });
   const [savedLimits, setSavedLimits] = useState({ max_connections: 64, leak_detection: true });
+
+  const changed = !same(hosts, saved) || JSON.stringify(limits) !== JSON.stringify(savedLimits);
 
   const load = useCallback(async () => {
     try {
@@ -119,11 +122,14 @@ export function NetworkSettings() {
         </>
       )}
       <div className={styles.actions}>
-        <Button appearance="primary" disabled={!desktop || (same(hosts, saved) && JSON.stringify(limits) === JSON.stringify(savedLimits))} onClick={() => void save()}>
+        <Button appearance="primary" disabled={!desktop || !changed} onClick={() => void save()}>
           {t("common.save")}
         </Button>
+        <Button disabled={!desktop || !changed} onClick={() => { setHosts(saved); setLimits(savedLimits); }}>
+          {t("common.reset")}
+        </Button>
         {project === null && (
-          <Button disabled={!desktop || same(hosts, DEFAULT_HOSTS)} onClick={() => setHosts(DEFAULT_HOSTS)}>
+          <Button disabled={!desktop || (same(hosts, DEFAULT_HOSTS) && JSON.stringify(limits) === JSON.stringify(DEFAULT_LIMITS))} onClick={() => { setHosts(DEFAULT_HOSTS); setLimits(DEFAULT_LIMITS); }}>
             {t("settings.network.defaults")}
           </Button>
         )}
