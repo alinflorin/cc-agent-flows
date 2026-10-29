@@ -5,7 +5,10 @@
     "save": "Save",
     "reset": "Reset",
     "cancel": "Cancel",
-    "copy": "Copy"
+    "copy": "Copy",
+    "delete": "Delete",
+    "deleteTitle": "Delete?",
+    "deleteText": "Delete “{{name}}”? This cannot be undone."
   },
   "nav": {
     "menu": "Menu",
@@ -83,7 +86,8 @@
       "secrets": "Secrets",
       "variables": "Variables",
       "injections": "Injections",
-      "integrations": "Integrations"
+      "integrations": "Integrations",
+      "transfer": "Import / Export"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -102,7 +106,7 @@
         "max": "Max"
       },
       "accounts": "Claude accounts",
-      "accountsHint": "Add several setup tokens (personal subscriptions). Runs take the accounts in turn. When Claude refuses one (usage limit, rejected token) it rests and the run starts again on the next, if it had done no billed work yet.",
+      "accountsHint": "Add one or more setup tokens (personal subscriptions). Runs use them in turn; an account that hits a limit rests and the run moves to the next.",
       "accountName": "Name",
       "accountOn": "Use this account",
       "state": {
@@ -130,7 +134,7 @@
     },
     "saved": "Settings saved.",
     "images": {
-      "intro": "The systems agents run on. The base image is built in; add your own with a script that runs on top of it or on another of your images. An agent profile picks the image.",
+      "intro": "What agents run on. The base image is built in; add your own with a script on top of it. A profile picks the image.",
       "new": "New image",
       "edit": "Edit image",
       "base": "Base",
@@ -146,15 +150,15 @@
       "build": "Build",
       "rebuild": "Rebuild",
       "script": "Script (sh)",
-      "scriptHint": "Runs once as root when the image is built, on top of the image it is based on (Alpine; apk is available). Saving builds the image; editing it later makes it out of date until you rebuild.",
+      "scriptHint": "Runs once as root on top of the parent image (Alpine, apk available). Saving builds it.",
       "needBase": "Build the image it is based on first.",
       "basedOn": "Based on {{name}}",
       "parent": "Based on",
       "parentHint": "The image the script runs on. Rebuilding it makes this one out of date.",
       "env": "Environment variables",
-      "envHint": "Built into the image, for every agent that runs on it (and on images built on this one). Saved in plain text in the image, so do not put secrets here.",
+      "envHint": "Baked into the image and its children, in plain text: no secrets.",
       "docs": "Tool docs for the system prompt",
-      "docsHint": "Added to the end of the system prompt of every agent that runs on this image (and on images built on it). A command is run once when the image is built, after the script, and what it prints is saved (for example jira --help); text is added as written, use it for titles (## Jira) and short advice. Keep it short: it is sent with every run.",
+      "docsHint": "Appended to the system prompt of every agent on this image. A command runs once at build time and its output is saved (e.g. jira --help); text is added as written. Keep it short: it is sent with every run.",
       "addCommand": "Add command",
       "addText": "Add text",
       "docText": "Text",
@@ -163,19 +167,24 @@
       "global": "Global"
     },
     "network": {
-      "intro": "Internet hosts every agent may reach over HTTPS. A profile can allow more on top of these. Agents have no other network access.",
+      "intro": "Hosts every agent may reach over HTTPS. Profiles can add more. No other network access.",
       "allowHosts": "Allowed hosts",
-      "allowHostsHint": "One per line: a name (github.com) or all the subdomains of one (*.github.com). Everything not listed here or in the agent's profile is blocked. The defaults are what Claude Code needs to work; an empty list cuts the agents off from the Claude API.",
+      "allowHostsHint": "One per line: a name (github.com) or its subdomains (*.github.com). Everything else is blocked. An empty list cuts agents off from the Claude API.",
       "defaults": "Restore defaults",
+      "webhook": "Webhook",
       "webhookPort": "Webhook port",
-      "webhookPortHint": "Webhook nodes of a workflow listen on this port, on this computer only (127.0.0.1). To reach them from outside, forward the port or use a tunnel; the secret in each URL is what authorizes a call.",
-      "projectIntro": "Internet hosts every agent of this project may reach over HTTPS, on top of the global ones (Settings) and the profile's own. An entry may be a ${var:NAME} variable."
+      "webhookPortHint": "Webhook nodes listen on this port on this computer only (127.0.0.1). The secret in each URL authorizes a call.",
+      "projectIntro": "Hosts every agent of this project may reach over HTTPS, on top of the global and profile ones. An entry may be a ${var:NAME}.",
+      "maxConnections": "Connections per agent",
+      "maxConnectionsHint": "Tunnels one agent may have open at once. A profile can set its own.",
+      "leak": "Leak detection",
+      "leakHint": "Refuses a request that carries one of an agent's environment secrets to a host its profile does not list. This inspects the TLS traffic of those runs."
     },
     "secrets": {
-      "intro": "Named values kept in the OS credential store, never in plain files. Use them in an agent profile's environment variables as ${secret:NAME}. The value is read when a run starts and reaches the agent's environment, so use tokens with the least privilege and only for the profiles that need them.",
+      "intro": "Values kept in the OS credential store. Use one in a profile's environment as ${secret:NAME}; it reaches the agent's environment, so use least-privilege tokens.",
       "desktopOnly": "Secrets are only available in the desktop app.",
       "new": "New secret",
-      "newHint": "A name (letters, digits, underscore) and its value. Values cannot be read back, only replaced.",
+      "newHint": "A name and a value. Values cannot be read back, only replaced.",
       "badName": "Letters, digits and underscores, not starting with a digit.",
       "value": "Value",
       "saved": "Secret saved.",
@@ -184,7 +193,7 @@
       "delete": "Delete secret"
     },
     "variables": {
-      "intro": "Named values that are not secret, such as a site's address or an e-mail. Use one as ${var:NAME} in an agent profile's environment variable (also inside a longer value, https://${var:HOST}) or in an injection's host, path or user name. It is filled in when a run starts, so changing it here changes every place that uses it. Values are saved in plain text, so put secrets in Settings > Secrets instead.",
+      "intro": "Named values that are not secret, such as a site's address. Use one as ${var:NAME} in a profile's environment or an injection's host or user name. Saved in plain text: put secrets in Secrets.",
       "desktopOnly": "Variables are only available in the desktop app.",
       "new": "New variable",
       "newHint": "A name (letters, digits, underscore) and its value, on one line.",
@@ -195,7 +204,7 @@
       "delete": "Delete variable"
     },
     "injections": {
-      "intro": "Credentials the app adds to an agent's requests to certain hosts, so the secret never enters the VM. Use one in a profile's environment variable as ${injection:NAME}: the agent sees only a placeholder, and the app sets the real value on matching requests. The host must also be in the profile's allowed hosts (or Settings > Network).",
+      "intro": "Credentials the app adds to an agent's requests to certain hosts, so the secret never enters the VM. Use one as ${injection:NAME} in a profile's environment; the host must be in its allowed hosts.",
       "desktopOnly": "Injections are only available in the desktop app.",
       "new": "New injection",
       "editTitle": "Edit injection",
@@ -206,7 +215,7 @@
       "name": "Name",
       "nameHint": "Letters, digits and underscores. It cannot be changed later.",
       "rules": "Where",
-      "rulesHint": "Host (api.example.com or *.example.com; a ${var:NAME} works here, and in the user name), path pattern (* matches anything, empty means all) and methods (none selected means all). HTTPS only. Requests with dot segments or encoded slashes in the path never match.",
+      "rulesHint": "Host (api.example.com or *.example.com), path pattern (* matches anything; empty = all) and methods (none = all). HTTPS only.",
       "allMethods": "All methods",
       "addRule": "Add address",
       "header": "Header",
@@ -234,11 +243,11 @@
       "secret": "Secret",
       "noSecrets": "Create the secret in Settings > Secrets first.",
       "placeholder": "Placeholder",
-      "placeholderHint": "What the agent sees in its variable. Set it to look like a token if a tool checks the format (for example ghp_…). Default: ccaf-injected.",
+      "placeholderHint": "What the agent sees in its variable. Make it look like a token if a tool checks the format. Default: ccaf-injected.",
       "summary": "{{header}}: {{kind}} from {{secret}}"
     },
     "notifications": "Desktop notifications when a session needs me or ends",
-    "globalIntro": "Global settings apply to every project: the Claude accounts, the base image, the hosts every agent needs (the Claude API) and anything you want to share. Everything else is managed inside each project.",
+    "globalIntro": "Global settings apply to every project: Claude accounts, the base image and the hosts every agent needs.",
     "globalNote": "Global: available in every project. A project's own item with the same name wins.",
     "globalTabs": {
       "images": "Global images",
@@ -249,7 +258,7 @@
       "integrations": "Global integrations"
     },
     "integrations": {
-      "intro": "A service your agents work with (Jira, GitHub), set up in one place: its variables, secrets, credential injections, allowed hosts and the environment variables the agent gets. Saving writes the variables, secrets and injections into their own pages, where you can still change their values but not delete them while an integration uses them. Then pick the integration in an agent profile.",
+      "intro": "A service your agents use (Jira, GitHub), set up in one place: variables, secrets, injections, hosts and environment. Pick it in an agent profile.",
       "desktopOnly": "Integrations are only available in the desktop app.",
       "new": "New integration",
       "editTitle": "Edit integration",
@@ -277,7 +286,54 @@
       "addInjection": "Add injection",
       "hostsHint": "Hosts the agent may reach. List the host of every injection above.",
       "env": "Environment variables for the agent",
-      "envHint": "Added to every agent profile that uses this integration. Pick ${injection:NAME}, ${var:NAME} or ${secret:NAME} from the list or type a value."
+      "envHint": "Added to every profile that uses this integration. Pick a reference or type a value."
+    },
+    "transfer": {
+      "desktopOnly": "Import and export are only available in the desktop app.",
+      "exportTitle": "Export",
+      "exportIntro": "Saves everything as one encrypted YAML file: all projects, global settings, profiles, workflows, image definitions, secrets and Claude tokens. Not included: session logs, built image disks and app preferences.",
+      "exportWarning": "The file contains your secrets and tokens. The password is the only protection and cannot be recovered: keep both safe.",
+      "password": "Password",
+      "passwordHint": "At least {{min}} characters. It is the encryption key.",
+      "tooShort": "At least {{min}} characters.",
+      "confirm": "Repeat the password",
+      "mismatch": "The passwords do not match.",
+      "export": "Export…",
+      "exported": "Exported to {{path}}",
+      "importTitle": "Import",
+      "importIntro": "Reads an export file and adds its content. Nothing is deleted. Images are imported as definitions: build them afterwards. Restart the app to apply a changed webhook port.",
+      "overwrite": "Replace items that already exist (otherwise they stay as they are)",
+      "import": "Import…",
+      "imported": "Imported: {{written}} files, {{secrets}} secrets, {{tokens}} Claude tokens; {{skipped}} left as they were."
+    },
+    "vm": {
+      "title": "Virtual machines",
+      "accel": "Accelerator",
+      "accels": {
+        "auto": "Automatic",
+        "hardware": "Hardware only",
+        "software": "Software emulation only"
+      },
+      "accelHint": {
+        "auto": "Uses KVM, HVF or WHPX when the computer has it, else slow software emulation.",
+        "hardware": "A VM that cannot get hardware acceleration fails instead of running very slowly.",
+        "software": "Always emulated: very slow. For debugging or a broken hypervisor."
+      },
+      "defaultCpus": "Default vCPUs",
+      "defaultCpusHint": "For profiles that set none. Empty: the host's cores, at most 4.",
+      "automatic": "Automatic",
+      "defaultMemory": "Default memory (MB)",
+      "defaultMemoryHint": "What a new agent profile starts with.",
+      "maxVms": "VMs at once, whole app",
+      "maxVmsHint": "Applied when the app starts.",
+      "maxPerSession": "VMs at once, per session",
+      "grace": "Run grace time (s)",
+      "graceHint": "Added to an agent's timeout for its VM to boot and shut down.",
+      "imageScript": "Image script limit (min)",
+      "imageScriptHint": "How long an image build script may run.",
+      "builderCpus": "Builder vCPUs",
+      "builderHint": "The VM that builds images.",
+      "builderMemory": "Builder memory (MB)"
     }
   },
   "updates": {
@@ -304,7 +360,7 @@
     "systemPrompt": "System prompt",
     "systemPromptHint": "Added to Claude's system prompt for every task of this agent.",
     "env": "Environment variables",
-    "envHint": "Sent to the agent with every task. A value can be a ${secret:NAME} (Settings > Secrets, the value reaches the VM), an ${injection:NAME} (Settings > Injections, the VM only sees a placeholder) or a ${var:NAME} (Settings > Variables, a plain value, also usable inside text).",
+    "envHint": "Sent to the agent with every task. A value can be ${secret:NAME}, ${injection:NAME} (the VM sees only a placeholder) or ${var:NAME}.",
     "addVar": "Add variable",
     "image": "Image",
     "imageHint": "The system this agent runs on. Images are managed in Settings.",
@@ -316,28 +372,38 @@
     "effortDefault": "Default",
     "cpus": "CPUs",
     "cpusAll": "All of the host's",
-    "cpusHint": "Virtual CPUs of the VM. Empty gives it the host's cores, at most 4. This limits how many cores it can use, not their share of time.",
+    "cpusHint": "Virtual CPUs of the VM. Empty = the host's cores, at most 4.",
     "memory": "Memory (MB)",
     "memoryHint": "RAM of the VM, at least 1024. Default 2048.",
     "allowHosts": "Allowed hosts",
-    "allowHostsHint": "Internet hosts this agent may reach over HTTPS, one per line: a name (github.com) or all the subdomains of one (*.github.com). A ${var:NAME} (Settings > Variables) works too. The hosts in Settings > Network are always allowed; everything else is blocked. List the host of every injection the agent uses: nothing adds it.",
+    "allowHostsHint": "Hosts this agent may reach over HTTPS, one per line (github.com or *.github.com; ${var:NAME} works). Added to the global ones. List the host of every injection it uses.",
     "envValue": "Value, ${secret:NAME}, ${injection:NAME} or ${var:NAME}",
     "secretWarning": "{{names}} gets a secret in plain text: the value reaches the VM's environment, where the agent (and anything it runs) can read and send it. Prefer an injection (Settings > Injections): the VM then only sees a placeholder and the proxy adds the real credential.",
     "integrations": "Integrations",
-    "integrationsHint": "Each integration adds its environment variables and allowed hosts to this agent (the profile's own win on a name). Set them up under Integrations.",
-    "noIntegrations": "No integrations yet"
+    "integrationsHint": "Each integration adds its environment and hosts to this agent. Set them up under Integrations.",
+    "noIntegrations": "No integrations yet",
+    "saved": "Profile saved.",
+    "maxConnections": "Connection limit",
+    "maxConnectionsHint": "Tunnels this agent may have open at once. Empty uses the global limit (Settings > Network).",
+    "networkDefault": "Global limit",
+    "dataBudget": "Data budget per run",
+    "dataBudgetHint": "Sent (↑) and received (↓) over the whole run. The connections close when one is used up. Empty means no limit.",
+    "unlimited": "No limit"
   },
   "welcome": {
-    "text": "Set up demo content? This creates a demo project with three images built in the background, Manager (the Jira CLI, jtk, on the base image), then Developer (git, GitHub CLI, Python, Node.js) and Manual QA (headless Chromium with agent-browser) on top of it, seven agent profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, tester), three secrets with a dummy value (GITHUB, GITHUB_READONLY and JIRA tokens) to replace with real ones, an injection for each (GitHub, GitHub read-only, Jira; the Jira one takes its site and e-mail from two variables, ATLASSIAN_HOST and ATLASSIAN_EMAIL, to edit on the project's Variables page) wired into the profiles that need them, and the standard delivery workflow: the orchestrator passes your request to the project manager, who goes through the work items one by one and, for each, has the analyst, architect, developer, reviewer and tester do their part, in that order. You can edit or delete all of it later.",
+    "text": "Set up demo content? It creates a demo project: three images (built in the background), seven agent profiles, dummy secrets and injections for GitHub and Jira, and the standard delivery workflow (orchestrator → project manager → analyst, architect, developer, reviewer, tester). You can edit or delete all of it later.",
     "yes": "Yes, set it up",
     "no": "Skip",
     "done": "Demo content created. The images are building.",
-    "step": "Step {{n}} of 2",
+    "step": "Step {{n}} of 3",
     "step1Title": "Language and theme",
     "step1Text": "Pick how the app looks and speaks. You can change both later in Settings.",
     "step2Title": "Demo content",
     "next": "Next",
-    "back": "Back"
+    "back": "Back",
+    "step0Title": "What is CC Agent Flows?",
+    "step0Text": "CC Agent Flows runs teams of Claude Code agents that deliver work end to end. You write a request in a session; the agents of a workflow hand work to each other, each in its own sandboxed VM with no secrets inside and only the network hosts you allow. They use your Claude subscription, no API keys.",
+    "readHelp": "Read the full help"
   },
   "sessions": {
     "allWorkflows": "All workflows",
@@ -368,7 +434,7 @@
     "label": "Label",
     "profile": "Agent profile",
     "prompt": "Role in this workflow",
-    "agentPromptHint": "What this agent does here. Coordinators also use it to decide how to work through the agents they call (order, loops, when to stop).",
+    "agentPromptHint": "What this agent does here. Coordinators also use it to decide order and loops.",
     "maxCalls": "Max calls",
     "maxCallsHint": "How many times this agent may be called in a session. Bounds loops.",
     "timeout": "Timeout (minutes)",
@@ -429,7 +495,7 @@
     "noIntoTrigger": "Nothing leads to a trigger.",
     "triggerOneAgent": "A trigger hands the request to one agent.",
     "cron": "Schedule (cron)",
-    "cronHint": "minute hour day-of-month month day-of-week, in local time. For example 0 9 * * 1-5 is 09:00 on weekdays; also @hourly, @daily, @weekly.",
+    "cronHint": "minute hour day-of-month month day-of-week, local time. E.g. 0 9 * * 1-5; also @daily.",
     "cronNext": "Next",
     "cronRequest": "Request",
     "cronRequestHint": "What the session is asked to do each time.",
@@ -449,7 +515,7 @@
   },
   "runs": {
     "title": "Run an agent",
-    "hint": "Starts one agent of a profile in its own VM, on the profile's image, with your Claude token (Settings > LLM). The log is kept in the app data folder.",
+    "hint": "Starts one agent of a profile in its own VM with your Claude token (Settings > LLM).",
     "prompt": "Task",
     "start": "Start",
     "cancel": "Cancel",
@@ -514,15 +580,15 @@
     "less": "show less",
     "askedBy": "asked by {{name}}",
     "ev": {
-      "start": "got a task from {{from}}",
-      "you": "you",
-      "end_done": "finished",
-      "end_failed": "failed",
-      "end_needs_input": "has questions",
+      "start": "Task handed over",
+      "you": "You",
+      "end_done": "Reported back: done",
+      "end_failed": "Reported back: failed",
+      "end_needs_input": "Reported back: has questions",
       "end_open": "",
-      "wait": "waits for you",
-      "reply": "you answered",
-      "error": "error"
+      "wait": "Waiting for your answer",
+      "reply": "Your answer",
+      "error": "Error"
     },
     "traffic": {
       "allowed": "{{count}} allowed",
@@ -568,7 +634,19 @@
       "done": "The session is done",
       "failed": "The session failed"
     },
-    "tokens": "{{n}} tokens"
+    "tokens": "{{n}} tokens",
+    "out": {
+      "done": "Result",
+      "failed": "Failed",
+      "ask": "Questions"
+    },
+    "net": {
+      "title": "Network traffic of the agents: received from and sent to the internet",
+      "received": "Received",
+      "sent": "Sent",
+      "connections": "Connections",
+      "total": "{{count}} so far"
+    }
   },
   "app": {
     "desktopOnly": "Only available in the desktop app."
@@ -612,15 +690,18 @@
       "status": "Status",
       "turns": "Turns",
       "duration": "Duration",
-      "tokens": "Tokens"
+      "tokens": "Tokens",
+      "traffic": "Traffic"
     },
     "tokens": "Tokens",
     "avgTokens": "Tokens per session",
-    "heaviest": "Sessions using the most tokens"
+    "heaviest": "Sessions using the most tokens",
+    "received": "Data received",
+    "sent": "Data sent"
   },
   "projects": {
     "title": "Projects",
-    "intro": "A project holds its own workflows, sessions, agent profiles, images, variables, secrets and injections, plus allowed hosts and a system prompt for all its agents. The global settings apply to every project.",
+    "intro": "A project holds its own workflows, sessions, profiles, images, variables, secrets and injections, plus allowed hosts and a system prompt.",
     "new": "New project",
     "empty": "No projects yet. Create one, or set up the demo project.",
     "noDescription": "No description",
@@ -640,6 +721,39 @@
     "delete": "Delete project",
     "deleteText": "This deletes the project with its workflows, sessions, agent profiles, images, variables, injections and secrets. It cannot be undone.",
     "deleteConfirm": "Delete everything",
-    "scopeNote": "These belong to this project. The global ones from Settings are available too; when a name exists in both, the project's wins."
+    "scopeNote": "These belong to this project. Global ones apply too; on a name clash the project's wins."
+  },
+  "help": {
+    "link": "Help",
+    "title": "How CC Agent Flows works",
+    "close": "Close",
+    "overview": {
+      "title": "The idea",
+      "text": "You describe what you want in a session. A workflow, an org chart of agents, delivers it: coordinators decide who works next, workers do the job and report back. Everything an agent does is shown live in the session."
+    },
+    "projects": {
+      "title": "Projects",
+      "text": "A project owns its workflows, sessions, agent profiles, images, variables, secrets, injections and allowed hosts. Global settings hold what every project shares: Claude accounts, the base image and the hosts agents always need."
+    },
+    "agents": {
+      "title": "Agent profiles and images",
+      "text": "A profile defines an agent: system prompt, model, resources, environment and allowed hosts. It runs on an image, a disk with the tools it needs. Every run is a fresh, disposable VM."
+    },
+    "workflow": {
+      "title": "Workflows",
+      "text": "Boxes are agents, arrows say who may hand work to whom. Dashed arrows set an order. A You node lets agents ask you questions, an approval node asks before a handover. Chat, cron and webhook nodes start sessions."
+    },
+    "sessions": {
+      "title": "Sessions",
+      "text": "A session is one conversation with a workflow. Follow the graph, the timeline and each agent's traffic, answer questions, approve handovers, and send follow-ups. A stopped session can continue where it left off."
+    },
+    "security": {
+      "title": "Safety",
+      "text": "Agents have no network except the allowed hosts. Credentials are added by the app to matching requests (injections), so they never enter the VM. Secrets given as environment variables do reach the agent: use least-privilege tokens."
+    },
+    "start": {
+      "title": "Getting started",
+      "text": "Add a Claude token under Global settings > LLM, create a project (or the demo), check the workflow and agent profiles, then open Sessions and write your request."
+    }
   }
 }

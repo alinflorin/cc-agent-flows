@@ -23,9 +23,6 @@ use crate::config::scope::Scope;
 use crate::vm::builder::Serial;
 use crate::vm::protocol::{Bootstrap, Event, Final, Outbound, Status, Task, TunnelKeys};
 
-/// Time on top of the task's timeout for the VM to boot and shut down.
-const GRACE_SECS: u64 = 300;
-
 /// The runs in flight, to cancel them.
 #[derive(Default)]
 pub struct Runs(Mutex<HashMap<String, oneshot::Sender<()>>>);
@@ -92,6 +89,12 @@ pub struct Spec {
     pub allow_hosts: Vec<String>,
     /// The credential injections the profile switched on, applied by the egress proxy.
     pub injections: Vec<crate::config::injections::Active>,
+    /// The profile's own network limits (`None`: the global setting, or no budget).
+    pub max_connections: Option<u32>,
+    pub max_upload_mb: Option<u32>,
+    pub max_download_mb: Option<u32>,
+    /// The secrets in the agent's environment, which only the profile's hosts may receive.
+    pub watch: Vec<crate::net::leaks::Watched>,
     pub task: Task,
 }
 
@@ -113,11 +116,17 @@ fn vm_state(on_msg: &mut impl FnMut(&Outbound), state: &str) {
     on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "vm", "state": state}) }));
 }
 
+/// The agent's traffic so far as an event like the egress lines: seq 0, not Claude's. `up` and `down` are bytes
+/// since the run started, from and to the guest.
+fn net_event(t: &crate::net::egress::Totals) -> Outbound {
+    Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "net", "up": t.up, "down": t.down, "open": t.open, "connections": t.connections}) })
+}
+
 /// Boots a VM of `image`, runs `task` in it and returns how it ended. `on_msg` sees every event and
 /// the final (also a synthesized one), in order. `Err` only for what stops the VM from starting
 /// (no token, image not built, QEMU missing). `cancel` firing ends the run as failed.
 pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<()>, mut on_msg: impl FnMut(&Outbound)) -> Result<Final, String> {
-    let Spec { run_id, project, image, identity, cpus, memory_mb, allow_hosts, injections, task } = spec;
+    let Spec { run_id, project, image, identity, cpus, memory_mb, allow_hosts, injections, max_connections, max_upload_mb, max_download_mb, watch, task } = spec;
     let disk = crate::vm::images::path(app, &project, &image).ok_or_else(|| format!("the image {image} is not built"))?;
     let vars = crate::config::variables::all(app, &project);
     let lookup = |n: &str| vars.get(n).cloned();
@@ -132,6 +141,12 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
             return Err(format!("the injection {} is for {}, which is not in the allowed hosts (the profile's, the project's or Settings > Network)", a.name, r.host));
         }
     }
+    let network = crate::config::network::current(app);
+    // the secrets of the environment may go only to the hosts the profile names (not the global or project lists)
+    let leaks = if network.leak_detection { crate::net::leaks::Leaks::new(watch, crate::net::egress::Rules::new([resolve_hosts(&allow_hosts, &lookup)?])) } else { None };
+    let mb = |m: Option<u32>| m.map(|m| u64::from(m) * 1024 * 1024);
+    let limits = crate::net::egress::Limits { max_connections: max_connections.unwrap_or(network.max_connections) as usize, max_upload: mb(max_upload_mb), max_download: mb(max_download_mb) };
+    let egress = Egress { rules, injections, leaks, limits };
     // Each attempt uses the next Claude account. When Claude refuses the account (limit, rejected
     // token) before any billed work was done, the run starts again on another one.
     let mut tried: Vec<String> = vec![];
@@ -141,7 +156,7 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
         on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "account", "account": account_name}) }));
         let work = crate::util::data_dir(app)?.join("runs").join("tmp").join(format!("{run_id}-{}", tried.len()));
         std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
-        let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), &identity, &token, (rules.clone(), injections.clone()), task.clone(), &mut cancel, &mut on_msg).await;
+        let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), &identity, &token, egress.clone(), task.clone(), &mut cancel, &mut on_msg).await;
         crate::util::remove_dir_retry(&work).await;
         let fin = result?;
         if let Some(why) = crate::config::accounts::classify(&fin) {
@@ -160,6 +175,15 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
     }
 }
 
+/// What the egress proxy of a run enforces.
+#[derive(Clone)]
+struct Egress {
+    rules: crate::net::egress::Rules,
+    injections: Vec<crate::config::injections::Active>,
+    leaks: Option<crate::net::leaks::Leaks>,
+    limits: crate::net::egress::Limits,
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn boot_and_drive(
     app: &AppHandle,
@@ -168,7 +192,7 @@ async fn boot_and_drive(
     size: (Option<u32>, u32),
     identity: &str,
     token: &str,
-    egress: (crate::net::egress::Rules, Vec<crate::config::injections::Active>),
+    egress: Egress,
     task: Task,
     cancel: &mut oneshot::Receiver<()>,
     on_msg: &mut impl FnMut(&Outbound),
@@ -186,14 +210,16 @@ async fn boot_and_drive(
     // which hands the agent's traffic to the egress proxy. The server must listen before QEMU
     // starts, which connects to it at once.
     let (egress_tx, mut egress_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-    let (rules, mut injections) = egress;
+    let Egress { rules, mut injections, leaks, limits } = egress;
     // The Claude token never enters the VM: the proxy sets it on the requests to the API. Last, so
     // no user injection can override it.
     injections.push(crate::config::injections::claude(token)?);
-    let inspector = crate::net::inspect::Inspector::new(injections)?;
+    let inspector = crate::net::inspect::Inspector::new(injections)?.watching(leaks);
     let ca = Some(inspector.ca_pem().to_string());
+    let proxy = crate::net::egress::Proxy::with_limits(rules, Some(inspector), limits);
+    let meter = proxy.meter();
     let tunnel = crate::net::tunnel::Tunnel::start(
-        crate::net::egress::Proxy::new(rules, Some(inspector)),
+        proxy,
         std::sync::Arc::new(move |line| {
             let _ = egress_tx.send(line);
         }),
@@ -203,6 +229,7 @@ async fn boot_and_drive(
     let channel = Serial::named(work, "agent");
     let errlog = work.join("qemu.err");
     let timeout_secs = task.timeout_secs;
+    let grace_secs = crate::config::vm_settings::current(app).run_grace_secs;
     let mut cmd = crate::vm::machine::machine(app, size.1, size.0, true)?;
     cmd.args(["-nic", &sealed_nic(tunnel.port)])
         .args(["-action", "panic=exit-failure", "-serial", "null"])
@@ -238,7 +265,7 @@ async fn boot_and_drive(
         task,
     );
 
-    let deadline = tokio::time::sleep(Duration::from_secs(timeout_secs.saturating_add(GRACE_SECS)));
+    let deadline = tokio::time::sleep(Duration::from_secs(timeout_secs.saturating_add(grace_secs)));
     tokio::pin!(deadline);
     let mut exit = None;
     // what the VM costs the host, sampled from QEMU's own process (the guest is not asked)
@@ -246,6 +273,10 @@ async fn boot_and_drive(
     let mut sys = sysinfo::System::new();
     let mut sample = tokio::time::interval(Duration::from_secs(2));
     sample.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // what the agent's traffic has been, reported when it changes (the session view turns it into speeds)
+    let mut net_tick = tokio::time::interval(Duration::from_secs(2));
+    net_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut last_net = meter.totals();
     let fin = loop {
         tokio::select! {
             msg = rx.recv() => match msg {
@@ -270,6 +301,13 @@ async fn boot_and_drive(
                 // not Claude's: shown with the agent's events, ignored by those that read them
                 on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "egress", "text": line}) }));
             }
+            _ = net_tick.tick() => {
+                let now = meter.totals();
+                if now != last_net {
+                    last_net = now;
+                    on_msg(&net_event(&now));
+                }
+            }
             _ = sample.tick(), if exit.is_none() && pid.is_some() => {
                 let pid = pid.unwrap();
                 sys.refresh_processes_specifics(
@@ -289,11 +327,16 @@ async fn boot_and_drive(
                 // Keep reading: the final may still be on its way through the channel.
                 exit = Some(status.ok());
             }
-            _ = &mut deadline => break failed(format!("the run did not end within {}s, the VM was killed", timeout_secs.saturating_add(GRACE_SECS))),
+            _ = &mut deadline => break failed(format!("the run did not end within {}s, the VM was killed", timeout_secs.saturating_add(grace_secs))),
             _ = &mut *cancel => break failed("cancelled"),
         }
     };
     let _ = child.kill().await;
+    // the last numbers, so the log holds the run's totals
+    let now = meter.totals();
+    if now != last_net {
+        on_msg(&net_event(&now));
+    }
     vm_state(on_msg, "off");
     Ok(fin)
 }
@@ -364,7 +407,8 @@ pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: Strin
             let _ = app.emit("agent-run", serde_json::json!({"run": id, "msg": msg}));
         };
         let mut emit = emit;
-        let spec = Spec { run_id: id.clone(), project: scope, image: entry.profile.image.clone(), identity: who, cpus: entry.profile.cpus, memory_mb: entry.profile.memory_mb, allow_hosts: profile_hosts, injections, task };
+        let watch = crate::net::leaks::watched(&profile_env, &|n| crate::config::secrets::secret_value(&scope, n));
+        let spec = Spec { run_id: id.clone(), project: scope, image: entry.profile.image.clone(), identity: who, cpus: entry.profile.cpus, memory_mb: entry.profile.memory_mb, allow_hosts: profile_hosts, injections, max_connections: entry.profile.max_connections, max_upload_mb: entry.profile.max_upload_mb, max_download_mb: entry.profile.max_download_mb, watch, task };
         if let Err(e) = run_vm(&app, spec, cancel_rx, &mut emit).await {
             emit(&Outbound::Final(failed(e)));
         }

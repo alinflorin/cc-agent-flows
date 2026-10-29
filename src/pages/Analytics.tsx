@@ -8,6 +8,7 @@ import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 import { call } from "../tauri";
 import { projectPath, useProject } from "../project";
+import { fmtBytes } from "./session/types";
 
 interface SessionStat {
   project: string;
@@ -21,6 +22,8 @@ interface SessionStat {
   runs: number;
   failed_runs: number;
   turns: number;
+  net_up: number;
+  net_down: number;
 }
 interface AgentStat {
   profile: string;
@@ -30,12 +33,16 @@ interface AgentStat {
   total_secs: number;
   avg_secs: number;
   longest_secs: number;
+  net_up: number;
+  net_down: number;
 }
 interface DayStat {
   day: string;
   sessions: number;
   runs: number;
   tokens: number;
+  net_up: number;
+  net_down: number;
 }
 interface Data {
   sessions: SessionStat[];
@@ -47,7 +54,7 @@ interface Data {
 }
 
 const useStyles = makeStyles({
-  tiles: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: tokens.spacingHorizontalM, marginBottom: tokens.spacingVerticalXL },
+  tiles: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: tokens.spacingHorizontalM, marginBottom: tokens.spacingVerticalXL, "@media (max-width: 900px)": { gridTemplateColumns: "repeat(2, 1fr)" } },
   tile: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalXXS },
   section: { marginBottom: tokens.spacingVerticalXXL, display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM },
   bars: { display: "flex", alignItems: "flex-end", gap: "3px", height: "120px", padding: `${tokens.spacingVerticalS} 0`, borderBottom: `1px solid ${tokens.colorNeutralStroke2}` },
@@ -94,6 +101,8 @@ export function Analytics() {
       tokens: sessions.reduce((a, s) => a + s.tokens, 0),
       runs: sessions.reduce((a, s) => a + s.runs, 0),
       failed: sessions.reduce((a, s) => a + s.failed_runs, 0),
+      down: sessions.reduce((a, s) => a + s.net_down, 0),
+      up: sessions.reduce((a, s) => a + s.net_up, 0),
       done: sessions.filter((s) => s.status === "done").length,
     };
   }, [data, range]);
@@ -130,6 +139,8 @@ export function Analytics() {
               [t("analytics.avgTokens"), view.sessions.length ? tok(view.tokens / view.sessions.length) : "–"],
               [t("analytics.runs"), String(view.runs)],
               [t("analytics.failRate"), view.runs ? `${Math.round((view.failed / view.runs) * 100)}%` : "–"],
+              [t("analytics.received"), view.down + view.up > 0 ? fmtBytes(view.down) : "–"],
+              [t("analytics.sent"), view.down + view.up > 0 ? fmtBytes(view.up) : "–"],
             ].map(([label, value]) => (
               <Card key={label} className={styles.tile}>
                 <Caption1 className={styles.muted}>{label}</Caption1>
@@ -145,7 +156,7 @@ export function Analytics() {
             ) : (
               <div className={styles.bars}>
                 {view.days.map((d) => (
-                  <div key={d.day} className={styles.bar} style={{ height: `${Math.max(2, (d.tokens / maxDay) * 100)}%` }} title={`${d.day}: ${tok(d.tokens)}, ${t("analytics.runsN", { count: d.runs })}, ${t("analytics.sessionsN", { count: d.sessions })}`} />
+                  <div key={d.day} className={styles.bar} style={{ height: `${Math.max(2, (d.tokens / maxDay) * 100)}%` }} title={`${d.day}: ${tok(d.tokens)}, ${t("analytics.runsN", { count: d.runs })}, ${t("analytics.sessionsN", { count: d.sessions })}, ↓ ${fmtBytes(d.net_down)} ↑ ${fmtBytes(d.net_up)}`} />
                 ))}
               </div>
             )}
@@ -156,7 +167,7 @@ export function Analytics() {
             <Table size="small" aria-label={t("analytics.perAgent")}>
               <TableHeader>
                 <TableRow>
-                  {["agent", "runs", "failed", "avg", "longest", "tokens"].map((c) => <TableHeaderCell key={c}>{t(`analytics.col.${c}`)}</TableHeaderCell>)}
+                  {["agent", "runs", "failed", "avg", "longest", "traffic", "tokens"].map((c) => <TableHeaderCell key={c}>{t(`analytics.col.${c}`)}</TableHeaderCell>)}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -167,6 +178,7 @@ export function Analytics() {
                     <TableCell>{a.failed}{a.runs ? ` (${Math.round((a.failed / a.runs) * 100)}%)` : ""}</TableCell>
                     <TableCell>{dur(a.avg_secs)}</TableCell>
                     <TableCell>{dur(a.longest_secs)}</TableCell>
+                    <TableCell>{a.net_up + a.net_down > 0 ? `↓ ${fmtBytes(a.net_down)} ↑ ${fmtBytes(a.net_up)}` : "–"}</TableCell>
                     <TableCell>
                       {tok(a.tokens)}
                       <div className={styles.bar2} style={{ width: `${(a.tokens / maxAgent) * 100}%` }} />
@@ -183,7 +195,7 @@ export function Analytics() {
             <Table size="small" aria-label={t("analytics.heaviest")}>
               <TableHeader>
                 <TableRow>
-                  {["session", "status", "turns", "runs", "duration", "tokens"].map((c) => <TableHeaderCell key={c}>{t(`analytics.col.${c}`)}</TableHeaderCell>)}
+                  {["session", "status", "turns", "runs", "duration", "traffic", "tokens"].map((c) => <TableHeaderCell key={c}>{t(`analytics.col.${c}`)}</TableHeaderCell>)}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -194,6 +206,7 @@ export function Analytics() {
                     <TableCell>{s.turns}</TableCell>
                     <TableCell>{s.runs}{s.failed_runs ? ` (${s.failed_runs} ✗)` : ""}</TableCell>
                     <TableCell>{dur(s.duration_secs)}</TableCell>
+                    <TableCell>{s.net_up + s.net_down > 0 ? `↓ ${fmtBytes(s.net_down)} ↑ ${fmtBytes(s.net_up)}` : "–"}</TableCell>
                     <TableCell>{tok(s.tokens)}</TableCell>
                   </TableRow>
                 ))}

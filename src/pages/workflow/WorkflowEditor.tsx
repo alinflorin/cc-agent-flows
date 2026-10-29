@@ -11,6 +11,7 @@ import { useStyles } from "./styles";
 import { AEdge, ANode, Agent, Data, Entry, Kind, Problem, ProfileInfo, TriggerCfg, TriggerInfo, View, Workflow, isTrigger } from "./types";
 import { nodeTypes } from "./AgentNode";
 import { AgentPanel, EdgePanel, HumanPanel, TriggerPanel } from "./Panels";
+import { useConfirmDelete } from "../../components/Confirm";
 
 function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) {
   const { t } = useTranslation();
@@ -22,6 +23,7 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [problems, setProblems] = useState<Problem[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [instructions, setInstructions] = useState("");
   const [name, setName] = useState("");
   const [infos, setInfos] = useState<TriggerInfo[]>([]);
@@ -131,6 +133,7 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
   };
 
   const save = async () => {
+    setSaving(true);
     const workflow: Workflow = {
       nodes: nodes.map((n) => ({ id: n.id, label: n.data.label, x: Math.round(n.position.x), y: Math.round(n.position.y), ...n.data.agent })),
       edges: edges.map((e) => ({ id: e.id, from: e.source, to: e.target, kind: e.data?.kind ?? "delegate" })) };
@@ -144,6 +147,7 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
     } catch (e) {
       notify(String(e), "error");
     }
+    setSaving(false);
   };
 
   const useStandard = async () => {
@@ -216,7 +220,7 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
         <Button icon={<Flowchart20Regular />} onClick={useStandard}>
           {t("wf.loadStandard")}
         </Button>
-        <Button appearance="primary" icon={<Save20Regular />} disabled={!dirty || !name.trim()} onClick={save}>
+        <Button appearance="primary" icon={<Save20Regular />} disabled={saving || !dirty || !name.trim()} onClick={save}>
           {t("common.save")}
         </Button>
       </div>
@@ -301,6 +305,7 @@ export function WorkflowEditor() {
   const notify = useNotify();
   const [list, setList] = useState<Entry[] | null>(null);
   const [id, setId] = useState("");
+  const confirm = useConfirmDelete();
 
   const refresh = useCallback(
     async (select?: string) => {
@@ -344,10 +349,11 @@ export function WorkflowEditor() {
         <Button icon={<Add20Regular />} disabled={!id} onClick={() => setId("")}>
           {t("wf.new")}
         </Button>
-        <Button icon={<Delete20Regular />} disabled={!id} onClick={remove}>
+        <Button icon={<Delete20Regular />} disabled={!id} onClick={() => confirm.ask(list.find((w) => w.id === id)?.name ?? "", remove)}>
           {t("wf.delete")}
         </Button>
       </div>
+      {confirm.dialog}
       <Editor key={id || "new"} id={id} onSaved={(saved) => void refresh(saved)} />
     </ReactFlowProvider>
   );

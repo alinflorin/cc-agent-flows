@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Body1, Button, Caption1, Field, Input, makeStyles, tokens } from "@fluentui/react-components";
+import { Body1, Button, Field, Input, makeStyles, tokens } from "@fluentui/react-components";
 import { Delete20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../../components/SettingsIntro";
+import { EmptyState, useConfirmDelete } from "../../components/Confirm";
 import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
@@ -25,6 +26,7 @@ export function SecretsSettings() {
   const notify = useNotify();
   const desktop = inTauri();
   const project = useProject();
+  const confirm = useConfirmDelete();
 
   const [names, setNames] = useState<string[]>([]);
   const [name, setName] = useState("");
@@ -101,7 +103,7 @@ export function SecretsSettings() {
         </div>
       </Field>
 
-      {desktop && names.length === 0 && <Caption1>{t("settings.secrets.empty")}</Caption1>}
+      {desktop && names.length === 0 && <EmptyState>{t("settings.secrets.empty")}</EmptyState>}
       {names.map((n) => (
         <div key={n} className={styles.row}>
           <Body1 className={styles.name}>{`\${secret:${n}}`}</Body1>
@@ -127,9 +129,10 @@ export function SecretsSettings() {
           ) : (
             <Button onClick={() => setReplacing({ name: n, value: "" })}>{t("settings.secrets.replace")}</Button>
           )}
-          <Button appearance="subtle" icon={<Delete20Regular />} aria-label={t("settings.secrets.delete")} onClick={() => void remove(n)} />
+          <Button appearance="subtle" icon={<Delete20Regular />} aria-label={t("settings.secrets.delete")} onClick={() => confirm.ask(n, () => remove(n))} />
         </div>
       ))}
+      {confirm.dialog}
     </div>
   );
 }

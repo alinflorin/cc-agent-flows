@@ -34,6 +34,20 @@ export interface VmStats {
   cpus: number;
 }
 
+/** What a run's traffic has been so far (bytes since the run started, from and to the VM). */
+export interface NetTotals {
+  up: number;
+  down: number;
+  open: number;
+  connections: number;
+}
+
+/** Bytes per second. */
+export interface NetSpeed {
+  up: number;
+  down: number;
+}
+
 export interface Run {
   key: string;
   call: string;
@@ -50,6 +64,11 @@ export interface Run {
   vmLog: { state: VmState; t: number }[];
   /** the last samples, oldest first */
   stats: VmStats[];
+  net: NetTotals;
+  /** the speed between the last reports, and the last ones (oldest first) */
+  speed: NetSpeed;
+  speeds: NetSpeed[];
+  netT: number;
   t: number;
 }
 
@@ -82,8 +101,10 @@ interface TimelineItem {
   node?: string;
   /** the agent it is about (a name), empty for the user and for errors */
   who: string;
-  /** the other side of a handover: who asked */
+  /** who sent it, when `who` is the receiver (a handover): empty = the user */
   from?: string;
+  /** who receives it, when `who` is the sender (a result, questions): empty = the user */
+  to?: string;
   text: string;
   status?: string;
 }
@@ -128,14 +149,14 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
       case "call_end": {
         const c = callOf(b.call, b.node, e.t);
         Object.assign(c, { status: b.status, summary: b.summary ?? "", questions: b.questions ?? [] });
-        timeline.push({ t: e.t, kind: "end", node: b.node, status: b.status, who: name(b.node), text: clip(b.summary ?? "", 240) });
+        timeline.push({ t: e.t, kind: "end", node: b.node, status: b.status, who: name(b.node), to: name(c.parent), text: clip(b.summary ?? "", 240) });
         break;
       }
       case "run_start": {
         const path = pathOf(b.call);
         const c = callOf(path, b.node, e.t);
         if (!c.runs.includes(b.call)) c.runs.push(b.call);
-        runs.set(b.call, { key: b.call, call: path, node: b.node, status: "running", tokens: 0, summary: "", questions: [], assumptions: [], pieces: [], traffic: [], vm: "queued", vmLog: [{ state: "queued", t: e.t }], stats: [], t: e.t });
+        runs.set(b.call, { key: b.call, call: path, node: b.node, status: "running", tokens: 0, summary: "", questions: [], assumptions: [], pieces: [], traffic: [], vm: "queued", vmLog: [{ state: "queued", t: e.t }], stats: [], net: { up: 0, down: 0, open: 0, connections: 0 }, speed: { up: 0, down: 0 }, speeds: [], netT: e.t, t: e.t });
         break;
       }
       case "run_end": {
@@ -144,6 +165,7 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
           r.vm = "off";
           r.vmLog.push({ state: "off", t: e.t });
         }
+        if (r) r.speed = { up: 0, down: 0 };
         if (r) Object.assign(r, { status: b.status, tokens: b.tokens ?? 0, summary: b.summary ?? "", questions: b.questions ?? [], assumptions: b.assumptions ?? [] });
         break;
       }
@@ -162,9 +184,20 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
           if (r.stats.length > STATS_KEPT) r.stats.shift();
           break;
         }
+        if (r && b.event?.type === "net") {
+          const up = Number(b.event.up) || 0;
+          const down = Number(b.event.down) || 0;
+          const secs = Math.max(1, e.t - r.netT);
+          r.speed = { up: Math.max(0, (up - r.net.up) / secs), down: Math.max(0, (down - r.net.down) / secs) };
+          r.speeds.push(r.speed);
+          if (r.speeds.length > STATS_KEPT) r.speeds.shift();
+          r.net = { up, down, open: Number(b.event.open) || 0, connections: Number(b.event.connections) || 0 };
+          r.netT = e.t;
+          break;
+        }
         if (r && b.event?.type === "egress") {
           const text = String(b.event.text ?? "").replace(/^egress: /, "");
-          const kind = /denied|refused|cannot|failed/.test(text) ? "denied" : / gets /.test(text) ? "injected" : /allowed$/.test(text) ? "allowed" : "other";
+          const kind = /denied|refused|cannot|failed|budget/.test(text) ? "denied" : / gets /.test(text) ? "injected" : /allowed$/.test(text) ? "allowed" : "other";
           r.traffic.push({ t: e.t, kind, text });
           break;
         }
@@ -253,6 +286,22 @@ export function nodeVms(d: Digest): Map<string, { state: VmState; count: number;
       const use = last.length ? last.reduce((a, b) => ({ cpu: a.cpu + b.cpu, mem: a.mem + b.mem, memLimit: a.memLimit + b.memLimit, cpus: a.cpus + b.cpus })) : null;
       out.set(id, { state: best.vm, count: alive.length, use });
     } else out.set(id, { state: "off", count: 0, use: null });
+  }
+  return out;
+}
+
+/** What each agent's traffic has been: bytes over all its runs, the speed of the VMs alive now added up, and the connections open. */
+export function nodeNet(d: Digest): Map<string, { up: number; down: number; speed: NetSpeed; open: number }> {
+  const out = new Map<string, { up: number; down: number; speed: NetSpeed; open: number }>();
+  for (const r of d.runs.values()) {
+    const n = out.get(r.node) ?? { up: 0, down: 0, speed: { up: 0, down: 0 }, open: 0 };
+    n.up += r.net.up;
+    n.down += r.net.down;
+    if (r.vm !== "off") {
+      n.speed = { up: n.speed.up + r.speed.up, down: n.speed.down + r.speed.down };
+      n.open += r.net.open;
+    }
+    out.set(r.node, n);
   }
   return out;
 }

@@ -32,11 +32,16 @@ use tokio::net::TcpStream;
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use crate::config::injections::Active;
+use crate::net::leaks::Leaks;
+
+/// Largest request body read to look for a leaked secret; a bigger one to a guarded host is refused.
+const MAX_SCAN: usize = 4 * 1024 * 1024;
 
 type Body = BoxBody<Bytes, hyper::Error>;
 
 pub struct Inspector {
     active: Vec<Active>,
+    leaks: Option<Leaks>,
     ca_pem: String,
     issuer: Issuer<'static, KeyPair>,
     leaves: Mutex<HashMap<String, Arc<ServerConfig>>>,
@@ -69,7 +74,13 @@ impl Inspector {
             .with_root_certificates(roots)
             .with_no_client_auth();
         client.alpn_protocols = vec![b"http/1.1".to_vec()];
-        Ok(Inspector { active, ca_pem, issuer: Issuer::new(params, key), leaves: Mutex::new(HashMap::new()), upstream: Arc::new(client) })
+        Ok(Inspector { active, leaks: None, ca_pem, issuer: Issuer::new(params, key), leaves: Mutex::new(HashMap::new()), upstream: Arc::new(client) })
+    }
+
+    /// Also inspects the hosts the run's protected secrets must not reach, to refuse requests that carry them.
+    pub fn watching(mut self, leaks: Option<Leaks>) -> Inspector {
+        self.leaks = leaks;
+        self
     }
 
     /// The CA certificate (PEM) the guest must trust.
@@ -77,9 +88,10 @@ impl Inspector {
         &self.ca_pem
     }
 
-    /// Whether the traffic to `host` is inspected: some injection of the run covers it.
+    /// Whether the traffic to `host` is inspected: some injection of the run covers it, or a
+    /// protected secret must not go there.
     pub fn wants(&self, host: &str) -> bool {
-        self.active.iter().any(|a| a.covers_host(host))
+        self.active.iter().any(|a| a.covers_host(host)) || self.leaks.as_ref().is_some_and(|l| l.guards(host))
     }
 
     fn server_config(&self, host: &str) -> Result<Arc<ServerConfig>, String> {
@@ -130,7 +142,7 @@ impl Inspector {
             Ok(t) => t,
             Err(e) => return log(format!("egress: {host}: TLS handshake with the server failed: {e}")),
         };
-        let (sender, conn) = match hyper::client::conn::http1::handshake::<_, Incoming>(TokioIo::new(up)).await {
+        let (sender, conn) = match hyper::client::conn::http1::handshake::<_, Body>(TokioIo::new(up)).await {
             Ok(v) => v,
             Err(e) => return log(format!("egress: {host}: {e}")),
         };
@@ -148,9 +160,9 @@ impl Inspector {
 
     async fn handle(
         &self,
-        sender: &tokio::sync::Mutex<hyper::client::conn::http1::SendRequest<Incoming>>,
+        sender: &tokio::sync::Mutex<hyper::client::conn::http1::SendRequest<Body>>,
         host: &str,
-        mut req: Request<Incoming>,
+        req: Request<Incoming>,
         log: &(dyn Fn(String) + Sync),
     ) -> Response<Body> {
         let asked = req.headers().get(HOST).and_then(|h| h.to_str().ok()).map(|h| h.trim_end_matches(":443").trim_end_matches('.').to_ascii_lowercase());
@@ -162,6 +174,32 @@ impl Inspector {
         if req.headers().contains_key(UPGRADE) || req.method() == hyper::Method::CONNECT {
             return reply(StatusCode::NOT_IMPLEMENTED, "protocol upgrades are not supported by the agent network policy\n");
         }
+        // a protected secret must not leave for a host the profile does not name
+        let mut req: Request<Body> = match self.leaks.as_ref().filter(|l| l.guards(host)) {
+            None => req.map(|b| b.boxed()),
+            Some(l) => {
+                let target = req.uri().path_and_query().map_or(String::new(), |p| p.as_str().to_string());
+                let refuse = |name: &str| {
+                    log(format!("egress: {host}: refused a request that carries the secret {name}"));
+                    reply(StatusCode::FORBIDDEN, &format!("blocked by the agent network policy: the request carries the value of the secret {name}, which this host may not receive\n"))
+                };
+                if let Some(name) = l.find_in_head(&target, req.headers()) {
+                    return refuse(name);
+                }
+                let (parts, body) = req.into_parts();
+                let bytes = match http_body_util::Limited::new(body, MAX_SCAN).collect().await {
+                    Ok(c) => c.to_bytes(),
+                    Err(_) => {
+                        log(format!("egress: {host}: refused a request whose body cannot be checked for leaked secrets (over {} MiB)", MAX_SCAN / (1024 * 1024)));
+                        return reply(StatusCode::PAYLOAD_TOO_LARGE, "blocked by the agent network policy: the body is too large to check for leaked secrets\n");
+                    }
+                };
+                if let Some(name) = l.find(&bytes) {
+                    return refuse(name);
+                }
+                Request::from_parts(parts, Full::new(bytes).map_err(|e: Infallible| match e {}).boxed())
+            }
+        };
         let (method, path) = (req.method().as_str().to_string(), req.uri().path().to_string());
         for a in self.active.iter().filter(|a| a.applies(host, &method, &path)) {
             let (Ok(name), Ok(mut value)) = (HeaderName::from_bytes(a.header.as_bytes()), HeaderValue::from_str(&a.value)) else {
@@ -370,5 +408,56 @@ mod tests {
         let cfg = ClientConfig::builder_with_provider(provider()).with_safe_default_protocol_versions().unwrap().with_root_certificates(trust).with_no_client_auth();
         // the certificate is for localhost: asking for another name fails the guest's own check
         assert!(TlsConnector::from(Arc::new(cfg)).connect(ServerName::try_from("other.example").unwrap(), guest).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn refuses_a_request_that_carries_a_protected_secret_to_another_host() {
+        use crate::net::leaks::{Leaks, Watched};
+        let (port, roots) = upstream().await;
+        // the secret may go to github.com only; `localhost` (this test's server) is not one of its hosts
+        let leaks = Leaks::new(vec![Watched { name: "TOKEN".into(), value: "s3cret-token-value".into() }], Rules::new([vec!["github.com".to_string()]]));
+        let inspector = Inspector::with_roots(vec![], roots).unwrap().watching(leaks);
+        let ca = inspector.ca_pem().to_string();
+        // no injection covers localhost: it is inspected because the secret must not go there
+        assert!(inspector.wants("localhost") && !inspector.wants("github.com"));
+        let proxy = Proxy::for_test(Rules::new([vec!["localhost".to_string()]]), port, Some(inspector));
+        let log = Arc::new(Mutex::new(vec![]));
+        let (mut guest, server) = tokio::io::duplex(1 << 16);
+        let l = log.clone();
+        tokio::spawn(async move { proxy.serve(server, move |s| l.lock().unwrap().push(s)).await });
+        guest.write_all(format!("CONNECT localhost:{port} HTTP/1.1\r\n\r\n").as_bytes()).await.unwrap();
+        let mut head = vec![];
+        while !head.ends_with(b"\r\n\r\n") {
+            head.push(guest.read_u8().await.unwrap());
+        }
+        let der = base64::engine::general_purpose::STANDARD.decode(ca.lines().filter(|l| !l.starts_with("-----")).collect::<String>()).unwrap();
+        let mut trust = RootCertStore::empty();
+        trust.add(CertificateDer::from(der)).unwrap();
+        let mut cfg = ClientConfig::builder_with_provider(provider()).with_safe_default_protocol_versions().unwrap().with_root_certificates(trust).with_no_client_auth();
+        cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+        let tls = TlsConnector::from(Arc::new(cfg)).connect(ServerName::try_from("localhost").unwrap(), guest).await.unwrap();
+        let (mut send, conn) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(TokioIo::new(tls)).await.unwrap();
+        tokio::spawn(conn);
+
+        let mut ask = async |method: &str, path: &str, header: Option<(&str, &str)>, body: &str| {
+            let mut b = Request::builder().method(method).uri(path).header("host", "localhost");
+            if let Some((k, v)) = header {
+                b = b.header(k, v);
+            }
+            let resp = send.send_request(b.body(Full::new(Bytes::from(body.to_string()))).unwrap()).await.unwrap();
+            let status = resp.status();
+            (status, String::from_utf8(resp.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap())
+        };
+        // an ordinary request goes through
+        assert_eq!(ask("GET", "/fine", None, "").await.0, StatusCode::OK);
+        assert_eq!(ask("POST", "/fine", None, "just some text").await.0, StatusCode::OK);
+        // the value in the address, a header, a Basic header and the body is refused
+        assert_eq!(ask("GET", "/x?t=s3cret-token-value", None, "").await.0, StatusCode::FORBIDDEN);
+        assert_eq!(ask("GET", "/fine", Some(("x-note", "s3cret-token-value")), "").await.0, StatusCode::FORBIDDEN);
+        let basic = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode("u:s3cret-token-value"));
+        assert_eq!(ask("GET", "/fine", Some(("authorization", &basic)), "").await.0, StatusCode::FORBIDDEN);
+        assert_eq!(ask("POST", "/fine", None, "data=s3cret-token-value").await.0, StatusCode::FORBIDDEN);
+        let log = log.lock().unwrap().join("\n");
+        assert!(log.contains("carries the secret TOKEN") && !log.contains("s3cret-token-value"), "{log}");
     }
 }

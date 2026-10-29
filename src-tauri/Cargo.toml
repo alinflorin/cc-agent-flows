@@ -1,6 +1,6 @@
 [package]
 name = "cc-agent-flows"
-version = "0.7.9"
+version = "0.8.0"
 description = "CC Agent Flows desktop app"
 authors = ["Alin-Florin Ciu"]
 edition = "2024"
@@ -40,6 +40,9 @@ sysinfo = { version = "0.39.6", default-features = false, features = ["system"] 
 tauri-plugin-notification = "2.8.0"
 tauri-plugin-log = "2"
 log = "0.4.34"
+argon2 = "0.6.0"
+chacha20poly1305 = "0.11.0"
+tauri-plugin-dialog = "2.8.4"
 
 [dev-dependencies]
 # generates src/generated/*.ts from protocol.rs (`cargo test export_bindings`)

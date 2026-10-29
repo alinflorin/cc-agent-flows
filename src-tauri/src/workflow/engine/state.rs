@@ -105,6 +105,10 @@ pub trait Host: Send + Sync + 'static {
     fn entry(&self) -> Option<String> {
         None
     }
+    /// VMs this session may run at once.
+    fn max_vms(&self) -> usize {
+        super::MAX_VMS
+    }
     /// The user's `i`-th message after the first one (0-based), if it has been sent.
     fn follow_up(&self, _i: usize) -> Option<String> {
         None

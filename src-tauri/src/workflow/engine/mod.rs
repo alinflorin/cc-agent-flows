@@ -47,8 +47,6 @@ const MAX_ROUNDS: u32 = 60;
 const MAX_PARALLEL_CALLS: usize = 5;
 /// VMs running at the same time for one session.
 const MAX_VMS: usize = 4;
-/// VMs running at the same time in the whole app, whatever the sessions.
-const MAX_TOTAL_VMS: usize = 8;
 /// Sessions that may run (or wait for the user) at the same time.
 const MAX_SESSIONS: usize = 5;
 /// Questions that may reach the user in one run of the session; later ones are refused.

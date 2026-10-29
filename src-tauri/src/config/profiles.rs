@@ -56,6 +56,15 @@ pub struct Profile {
     /// environment variables and allowed hosts this agent gets, on top of its own.
     #[serde(default)]
     pub integrations: Vec<String>,
+    /// Tunnels the agent may have open at once; `None`: the global setting (Settings > Network).
+    #[serde(default)]
+    pub max_connections: Option<u32>,
+    /// Data budgets in MB over a whole run, `None` = no budget: bytes the agent may send out ...
+    #[serde(default)]
+    pub max_upload_mb: Option<u32>,
+    /// ... and bytes it may take in. The connections close when one is used up.
+    #[serde(default)]
+    pub max_download_mb: Option<u32>,
 }
 
 /// Most entries in a profile's host allowlist.
@@ -146,6 +155,12 @@ impl Profile {
         }
         if self.image.is_empty() {
             return Err("pick an image".into());
+        }
+        if self.max_connections.is_some_and(|c| !(1..=1000).contains(&c)) {
+            return Err("connections must be between 1 and 1000".into());
+        }
+        if [self.max_upload_mb, self.max_download_mb].iter().flatten().any(|m| !(1..=1_048_576).contains(m)) {
+            return Err("a data budget must be between 1 MB and 1048576 MB".into());
         }
         if self.allow_hosts.len() > MAX_ALLOW_HOSTS {
             return Err(format!("at most {MAX_ALLOW_HOSTS} allowed hosts"));
@@ -297,7 +312,7 @@ mod tests {
     use super::*;
 
     fn p(name: &str) -> Profile {
-        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: DEFAULT_MEMORY_MB, image: "base".into(), allow_hosts: vec![], integrations: vec![] }
+        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: DEFAULT_MEMORY_MB, image: "base".into(), allow_hosts: vec![], integrations: vec![], max_connections: None, max_upload_mb: None, max_download_mb: None }
     }
 
     #[test]

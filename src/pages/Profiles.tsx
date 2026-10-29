@@ -27,6 +27,7 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { Add20Regular, Copy20Regular, Delete20Regular } from "@fluentui/react-icons";
+import { EmptyState, useConfirmDelete } from "../components/Confirm";
 import { FormDialogSurface } from "../components/FormDialogSurface";
 import { ResetDemoButton } from "../components/ResetDemoButton";
 import { inTauri } from "../prefs";
@@ -52,6 +53,9 @@ interface Profile {
   image: string;
   allow_hosts: string[];
   integrations: string[];
+  max_connections: number | null;
+  max_upload_mb: number | null;
+  max_download_mb: number | null;
 }
 
 interface ImageInfo {
@@ -64,10 +68,10 @@ interface Entry extends Profile {
   id: string;
 }
 
-const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: null, cpus: null, memory_mb: 2048, image: "base", allow_hosts: [], integrations: [] };
+const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: null, cpus: null, memory_mb: 2048, image: "base", allow_hosts: [], integrations: [], max_connections: null, max_upload_mb: null, max_download_mb: null };
 
 const useStyles = makeStyles({
-  list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalL },
+  list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM },
   card: { cursor: "pointer", transitionProperty: "box-shadow", transitionDuration: "120ms", ":hover": { boxShadow: tokens.shadow8 } },
   chips: { display: "flex", flexWrap: "wrap", gap: tokens.spacingHorizontalXS },
   desc: { color: tokens.colorNeutralForeground3 },
@@ -83,6 +87,10 @@ export function Profiles() {
   const notify = useNotify();
   const project = useProjectId();
   const desktop = inTauri();
+  const confirm = useConfirmDelete();
+  const [saving, setSaving] = useState(false);
+  // what a new profile starts with: the memory chosen in Settings > General
+  const [defaultMemory, setDefaultMemory] = useState(EMPTY.memory_mb);
 
   const [entries, setEntries] = useState<Entry[]>([]);
   const [images, setImages] = useState<ImageInfo[]>([]);
@@ -100,6 +108,7 @@ export function Profiles() {
 
   const load = useCallback(async () => {
     try {
+      setDefaultMemory((await call<{ default_memory_mb: number }>("vm_settings_get")).default_memory_mb);
       setEntries(await call<Entry[]>("profiles_list", { project }));
       setImages(await call<ImageInfo[]>("images_list", { project }));
       // what a profile can refer to: the project's own and the global ones
@@ -122,13 +131,16 @@ export function Profiles() {
 
   const save = async () => {
     if (!editing) return;
+    setSaving(true);
     try {
       await call("profiles_save", { project, id: editing.id, profile: editing.profile });
       setOpen(false);
+      notify(t("profiles.saved"), "success");
       await load();
     } catch (e) {
       notify(String(e), "error");
     }
+    setSaving(false);
   };
 
   const remove = async (id: string) => {
@@ -151,14 +163,14 @@ export function Profiles() {
         actions={
           <>
             <ResetDemoButton command="profiles_reset_demo" what="profiles" onDone={load} />
-            <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit({ id: null, profile: EMPTY })}>
+            <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit({ id: null, profile: { ...EMPTY, memory_mb: defaultMemory } })}>
               {t("profiles.new")}
             </Button>
           </>
         }
       />
       {!desktop && <Body1 block>{t("profiles.desktopOnly")}</Body1>}
-      {desktop && entries.length === 0 && <Body1 block>{t("profiles.empty")}</Body1>}
+      {desktop && entries.length === 0 && <EmptyState>{t("profiles.empty")}</EmptyState>}
       <div className={styles.list}>
         {entries.map((e) => (
           <Card key={e.id} className={styles.card} onClick={() => edit({ id: e.id, profile: e })}>
@@ -182,7 +194,7 @@ export function Profiles() {
                     aria-label={t("profiles.delete")}
                     onClick={(ev) => {
                       ev.stopPropagation();
-                      void remove(e.id);
+                      confirm.ask(e.name, () => remove(e.id));
                     }}
                   />
                 </>
@@ -196,6 +208,7 @@ export function Profiles() {
         ))}
       </div>
 
+      {confirm.dialog}
       <Dialog surfaceMotion={null} open={open} onOpenChange={(_, d) => setOpen(d.open)}>
         <FormDialogSurface>
           <DialogBody>
@@ -285,6 +298,33 @@ export function Profiles() {
                       onChange={(_, d) => set({ allow_hosts: d.value === "" ? [] : d.value.split("\n") })}
                     />
                   </Field>
+                  <Field label={t("profiles.maxConnections")} hint={t("profiles.maxConnectionsHint")}>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={1000}
+                      placeholder={t("profiles.networkDefault")}
+                      value={editing.profile.max_connections === null ? "" : String(editing.profile.max_connections)}
+                      onChange={(_, d) => set({ max_connections: d.value === "" ? null : Math.min(1000, Math.max(1, Math.floor(Number(d.value)) || 1)) })}
+                    />
+                  </Field>
+                  <Field label={t("profiles.dataBudget")} hint={t("profiles.dataBudgetHint")}>
+                    <div className={styles.envRow}>
+                      {(["max_upload_mb", "max_download_mb"] as const).map((k) => (
+                        <Input
+                          key={k}
+                          className={styles.grow}
+                          type="number"
+                          min={1}
+                          contentBefore={k === "max_upload_mb" ? "↑" : "↓"}
+                          contentAfter="MB"
+                          placeholder={t("profiles.unlimited")}
+                          value={editing.profile[k] === null ? "" : String(editing.profile[k])}
+                          onChange={(_, d) => set({ [k]: d.value === "" ? null : Math.max(1, Math.floor(Number(d.value)) || 1) })}
+                        />
+                      ))}
+                    </div>
+                  </Field>
                   <Field label={t("profiles.model")} hint={t("profiles.modelHint")}>
                     <Select value={editing.profile.model ?? ""} onChange={(_, d) => set({ model: d.value || null })}>
                       <option value="">{t("profiles.modelDefault")}</option>
@@ -343,7 +383,7 @@ export function Profiles() {
               <Button appearance="secondary" onClick={() => setOpen(false)}>
                 {t("common.cancel")}
               </Button>
-              <Button appearance="primary" disabled={!editing?.profile.name.trim() || (editing?.profile.memory_mb ?? 0) < 1024} onClick={save}>
+              <Button appearance="primary" disabled={saving || !editing?.profile.name.trim() || (editing?.profile.memory_mb ?? 0) < 1024} onClick={save}>
                 {t("common.save")}
               </Button>
             </DialogActions>

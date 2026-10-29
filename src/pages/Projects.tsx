@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useTranslation } from "react-i18next";
-import { Body1, Button, Caption1, Card, CardHeader, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Input, Textarea, makeStyles, tokens } from "@fluentui/react-components";
+import { Body1, Button, Caption1, Card, CardHeader, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, Field, Input, Subtitle2, Textarea, makeStyles, tokens } from "@fluentui/react-components";
 import { Add20Regular, Folder24Regular } from "@fluentui/react-icons";
 import { PageHeader } from "../components/PageHeader";
+import { EmptyState } from "../components/Confirm";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 import { call } from "../tauri";
@@ -83,16 +84,14 @@ export function Projects() {
       />
       {!desktop && <Body1 block>{t("app.desktopOnly")}</Body1>}
       {desktop && projects && projects.length === 0 && (
-        <div className={styles.empty}>
-          <Body1 className={styles.desc}>{t("projects.empty")}</Body1>
-        </div>
+        <EmptyState>{t("projects.empty")}</EmptyState>
       )}
       <div className={styles.grid}>
         {(projects ?? []).map((p) => (
           <Card key={p.id} onClick={() => navigate(projectPath(p.id, "/sessions"))}>
             <CardHeader
               image={<span className={styles.icon}><Folder24Regular /></span>}
-              header={<Body1><b>{p.name}</b></Body1>}
+              header={<Subtitle2>{p.name}</Subtitle2>}
               description={<span className={styles.desc}>{p.description || t("projects.noDescription")}</span>}
             />
             <div className={styles.counts}>
@@ -120,7 +119,7 @@ export function Projects() {
               {creating && (
                 <>
                   <Field label={t("profiles.name")} required>
-                    <Input autoFocus value={creating.name} maxLength={80} onChange={(_, d) => setCreating({ ...creating, name: d.value })} />
+                    <Input autoFocus value={creating.name} maxLength={80} onKeyDown={(e) => e.key === "Enter" && creating.name.trim() && !busy && void create()} onChange={(_, d) => setCreating({ ...creating, name: d.value })} />
                   </Field>
                   <Field label={t("profiles.description")}>
                     <Textarea rows={3} value={creating.description} onChange={(_, d) => setCreating({ ...creating, description: d.value })} />

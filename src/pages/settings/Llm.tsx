@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { fmtTime } from "../../text";
 import { useTranslation } from "react-i18next";
 import { Badge, Button, Caption1, Dropdown, Field, Input, Option, Subtitle2, Switch, makeStyles, tokens } from "@fluentui/react-components";
+import { useConfirmDelete } from "../../components/Confirm";
 import { DEFAULT_MODEL, DEFAULT_THINKING, MODELS, THINKING_LEVELS } from "../../llm";
 import { getPref, inTauri, setPref } from "../../prefs";
 import { useNotify } from "../../notifications";
@@ -27,6 +29,7 @@ export function LlmSettings() {
   const styles = useStyles();
   const notify = useNotify();
   const desktop = inTauri();
+  const confirm = useConfirmDelete();
 
   const [model, setModel] = useState(getPref<string>("llmModel") ?? DEFAULT_MODEL);
   const [thinking, setThinking] = useState(getPref<string>("llmThinking") ?? DEFAULT_THINKING);
@@ -90,7 +93,7 @@ export function LlmSettings() {
             </div>
             {a.rest_until && a.rest_why && (
               <div className={styles.row}>
-                <Caption1 className={styles.grow}>{t("settings.llm.restUntil", { time: new Date(a.rest_until * 1000).toLocaleTimeString() })}</Caption1>
+                <Caption1 className={styles.grow}>{t("settings.llm.restUntil", { time: fmtTime(a.rest_until) })}</Caption1>
                 <Button size="small" onClick={() => void run("accounts_wake", { id: a.id })}>
                   {t("settings.llm.wake")}
                 </Button>
@@ -110,7 +113,7 @@ export function LlmSettings() {
                   {a.has_token ? t("settings.llm.replaceToken") : t("settings.llm.setToken")}
                 </Button>
                 {(a.id !== "default" || a.has_token) && (
-                  <Button size="small" onClick={() => void run("accounts_remove", { id: a.id })}>
+                  <Button size="small" onClick={() => confirm.ask(a.name, () => run("accounts_remove", { id: a.id }))}>
                     {t("settings.llm.tokenRemove")}
                   </Button>
                 )}
@@ -189,6 +192,7 @@ export function LlmSettings() {
           ))}
         </Dropdown>
       </Field>
+      {confirm.dialog}
     </div>
   );
 }

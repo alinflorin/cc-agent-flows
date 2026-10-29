@@ -19,11 +19,26 @@ const MAX_HOSTS: usize = 100;
 pub struct Network {
     /// Hosts every agent may reach over HTTPS, same format as `Profile::allow_hosts`.
     pub allow_hosts: Vec<String>,
+    /// Tunnels one agent may have open at once (a profile can set its own). Global settings only.
+    #[serde(default = "default_connections")]
+    pub max_connections: u32,
+    /// Refuse requests that carry a secret of the agent's environment to a host its profile does
+    /// not name (see `net/leaks.rs`). Global settings only.
+    #[serde(default = "yes")]
+    pub leak_detection: bool,
+}
+
+fn default_connections() -> u32 {
+    crate::net::egress::MAX_CONNECTIONS as u32
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl Default for Network {
     fn default() -> Self {
-        Network { allow_hosts: DEFAULT_ALLOW_HOSTS.iter().map(|s| s.to_string()).collect() }
+        Network { allow_hosts: DEFAULT_ALLOW_HOSTS.iter().map(|s| s.to_string()).collect(), max_connections: default_connections(), leak_detection: true }
     }
 }
 
@@ -41,7 +56,10 @@ impl Network {
         if hosts.len() > MAX_HOSTS {
             return Err(format!("at most {MAX_HOSTS} allowed hosts"));
         }
-        Ok(Network { allow_hosts: hosts })
+        if !(1..=1000).contains(&self.max_connections) {
+            return Err("connections per agent must be between 1 and 1000".into());
+        }
+        Ok(Network { allow_hosts: hosts, max_connections: self.max_connections, leak_detection: self.leak_detection })
     }
 }
 
@@ -77,7 +95,7 @@ pub fn network_get(app: tauri::AppHandle, project: Option<String>) -> Result<Net
     if scope.is_global() {
         return Ok(load(&file(&app)?));
     }
-    crate::config::projects::load(&app, scope.id().unwrap_or_default()).map(|p| Network { allow_hosts: p.allow_hosts }).ok_or_else(|| "no such project".into())
+    crate::config::projects::load(&app, scope.id().unwrap_or_default()).map(|p| Network { allow_hosts: p.allow_hosts, ..Default::default() }).ok_or_else(|| "no such project".into())
 }
 
 /// Saves the global hosts or a project's; returns them as stored (normalized).
@@ -106,15 +124,16 @@ mod tests {
         assert_eq!(load(&path), Network::default());
         assert!(load(&path).allow_hosts.contains(&"api.anthropic.com".to_string()));
 
-        let saved = save(&path, &Network { allow_hosts: vec![" API.anthropic.com ".into(), "".into(), "*.Example.com".into(), "api.anthropic.com".into()] }).unwrap();
+        let saved = save(&path, &Network { allow_hosts: vec![" API.anthropic.com ".into(), "".into(), "*.Example.com".into(), "api.anthropic.com".into()], ..Default::default() }).unwrap();
         assert_eq!(saved.allow_hosts, vec!["api.anthropic.com", "*.example.com"]);
         assert_eq!(load(&path), saved);
 
         // an empty list is a valid choice, not a reason to fall back to the defaults
-        save(&path, &Network { allow_hosts: vec![] }).unwrap();
+        save(&path, &Network { allow_hosts: vec![], ..Default::default() }).unwrap();
         assert!(load(&path).allow_hosts.is_empty());
 
-        assert!(save(&path, &Network { allow_hosts: vec!["10.0.0.1".into()] }).is_err());
+        assert!(save(&path, &Network { allow_hosts: vec!["10.0.0.1".into()], ..Default::default() }).is_err());
+        assert!(save(&path, &Network { max_connections: 0, ..Default::default() }).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

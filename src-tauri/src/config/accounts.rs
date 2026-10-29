@@ -99,6 +99,24 @@ fn token(id: &str) -> Option<String> {
     entry(id).ok()?.get_password().ok()
 }
 
+/// The stored token of an account (the export reads it).
+pub fn raw_token(id: &str) -> Option<String> {
+    token(id)
+}
+
+/// Stores a token for an account id; `overwrite` false leaves an existing one alone. True if written.
+pub fn restore_token(id: &str, value: &str, overwrite: bool) -> Result<bool, String> {
+    let ok_id = id == DEFAULT || (!id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+    if !ok_id || value.trim().is_empty() {
+        return Err("a Claude token in the file is not valid".into());
+    }
+    if !overwrite && token(id).is_some() {
+        return Ok(false);
+    }
+    entry(id)?.set_password(value.trim()).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
 /// What `choose` looks at.
 struct Candidate {
     cooling_until: Option<u64>,

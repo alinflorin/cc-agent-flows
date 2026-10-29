@@ -17,6 +17,8 @@ import { SecretsSettings } from "./settings/Secrets";
 import { VariablesSettings } from "./settings/Variables";
 import { InjectionsSettings } from "./settings/Injections";
 import { IntegrationsSettings } from "./settings/Integrations";
+import { VmSettingsSection } from "./settings/VmSettings";
+import { TransferSettings } from "./settings/Transfer";
 
 const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalL, maxWidth: "480px" },
@@ -98,6 +100,8 @@ function GeneralSettings() {
           )}
         </div>
       </div>
+
+      <VmSettingsSection />
     </>
   );
 }
@@ -115,8 +119,9 @@ export function Settings() {
     variables: <VariablesSettings />,
     injections: <InjectionsSettings />,
     integrations: <IntegrationsSettings />,
+    transfer: <TransferSettings />,
   };
-  const title = tab === "general" || tab === "llm" ? t(`settings.tabs.${tab}`) : t(`settings.globalTabs.${tab}`);
+  const title = tab === "general" || tab === "llm" || tab === "transfer" ? t(`settings.tabs.${tab}`) : t(`settings.globalTabs.${tab}`);
 
   return (
     <>

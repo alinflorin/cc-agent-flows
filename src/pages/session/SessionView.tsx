@@ -7,12 +7,12 @@ import { Badge, Body1, Button, Caption1, Field, Input, MessageBar, MessageBarBod
 import { Edit20Regular } from "@fluentui/react-icons";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
-import { clip, digest, type Entry } from "../../sessionLog";
+import { clip, digest, nodeStates, type Entry } from "../../sessionLog";
 import { call } from "../../tauri";
 import { projectPath, useProjectId } from "../../project";
 import { useStyles } from "./styles";
-import { Tab_, View, WEdge, WNode, fmtTokens, statusColor } from "./types";
-import { Graph } from "./Graph";
+import { Tab_, View, WEdge, WNode, fmtBytes, fmtTokens, statusColor } from "./types";
+import { AgentPill, Graph } from "./Graph";
 import { CallCard, Timeline, TrafficView } from "./Calls";
 
 export function SessionView() {
@@ -26,6 +26,8 @@ export function SessionView() {
   const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
   const [log, setLog] = useState<Entry[]>([]);
   const [answer, setAnswer] = useState("");
+  // a command is on its way: its buttons wait
+  const [working, setWorking] = useState(false);
   // several questions: the answer drafted for each and the one being answered
   const [drafts, setDrafts] = useState<string[]>([]);
   const [sel, setSel] = useState(0);
@@ -88,9 +90,11 @@ export function SessionView() {
 
   const names = useMemo(() => Object.fromEntries((wf?.nodes ?? []).map((n) => [n.id, n.label || n.profile || t("wf.kind.you")])), [wf, t]);
   const d = useMemo(() => digest(log, names), [log, names]);
+  const netTotal = useMemo(() => [...d.runs.values()].reduce((a, r) => ({ up: a.up + r.net.up, down: a.down + r.net.down }), { up: 0, down: 0 }), [d]);
   const vmAlive = useMemo(() => [...d.runs.values()].filter((r) => r.vm !== "off").length, [d]);
 
   const act = async (cmd: string, args: Record<string, unknown> = {}) => {
+    setWorking(true);
     try {
       await call(cmd, { project, id: sid, ...args });
       setAnswer("");
@@ -99,6 +103,7 @@ export function SessionView() {
     } catch (e) {
       notify(String(e), "error");
     }
+    setWorking(false);
   };
 
   const rename = async () => {
@@ -166,6 +171,7 @@ export function SessionView() {
     const text = message.trim();
     if (text) void act("session_message", { text });
   };
+  const pickedState = (picked && nodeStates(d, live && pending ? { node: pending.node, human: pending.human } : null).get(picked)) || "idle";
   const pickedCalls = [...d.calls.values()].filter((c) => c.node === picked).sort((a, b) => a.t - b.t);
   // the agent tab shows two panes that scroll on their own
   const follows = [d, view];
@@ -179,10 +185,10 @@ export function SessionView() {
   return (
     <>
       <div className={styles.head}>
-        <Caption1><Link to={projectPath(project, "/sessions")}>{t("session.back")}</Link></Caption1>
+        <Caption1><Link to={projectPath(project, "/sessions")} className={styles.back}>{t("session.back")}</Link></Caption1>
         {title === null ? (
           <div className={styles.title}>
-            <Title2 as="h1" className={session.name || session.task ? undefined : styles.muted}>{session.name || (session.task.length > 60 ? `${session.task.slice(0, 60)}…` : session.task) || t("sessions.untitled")}</Title2>
+            <Title2 as="h1" style={session.name || session.task ? undefined : { fontStyle: "italic" }}>{session.name || (session.task.length > 60 ? `${session.task.slice(0, 60)}…` : session.task) || t("sessions.untitled")}</Title2>
             <Button appearance="subtle" icon={<Edit20Regular />} aria-label={t("session.rename")} onClick={() => setTitle(session.name)} />
           </div>
         ) : (
@@ -204,8 +210,9 @@ export function SessionView() {
         <Badge appearance="filled" color={statusColor(session.status)}>{t(`sessions.status.${session.status}`, session.status)}</Badge>
         {view.tokens > 0 && <Caption1>{t("session.tokens", { n: fmtTokens(view.tokens) })}</Caption1>}
         {vmAlive > 0 && <Caption1>{t("session.vm.alive", { count: vmAlive })}</Caption1>}
-        {canContinue && <Button appearance="primary" onClick={() => act("session_continue")}>{t("session.continue")}</Button>}
-        {live && <Button onClick={() => act("session_cancel")}>{t("runs.cancel")}</Button>}
+        {netTotal.up + netTotal.down > 0 && <Caption1 title={t("session.net.title")}>↓ {fmtBytes(netTotal.down)} · ↑ {fmtBytes(netTotal.up)}</Caption1>}
+        {canContinue && <Button appearance="primary" disabled={working} onClick={() => act("session_continue")}>{t("session.continue")}</Button>}
+        {live && <Button disabled={working} onClick={() => act("session_cancel")}>{t("runs.cancel")}</Button>}
         {session.source !== "chat" && <Badge appearance="tint">{t(`session.source.${session.source}`)}</Badge>}
         <span className={styles.grow} />
         <Field className={styles.autonomy} orientation="horizontal" label={t("session.workflow")}>
@@ -304,8 +311,8 @@ export function SessionView() {
                     )}
                     {pending.kind === "approve" && (
                       <div className={styles.actions}>
-                        <Button appearance="primary" onClick={() => reply(true)}>{t("session.approve")}</Button>
-                        <Button onClick={() => reply(false)}>{t("session.reject")}</Button>
+                        <Button appearance="primary" disabled={working} onClick={() => reply(true)}>{t("session.approve")}</Button>
+                        <Button disabled={working} onClick={() => reply(false)}>{t("session.reject")}</Button>
                       </div>
                     )}
                   </div>
@@ -329,12 +336,16 @@ export function SessionView() {
                 <Caption1 className={styles.muted}>{t("session.noCalls")}</Caption1>
               ) : (
                 <>
+                  <div className={styles.agentHead}>
+                    <Subtitle2>{names[picked] ?? picked}</Subtitle2>
+                    <AgentPill state={pickedState} />
+                  </div>
                   <section className={styles.pane} style={{ flex: "1 1 0" }}>
-                    <Subtitle2>{t("session.logs")}</Subtitle2>
+                    <span className={styles.paneTitle}>{t("session.logs")}</span>
                     <Follow deps={follows} className={styles.paneBody}>{pickedCalls.map((c) => <CallCard key={c.path} c={c} d={d} names={names} />)}</Follow>
                   </section>
-                  <section className={styles.pane} style={{ flex: "1 1 0" }}>
-                    <Subtitle2>{t("session.tabs.traffic")}</Subtitle2>
+                  <section className={mergeClasses(styles.pane, styles.paneTop)} style={{ flex: "1 1 0" }}>
+                    <span className={styles.paneTitle}>{t("session.tabs.traffic")}</span>
                     <Follow deps={follows} className={styles.paneBody}>
                       <TrafficView calls={pickedCalls} d={d} />
                     </Follow>
@@ -358,7 +369,7 @@ export function SessionView() {
                   }
                 }}
               />
-              <Button appearance="primary" disabled={multi ? !anyDraft && !composed.trim() : !composed.trim()} onClick={multi ? sendAll : send}>
+              <Button appearance="primary" disabled={working || (multi ? !anyDraft && !composed.trim() : !composed.trim())} onClick={multi ? sendAll : send}>
                 {t("session.send")}
               </Button>
             </div>
@@ -379,7 +390,7 @@ export function SessionView() {
                   }
                 }}
               />
-              <Button appearance="primary" disabled={!message.trim()} onClick={() => act("session_start", { task: message.trim() })}>
+              <Button appearance="primary" disabled={working || !message.trim()} onClick={() => act("session_start", { task: message.trim() })}>
                 {t("session.send")}
               </Button>
             </div>

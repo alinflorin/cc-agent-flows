@@ -9,7 +9,10 @@
 
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use crate::net::inspect::{Inspector, Prefixed};
@@ -22,8 +25,146 @@ const MAX_HEAD: usize = 8 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// A client that has not sent its request after this long is dropped.
 const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
-/// Open tunnels per proxy (one proxy per agent run).
-const MAX_CONNECTIONS: usize = 64;
+/// Open tunnels per proxy (one proxy per agent run) unless the settings say otherwise.
+pub const MAX_CONNECTIONS: usize = 64;
+
+/// What one run's traffic may amount to. No budget (`None`) is the default.
+#[derive(Debug, Clone, Copy)]
+pub struct Limits {
+    /// Tunnels open at the same time.
+    pub max_connections: usize,
+    /// Bytes the guest may send out over the whole run.
+    pub max_upload: Option<u64>,
+    /// Bytes the guest may take in over the whole run.
+    pub max_download: Option<u64>,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Limits { max_connections: MAX_CONNECTIONS, max_upload: None, max_download: None }
+    }
+}
+
+/// A snapshot of what a run's traffic has been so far.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Totals {
+    /// Bytes from the guest to the internet.
+    pub up: u64,
+    /// Bytes from the internet to the guest.
+    pub down: u64,
+    /// Connections open now.
+    pub open: u32,
+    /// Connections accepted so far.
+    pub connections: u64,
+}
+
+/// The counters of one run: every byte that crosses the proxy, in both directions, and the budget
+/// that ends the connections when it is used up.
+pub struct Meter {
+    up: AtomicU64,
+    down: AtomicU64,
+    open: AtomicU32,
+    connections: AtomicU64,
+    limits: Limits,
+    /// bit 0: upload budget reached, bit 1: download budget reached
+    tripped: AtomicU8,
+    reported: AtomicU8,
+}
+
+impl Meter {
+    fn new(limits: Limits) -> Meter {
+        Meter { up: AtomicU64::new(0), down: AtomicU64::new(0), open: AtomicU32::new(0), connections: AtomicU64::new(0), limits, tripped: AtomicU8::new(0), reported: AtomicU8::new(0) }
+    }
+
+    pub fn totals(&self) -> Totals {
+        Totals { up: self.up.load(Ordering::Relaxed), down: self.down.load(Ordering::Relaxed), open: self.open.load(Ordering::Relaxed), connections: self.connections.load(Ordering::Relaxed) }
+    }
+
+    fn over_up(&self) -> bool {
+        let over = self.limits.max_upload.is_some_and(|m| self.up.load(Ordering::Relaxed) >= m);
+        if over {
+            self.tripped.fetch_or(1, Ordering::Relaxed);
+        }
+        over
+    }
+
+    fn over_down(&self) -> bool {
+        let over = self.limits.max_download.is_some_and(|m| self.down.load(Ordering::Relaxed) >= m);
+        if over {
+            self.tripped.fetch_or(2, Ordering::Relaxed);
+        }
+        over
+    }
+
+    /// Whether either budget is used up: new connections are refused then.
+    fn exhausted(&self) -> bool {
+        self.over_up() | self.over_down()
+    }
+
+    /// Logs a budget that ran out, once.
+    fn report(&self, log: &impl Fn(String)) {
+        let now = self.tripped.load(Ordering::Relaxed);
+        let fresh = now & !self.reported.fetch_or(now, Ordering::Relaxed);
+        if fresh & 1 != 0 {
+            log("egress: upload budget reached, the connections were closed".into());
+        }
+        if fresh & 2 != 0 {
+            log("egress: download budget reached, the connections were closed".into());
+        }
+    }
+}
+
+/// Counts the bytes of the guest's connection and fails it once a budget is used up.
+struct Counted<S> {
+    inner: S,
+    meter: Arc<Meter>,
+}
+
+fn budget_error() -> std::io::Error {
+    std::io::Error::other("the data budget of this agent is used up")
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for Counted<S> {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut tokio::io::ReadBuf<'_>) -> Poll<std::io::Result<()>> {
+        if self.meter.over_up() {
+            return Poll::Ready(Err(budget_error()));
+        }
+        let before = buf.filled().len();
+        let r = Pin::new(&mut self.inner).poll_read(cx, buf);
+        if let Poll::Ready(Ok(())) = &r {
+            self.meter.up.fetch_add((buf.filled().len() - before) as u64, Ordering::Relaxed);
+        }
+        r
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for Counted<S> {
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+        if self.meter.over_down() {
+            return Poll::Ready(Err(budget_error()));
+        }
+        let r = Pin::new(&mut self.inner).poll_write(cx, buf);
+        if let Poll::Ready(Ok(n)) = &r {
+            self.meter.down.fetch_add(*n as u64, Ordering::Relaxed);
+        }
+        r
+    }
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
+/// Keeps the count of open connections right whatever way a connection ends.
+struct OpenGuard(Arc<Meter>);
+
+impl Drop for OpenGuard {
+    fn drop(&mut self) {
+        self.0.open.fetch_sub(1, Ordering::Relaxed);
+    }
+}
 
 /// The hosts an agent may reach: exact names and `*.suffix` wildcards (subdomains only, the bare
 /// suffix is not matched). Entries are stored as `profiles::clean_host` leaves them.
@@ -120,43 +261,72 @@ pub struct Proxy {
     /// Set when the run has injections: the hosts they cover are inspected, not tunnelled.
     inspector: Option<Inspector>,
     slots: Semaphore,
+    meter: Arc<Meter>,
 }
 
 impl Proxy {
     pub fn new(rules: Rules, inspector: Option<Inspector>) -> Arc<Proxy> {
-        Arc::new(Proxy { rules, ports: vec![443], guard: true, inspector, slots: Semaphore::new(MAX_CONNECTIONS) })
+        Proxy::with_limits(rules, inspector, Limits::default())
+    }
+
+    pub fn with_limits(rules: Rules, inspector: Option<Inspector>, limits: Limits) -> Arc<Proxy> {
+        Arc::new(Proxy { rules, ports: vec![443], guard: true, inspector, slots: Semaphore::new(limits.max_connections.max(1)), meter: Arc::new(Meter::new(limits)) })
+    }
+
+    /// The run's traffic counters.
+    pub fn meter(&self) -> Arc<Meter> {
+        self.meter.clone()
     }
 
     #[cfg(test)]
     pub(crate) fn for_test(rules: Rules, port: u16, inspector: Option<Inspector>) -> Arc<Proxy> {
-        Arc::new(Proxy { rules, ports: vec![port], guard: false, inspector, slots: Semaphore::new(MAX_CONNECTIONS) })
+        Proxy::for_test_with(rules, port, inspector, Limits::default())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test_with(rules: Rules, port: u16, inspector: Option<Inspector>, limits: Limits) -> Arc<Proxy> {
+        Arc::new(Proxy { rules, ports: vec![port], guard: false, inspector, slots: Semaphore::new(limits.max_connections.max(1)), meter: Arc::new(Meter::new(limits)) })
     }
 
     /// Serves one client connection: reads its `CONNECT`, checks it and tunnels. `log` gets one
     /// line per connection (allowed or not, and why). Ends when either side closes.
-    pub async fn serve<S>(&self, mut client: S, log: impl Fn(String) + Sync)
+    pub async fn serve<S>(&self, client: S, log: impl Fn(String) + Sync)
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        self.serve_counted(Counted { inner: client, meter: self.meter.clone() }, &log).await;
+        self.meter.report(&log);
+    }
+
+    async fn serve_counted<S>(&self, mut client: Counted<S>, log: &(impl Fn(String) + Sync))
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let (target, extra) = match tokio::time::timeout(HEAD_TIMEOUT, read_connect(&mut client)).await {
             Ok(Ok(v)) => v,
-            Ok(Err(e)) => return deny(&mut client, &log, "-", &e).await,
+            Ok(Err(e)) => return deny(&mut client, log, "-", &e).await,
             Err(_) => return log("egress: no request".into()),
         };
         let (host, port) = &target;
         let shown = format!("{host}:{port}");
         if !self.ports.contains(port) {
-            return deny(&mut client, &log, &shown, "port not allowed").await;
+            return deny(&mut client, log, &shown, "port not allowed").await;
         }
         if !self.rules.allows(host) {
-            return deny(&mut client, &log, &shown, "host not on the allowlist").await;
+            return deny(&mut client, log, &shown, "host not on the allowlist").await;
+        }
+        if self.meter.exhausted() {
+            return deny(&mut client, log, &shown, "the data budget of this agent is used up").await;
         }
         let Ok(_slot) = self.slots.try_acquire() else {
-            return deny(&mut client, &log, &shown, "too many connections").await;
+            return deny(&mut client, log, &shown, "too many connections").await;
         };
+        self.meter.open.fetch_add(1, Ordering::Relaxed);
+        self.meter.connections.fetch_add(1, Ordering::Relaxed);
+        let _open = OpenGuard(self.meter.clone());
         let addrs = match self.resolve(host, *port).await {
             Ok(a) => a,
-            Err(e) => return deny(&mut client, &log, &shown, &e).await,
+            Err(e) => return deny(&mut client, log, &shown, &e).await,
         };
         // A name often has an IPv6 and an IPv4 address and only one of them may be reachable: try each.
         let mut upstream = None;
@@ -172,14 +342,14 @@ impl Proxy {
             }
         }
         let Some(mut upstream) = upstream else {
-            return deny(&mut client, &log, &shown, &failure).await;
+            return deny(&mut client, log, &shown, &failure).await;
         };
         log(format!("egress: {shown} allowed"));
         if client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await.is_err() {
             return;
         }
         if let Some(inspector) = self.inspector.as_ref().filter(|i| i.wants(host)) {
-            return inspector.serve(Prefixed::new(extra, client), upstream, host, &log).await;
+            return inspector.serve(Prefixed::new(extra, client), upstream, host, log).await;
         }
         // Whatever followed the request head in the same read belongs to the tunnel.
         if !extra.is_empty() && upstream.write_all(&extra).await.is_err() {
@@ -365,5 +535,78 @@ mod tests {
         let mut more = vec![0u8; 16];
         let k = tokio::time::timeout(Duration::from_secs(5), client.read(&mut more)).await.unwrap().unwrap();
         assert_eq!(&more[..k], b" again");
+    }
+
+    async fn echo() -> u16 {
+        let echo = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = echo.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let (mut s, _) = echo.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 256];
+                    while let Ok(n) = s.read(&mut buf).await {
+                        if n == 0 || s.write_all(&buf[..n]).await.is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+        });
+        port
+    }
+
+    async fn open(client: &mut tokio::io::DuplexStream, port: u16) {
+        client.write_all(format!("CONNECT localhost:{port} HTTP/1.1\r\n\r\n").as_bytes()).await.unwrap();
+        let mut head = vec![];
+        while !head.ends_with(b"\r\n\r\n") {
+            head.push(tokio::time::timeout(Duration::from_secs(5), client.read_u8()).await.unwrap().unwrap());
+        }
+        assert!(String::from_utf8_lossy(&head).starts_with("HTTP/1.1 200"));
+    }
+
+    #[tokio::test]
+    async fn counts_the_bytes_and_closes_at_the_upload_budget() {
+        let port = echo().await;
+        let limits = Limits { max_upload: Some(300), ..Limits::default() };
+        let proxy = Proxy::for_test_with(rules(&["localhost"]), port, None, limits);
+        let meter = proxy.meter();
+        let log = Arc::new(std::sync::Mutex::new(vec![]));
+        let (mut client, server) = tokio::io::duplex(1 << 16);
+        let l = log.clone();
+        let p = proxy.clone();
+        let task = tokio::spawn(async move { p.serve(server, move |s| l.lock().unwrap().push(s)).await });
+        open(&mut client, port).await;
+        client.write_all(&[7u8; 100]).await.unwrap();
+        let mut got = [0u8; 100];
+        client.read_exact(&mut got).await.unwrap();
+        let t = meter.totals();
+        assert!(t.up >= 100 && t.down >= 100 && t.open == 1 && t.connections == 1, "{t:?}");
+        // past the budget the connection is closed
+        let _ = client.write_all(&[7u8; 400]).await;
+        tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+        assert_eq!(meter.totals().open, 0);
+        assert!(log.lock().unwrap().iter().any(|l| l.contains("upload budget reached")), "{:?}", log.lock().unwrap());
+        // and the next connection is refused at once
+        let (reply, _) = exchange(proxy, format!("CONNECT localhost:{port} HTTP/1.1\r\n\r\n").as_bytes()).await;
+        assert!(reply.contains("data budget"), "{reply}");
+    }
+
+    #[tokio::test]
+    async fn refuses_connections_over_the_limit() {
+        let port = echo().await;
+        let proxy = Proxy::for_test_with(rules(&["localhost"]), port, None, Limits { max_connections: 1, ..Limits::default() });
+        let (mut first, server) = tokio::io::duplex(4096);
+        let p = proxy.clone();
+        tokio::spawn(async move { p.serve(server, |_| {}).await });
+        open(&mut first, port).await;
+        let (reply, log) = exchange(proxy.clone(), format!("CONNECT localhost:{port} HTTP/1.1\r\n\r\n").as_bytes()).await;
+        assert!(reply.starts_with("HTTP/1.1 403") && reply.contains("too many connections"), "{reply} {log:?}");
+        // a slot frees up when the first one closes
+        drop(first);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let (mut second, server) = tokio::io::duplex(4096);
+        tokio::spawn(async move { proxy.serve(server, |_| {}).await });
+        open(&mut second, port).await;
     }
 }

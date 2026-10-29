@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Body1, Button, Caption1, Field, Input, makeStyles, tokens } from "@fluentui/react-components";
+import { Body1, Button, Field, Input, makeStyles, tokens } from "@fluentui/react-components";
 import { Delete20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../../components/SettingsIntro";
+import { EmptyState, useConfirmDelete } from "../../components/Confirm";
 import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
@@ -30,6 +31,7 @@ export function VariablesSettings() {
   const notify = useNotify();
   const desktop = inTauri();
   const project = useProject();
+  const confirm = useConfirmDelete();
 
   const [vars, setVars] = useState<Variable[]>([]);
   const [name, setName] = useState("");
@@ -98,7 +100,7 @@ export function VariablesSettings() {
         </div>
       </Field>
 
-      {desktop && vars.length === 0 && <Caption1>{t("settings.variables.empty")}</Caption1>}
+      {desktop && vars.length === 0 && <EmptyState>{t("settings.variables.empty")}</EmptyState>}
       {vars.map((x) => {
         const edited = edits[x.name];
         const dirty = edited !== undefined && edited !== x.value;
@@ -124,10 +126,11 @@ export function VariablesSettings() {
             >
               {t("common.save")}
             </Button>
-            <Button appearance="subtle" icon={<Delete20Regular />} aria-label={t("settings.variables.delete")} onClick={() => void remove(x.name)} />
+            <Button appearance="subtle" icon={<Delete20Regular />} aria-label={t("settings.variables.delete")} onClick={() => confirm.ask(x.name, () => remove(x.name))} />
           </div>
         );
       })}
+      {confirm.dialog}
     </div>
   );
 }

@@ -24,6 +24,7 @@ import {
 import { Add20Regular, Copy20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../../components/SettingsIntro";
 import { RefCombobox } from "../../components/RefCombobox";
+import { EmptyState, useConfirmDelete } from "../../components/Confirm";
 import { FormDialogSurface } from "../../components/FormDialogSurface";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
@@ -97,6 +98,8 @@ export function IntegrationsSettings() {
   const notify = useNotify();
   const desktop = inTauri();
   const project = useProject();
+  const confirm = useConfirmDelete();
+  const [saving, setSaving] = useState(false);
 
   const [list, setList] = useState<Integration[]>([]);
   // `previous` = the saved name being edited (null = new); kept after closing so the dialog does not flicker while it fades out
@@ -133,6 +136,7 @@ export function IntegrationsSettings() {
       hosts: v.hosts.map((h) => h.trim()).filter(Boolean),
       secrets: v.secrets.map(({ name, value }) => ({ name, value: value ? value : null })),
     };
+    setSaving(true);
     try {
       await call("integrations_save", { project, previous: editing.previous, integration });
       setOpen(false);
@@ -141,6 +145,7 @@ export function IntegrationsSettings() {
     } catch (e) {
       notify(String(e), "error");
     }
+    setSaving(false);
   };
 
   const remove = async (name: string) => {
@@ -178,32 +183,31 @@ export function IntegrationsSettings() {
         </Button>
       </SettingsIntro>
       {desktop && list.length === 0 && (
-        <Caption1 block style={{ marginTop: 16 }}>
-          {t("settings.integrations.empty")}
-        </Caption1>
+        <EmptyState>{t("settings.integrations.empty")}</EmptyState>
       )}
       <div className={styles.list}>
         {list.map((x) => (
-          <Card key={x.name} style={{ height: "100%" }}>
+          <Card key={x.name} style={{ height: "100%" }} onClick={() => edit(x.name, x)}>
             <CardHeader header={<Subtitle2>{x.name}</Subtitle2>} description={<Caption1>{x.description || t("settings.integrations.noDescription")}</Caption1>} />
             <Caption1 className={styles.chips}>
               {t("settings.integrations.summary", { variables: x.variables.length, secrets: x.secrets.length, injections: x.injections.length, hosts: x.hosts.length })}
             </Caption1>
             <div className={styles.cardRow}>
-              <Button onClick={() => edit(x.name, x)}>{t("settings.integrations.edit")}</Button>
+              <Button onClick={(ev) => { ev.stopPropagation(); edit(x.name, x); }}>{t("settings.integrations.edit")}</Button>
               <Button
                 appearance="subtle"
                 icon={<Copy20Regular />}
                 aria-label={t("settings.integrations.duplicate")}
                 // a copy keeps the variables' values, injections and env, but not the secrets' values: they are asked again
-                onClick={() => edit(null, { ...x, name: t("settings.integrations.copyName", { name: x.name }), secrets: x.secrets.map((s) => ({ name: s.name })) })}
+                onClick={(ev) => { ev.stopPropagation(); edit(null, { ...x, name: t("settings.integrations.copyName", { name: x.name }), secrets: x.secrets.map((s) => ({ name: s.name })) }); }}
               />
-              <Button appearance="subtle" icon={<Delete20Regular />} aria-label={t("settings.integrations.delete")} onClick={() => void remove(x.name)} />
+              <Button appearance="subtle" icon={<Delete20Regular />} aria-label={t("settings.integrations.delete")} onClick={(ev) => { ev.stopPropagation(); confirm.ask(x.name, () => remove(x.name)); }} />
             </div>
           </Card>
         ))}
       </div>
 
+      {confirm.dialog}
       <Dialog surfaceMotion={null} open={open} onOpenChange={(_, d) => setOpen(d.open)}>
         <FormDialogSurface>
           <DialogBody>
@@ -370,7 +374,7 @@ export function IntegrationsSettings() {
               <Button appearance="secondary" onClick={() => setOpen(false)}>
                 {t("common.cancel")}
               </Button>
-              <Button appearance="primary" disabled={!ready} onClick={() => void save()}>
+              <Button appearance="primary" disabled={!ready || saving} onClick={() => void save()}>
                 {t("common.save")}
               </Button>
             </DialogActions>

@@ -318,6 +318,9 @@ mod tests {
             image: "base".into(),
             allow_hosts: vec!["github.com".into(), "api.media.atlassian.com".into()],
             integrations: integrations.iter().map(|s| s.to_string()).collect(),
+            max_connections: None,
+            max_upload_mb: None,
+            max_download_mb: None,
         }
     }
 

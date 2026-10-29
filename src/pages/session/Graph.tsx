@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow, useNodesState, type Edge, type NodeProps } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Body1, Caption1, Spinner, mergeClasses } from "@fluentui/react-components";
-import { activeEdges, nodeStates, nodeVms, type Digest, type NodeState, type VmState, type VmStats } from "../../sessionLog";
+import { Body1, Caption1, Spinner, mergeClasses, tokens } from "@fluentui/react-components";
+import { capitalize } from "../../text";
+import { activeEdges, nodeNet, nodeStates, nodeVms, type Digest, type NodeState, type VmState, type VmStats } from "../../sessionLog";
 import { useStyles } from "./styles";
 import { useProjectId } from "../../project";
-import { LiveNode, Pending, WEdge, WNode, fmtTokens } from "./types";
+import { LiveNode, Pending, WEdge, WNode, fmtBytes, fmtRate, fmtTokens } from "./types";
 
 /** A coloured dot and the VM's state; pulses while the VM is on its way up. */
 export function VmPill({ state, count }: { state: VmState | "none"; count?: number }) {
@@ -23,15 +24,15 @@ export function VmPill({ state, count }: { state: VmState | "none"; count?: numb
   );
 }
 
-/** The agent's status, as a pill like the VM's. */
+/** What the agent is doing: a coloured dot and the word, nothing around it. */
 export function AgentPill({ state }: { state: NodeState }) {
   const { t } = useTranslation();
   const styles = useStyles();
   const s = styles as Record<string, string>;
   return (
-    <span className={styles.vm}>
+    <span className={styles.agentState}>
       <span className={mergeClasses(styles.vmDot, s[`a_${state}`], state === "running" && styles.vmPulse)} />
-      {t("session.agentState")} {t(`session.node.${state}`)}
+      {capitalize(t(`session.node.${state}`))}
     </span>
   );
 }
@@ -105,7 +106,7 @@ export function NodeVm({ vm }: { vm: { state: VmState | "none"; count: number; u
 export function LiveNodeView({ data }: NodeProps<LiveNode>) {
   const { t } = useTranslation();
   const styles = useStyles();
-  const cls = mergeClasses(styles.node, (styles as Record<string, string>)[`s_${data.state}`], data.human && styles.human, data.picked && styles.picked);
+  const cls = mergeClasses(styles.node, (styles as Record<string, string>)[`s_${data.state}`], data.picked && styles.picked);
   return (
     <div className={cls}>
       <Handle type="target" position={Position.Left} />
@@ -114,7 +115,7 @@ export function LiveNodeView({ data }: NodeProps<LiveNode>) {
         <Body1><b>{data.human ? "👤 " : ""}{data.label}</b></Body1>
         {data.state === "running" && <Spinner size="extra-tiny" />}
       </div>
-      {data.sub && data.sub !== data.label && <Caption1 block>{data.sub}</Caption1>}
+      {data.sub && data.sub !== data.label && <Caption1 block className={styles.muted}>{data.sub}</Caption1>}
       <div className={styles.vmRow}>
         <AgentPill state={data.state} />
         {(data.calls > 0 || data.tokens > 0) && (
@@ -124,6 +125,18 @@ export function LiveNodeView({ data }: NodeProps<LiveNode>) {
         )}
       </div>
       {!data.human && <NodeVm vm={data.vm ?? { state: "none", count: 0, use: null }} />}
+      {!data.human && data.net && data.net.up + data.net.down > 0 && (
+        <div className={styles.vmRow} title={t("session.net.title")}>
+          <span className={styles.usage}>
+            ↓ {fmtBytes(data.net.down)} · ↑ {fmtBytes(data.net.up)}
+          </span>
+          {data.net.speed.up + data.net.speed.down > 0 && (
+            <span className={styles.usage}>
+              {data.net.speed.down > 0 ? `↓ ${fmtRate(data.net.speed.down)}` : ""} {data.net.speed.up > 0 ? `↑ ${fmtRate(data.net.speed.up)}` : ""}
+            </span>
+          )}
+        </div>
+      )}
       <Handle type="source" position={Position.Right} />
       {!data.human && <Handle type="source" id="order-out" position={Position.Bottom} style={{ opacity: 0 }} />}
     </div>
@@ -137,6 +150,7 @@ export function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]
   const { t } = useTranslation();
   const states = useMemo(() => nodeStates(d, pending ? { node: pending.node, human: pending.human } : null), [d, pending]);
   const vms = useMemo(() => nodeVms(d), [d]);
+  const nets = useMemo(() => nodeNet(d), [d]);
   const project = useProjectId();
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -174,9 +188,10 @@ export function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]
           calls: stats.get(n.id)?.calls ?? 0,
           tokens: stats.get(n.id)?.tokens ?? 0,
           picked: picked === n.id,
-          vm: vms.get(n.id) ?? null } })),
+          vm: vms.get(n.id) ?? null,
+          net: nets.get(n.id) ?? null } })),
     );
-  }, [wf, states, stats, vms, picked, profileNames, t, setNodes]);
+  }, [wf, states, stats, vms, nets, picked, profileNames, t, setNodes]);
   const edges: Edge[] = wf.edges.map((e) => ({
     id: e.id,
     source: e.from,
@@ -185,8 +200,9 @@ export function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]
     targetHandle: e.kind === "before" ? "order-in" : undefined,
     animated: active.has(e.id),
     label: e.kind === "before" ? t("wf.orderLabel") : undefined,
-    style: { strokeDasharray: e.kind === "before" ? "6 4" : undefined, strokeWidth: active.has(e.id) ? 3 : 1.5, opacity: e.kind === "before" ? 0.75 : 1 },
-    markerEnd: { type: MarkerType.ArrowClosed } }));
+    // quiet by default: only the arrows work is going through now are coloured
+    style: { strokeDasharray: e.kind === "before" ? "6 4" : undefined, strokeWidth: active.has(e.id) ? 2.5 : 1.5, stroke: active.has(e.id) ? tokens.colorBrandStroke1 : tokens.colorNeutralStroke1 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: active.has(e.id) ? tokens.colorBrandStroke1 : tokens.colorNeutralStroke1 } }));
   return (
     <ReactFlow
       nodes={nodes}

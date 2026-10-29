@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import { capitalize } from "../text";
+import { HelpLink } from "../components/Help";
 import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
 import { Badge, Body1, Button, Caption1, Link, Spinner, Subtitle2, makeStyles, tokens } from "@fluentui/react-components";
@@ -40,7 +42,7 @@ export function About() {
     try {
       setChecks(await call<Check[]>("system_status"));
     } catch (e) {
-      setChecks([{ id: "qemu", level: "error", detail: String(e) }]);
+      setChecks([{ id: "qemu", level: "error", detail: capitalize(String(e)) }]);
     }
   }, []);
 
@@ -51,7 +53,7 @@ export function About() {
   }, [desktop, run]);
 
   const openLog = () => {
-    call("app_log_open").catch((e) => setLogError(String(e)));
+    call("app_log_open").catch((e) => setLogError(capitalize(String(e))));
   };
 
   const ready = checks?.every((c) => c.level !== "error" && c.level !== "warn");
@@ -63,6 +65,10 @@ export function About() {
         <Badge appearance="tint" color="brand" size="large">
           {t("about.version", { version: version || "—" })}
         </Badge>
+      </Body1>
+
+      <Body1 block>
+        <HelpLink label={t("help.title")} />
       </Body1>
 
       {desktop && (

@@ -61,6 +61,7 @@ export function ProjectSettings() {
   const [saved, setSaved] = useState<Values | null>(null);
   const [v, setV] = useState<Values | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -78,6 +79,7 @@ export function ProjectSettings() {
 
   const save = async () => {
     if (!v) return;
+    setSaving(true);
     try {
       await call("projects_save", {
         id: project,
@@ -91,6 +93,7 @@ export function ProjectSettings() {
     } catch (e) {
       notify(String(e), "error");
     }
+    setSaving(false);
   };
 
   const remove = async () => {
@@ -143,7 +146,7 @@ export function ProjectSettings() {
           <div className={styles.actions}>
             <Button
               appearance="primary"
-              disabled={!dirty || !v.name.trim()}
+              disabled={saving || !dirty || !v.name.trim()}
               onClick={() => void save()}
             >
               {t("common.save")}
