@@ -166,7 +166,7 @@ export function SessionView() {
     const text = message.trim();
     if (text) void act("session_message", { text });
   };
-  const pickedCalls = [...d.calls.values()].filter((c) => c.node === picked).sort((a, b) => b.t - a.t);
+  const pickedCalls = [...d.calls.values()].filter((c) => c.node === picked).sort((a, b) => a.t - b.t);
   // the agent tab shows two panes that scroll on their own
   const follows = [d, view];
   const split = tab === "agent" && !!picked && pickedCalls.length > 0;
