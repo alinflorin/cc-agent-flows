@@ -15,7 +15,7 @@
     "about": "Despre",
     "settings": "Setări globale",
     "profiles": "Profiluri de agent",
-    "runs": "Rulări",
+    "runs": "Rulări individuale",
     "workflow": "Flux",
     "sessions": "Sesiuni",
     "analytics": "Statistici",
@@ -515,8 +515,10 @@
     "lastRun": "Ultima pornire: {{when}}"
   },
   "runs": {
-    "title": "Rulează un agent",
-    "hint": "Pornește un agent al unui profil în propriul VM, cu token-ul tău Claude (Setări > LLM).",
+    "title": "Rulări individuale",
+    "hint": "Vorbești cu un singur agent al unui profil, în propriul VM, cu token-ul tău Claude (Setări > LLM).",
+    "placeholder": "Ce să facă agentul? Enter trimite, Shift+Enter adaugă o linie.",
+    "tabs": { "output": "Rezultat", "network": "Rețea" },
     "prompt": "Sarcină",
     "start": "Pornește",
     "cancel": "Anulează",

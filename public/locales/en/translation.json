@@ -15,7 +15,7 @@
     "about": "About",
     "settings": "Global settings",
     "profiles": "Agent profiles",
-    "runs": "Runs",
+    "runs": "Single runs",
     "workflow": "Workflow",
     "sessions": "Sessions",
     "analytics": "Analytics",
@@ -515,8 +515,10 @@
     "lastRun": "Last start: {{when}}"
   },
   "runs": {
-    "title": "Run an agent",
-    "hint": "Starts one agent of a profile in its own VM with your Claude token (Settings > LLM).",
+    "title": "Single runs",
+    "hint": "Talk to one agent of a profile in its own VM, with your Claude token (Settings > LLM).",
+    "placeholder": "What should the agent do? Enter sends, Shift+Enter adds a line.",
+    "tabs": { "output": "Output", "network": "Network" },
     "prompt": "Task",
     "start": "Start",
     "cancel": "Cancel",
