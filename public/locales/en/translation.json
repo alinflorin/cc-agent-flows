@@ -131,7 +131,10 @@
       "modeHint": {
         "round_robin": "Each run takes the next account in turn.",
         "drain": "Always uses the first available account until Claude says it hit its limit, then moves on to the next one."
-      }
+      },
+      "systemPrompt": "Global system prompt",
+      "systemPromptHint": "Added to the system prompt of every agent in every project, before the project's, the workflow's and the profile's.",
+      "systemPromptSaved": "System prompt saved."
     },
     "saved": "Settings saved.",
     "images": {
@@ -256,7 +259,8 @@
       "secrets": "Global secrets",
       "variables": "Global variables",
       "injections": "Global injections",
-      "integrations": "Global integrations"
+      "integrations": "Global integrations",
+      "profiles": "Global agent profiles"
     },
     "integrations": {
       "intro": "A service your agents use (Jira, GitHub), set up in one place: variables, secrets, injections, hosts and environment. Pick it in an agent profile.",
@@ -335,6 +339,9 @@
       "builderCpus": "Builder vCPUs",
       "builderHint": "The VM that builds images.",
       "builderMemory": "Builder memory (MB)"
+    },
+    "profiles": {
+      "intro": "Agent profiles every project can use and extend. A project's profile can build on a global one (Extends) and a workflow can use a global profile directly."
     }
   },
   "updates": {
@@ -389,7 +396,15 @@
     "networkDefault": "Global limit",
     "dataBudget": "Data budget per run",
     "dataBudgetHint": "Sent (↑) and received (↓) over the whole run. It includes the traffic to the Claude API. When one is used up the connections close and the run stops. Empty means no limit.",
-    "unlimited": "No limit"
+    "unlimited": "No limit",
+    "extends": "Extends",
+    "extendsNone": "Nothing (standalone profile)",
+    "extendsHint": "Builds on another profile: its system prompt comes first, environment variables, hosts and integrations are added together (this profile wins on a variable name) and what is left empty here is taken from it.",
+    "globalOption": "{{name}} (global)",
+    "extendsBadge": "extends {{name}}",
+    "systemPromptExtendsHint": "Added after the parent profile's system prompt.",
+    "inherited": "From the parent, else 2048",
+    "imageInherited": "From the parent, else the base image"
   },
   "welcome": {
     "text": "Set up demo content? It creates a demo project: three images (built in the background), seven agent profiles, dummy secrets and injections for GitHub and Jira, and the standard delivery workflow (orchestrator → project manager → analyst, architect, developer, reviewer, tester). You can edit or delete all of it later.",

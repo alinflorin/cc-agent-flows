@@ -451,11 +451,12 @@ pub fn images_delete(app: AppHandle, project: Option<String>, id: String) -> Res
     let r = Ref::new(&scope, &id);
     // profiles of the project, or of every project for a global image (unless it shadows theirs)
     let users: Vec<String> = match scope.id() {
-        Some(p) => crate::config::profiles::used_images(&app, p),
+        Some(p) => crate::config::profiles::used_images(&app, Some(p)),
         None => crate::config::projects::ids(&app)
             .iter()
             .filter(|p| !read_specs(&app, &Scope::project(p)).iter().any(|(i, _)| *i == id))
-            .flat_map(|p| crate::config::profiles::used_images(&app, p))
+            .flat_map(|p| crate::config::profiles::used_images(&app, Some(p)))
+            .chain(crate::config::profiles::used_images(&app, None))
             .collect(),
     };
     if users.contains(&id) {

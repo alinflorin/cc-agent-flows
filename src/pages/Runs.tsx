@@ -116,7 +116,7 @@ export function Runs() {
 
   useEffect(() => {
     if (!desktop) return;
-    void call<ProfileInfo[]>("profiles_list", { project }).then((p) => {
+    void call<ProfileInfo[]>("profiles_available", { project }).then((p) => {
       setProfiles(p);
       setProfile((cur) => cur || p[0]?.id || "");
     });

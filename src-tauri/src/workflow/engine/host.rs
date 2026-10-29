@@ -86,7 +86,7 @@ impl Host for RealHost {
         };
         let scope = Scope::project(&self.project);
         let watch = crate::net::leaks::watched(&profile_env, &|n| crate::config::secrets::secret_value(&scope, n));
-        let spec = Spec { run_id, project: scope, image: profile.image.clone(), identity, cpus: profile.cpus, memory_mb: profile.memory_mb, allow_hosts: profile_hosts, injections, max_connections: profile.max_connections, max_upload_mb: profile.max_upload_mb, max_download_mb: profile.max_download_mb, watch, task };
+        let spec = Spec { run_id, project: scope, image: profile.image_id().to_string(), identity, cpus: profile.cpus, memory_mb: profile.memory(), allow_hosts: profile_hosts, injections, max_connections: profile.max_connections, max_upload_mb: profile.max_upload_mb, max_download_mb: profile.max_download_mb, watch, task };
         // Cancelling the session cancels this VM.
         let (tx, rx) = oneshot::channel();
         let mut c = self.cancel.clone();
@@ -172,26 +172,33 @@ fn prepare(app: &AppHandle, project: &str, workflow: &str) -> Result<(Workflow, 
     let root = crate::workflow::root(app, project)?;
     let wf = crate::workflow::workflow(&root, workflow);
     wf.validate()?;
-    let profiles_dir = crate::config::profiles::dir(app, project)?;
-    let profiles: HashMap<String, Profile> = crate::config::profiles::list(&profiles_dir).into_iter().map(|e| (e.id, e.profile)).collect();
-    let ids: Vec<String> = profiles.keys().cloned().collect();
+    // the project's profiles and the global ones, each with what it extends
+    let all = crate::config::profiles::available(app, Some(project));
+    let ids: Vec<String> = all.iter().map(|e| e.id.clone()).collect();
+    let mut resolved = crate::config::profiles::resolve_all(&all);
     let problems = wf.problems(&ids);
     if !problems.is_empty() {
         let codes: Vec<String> = problems.iter().map(|p| format!("{} ({})", p.code, p.node.as_deref().unwrap_or("-"))).collect();
         return Err(format!("the workflow has problems: {}", codes.join(", ")));
     }
+    let mut profiles: HashMap<String, Profile> = HashMap::new();
     for n in wf.nodes.iter().filter(|n| n.kind == crate::workflow::NodeKind::Agent) {
-        let image = &profiles.get(&n.profile).ok_or_else(|| format!("the profile {} does not exist", n.profile))?.image;
+        if profiles.contains_key(&n.profile) {
+            continue;
+        }
+        let profile = resolved.remove(&n.profile).ok_or_else(|| format!("the profile {} does not exist", n.profile))?.map_err(|e| format!("the profile {}: {e}", n.profile))?;
+        let image = profile.image_id();
         if crate::vm::images::path(app, &Scope::project(project), image).is_none() {
             return Err(format!("the image {image} (profile {}) is not built yet", n.profile));
         }
+        profiles.insert(n.profile.clone(), profile);
     }
     if !crate::config::accounts::usable(app) {
         return Err("no Claude account is ready: add a setup token in Settings > LLM".into());
     }
-    // the project's system prompt comes before the workflow's
-    let project_prompt = crate::config::projects::load(app, project).map(|p| p.system_prompt).unwrap_or_default();
-    let instructions = crate::workflow::combine_system_prompts(&project_prompt, &crate::workflow::instructions(&root, workflow).system_prompt).unwrap_or_default();
+    // the global prompt comes first, then the project's, then the workflow's
+    let base_prompt = crate::config::system_prompt::with_project(app, project);
+    let instructions = crate::workflow::combine_system_prompts(&base_prompt, &crate::workflow::instructions(&root, workflow).system_prompt).unwrap_or_default();
     Ok((wf, instructions, profiles))
 }
 

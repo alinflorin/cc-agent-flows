@@ -365,28 +365,31 @@ pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: Strin
         return Err("the prompt must be 1 to 100000 bytes".into());
     }
     let scope = Scope::project(&project);
-    let profiles_dir = crate::config::profiles::dir(&app, &project)?;
-    let entry = crate::config::profiles::list(&profiles_dir).into_iter().find(|e| e.id == profile).ok_or("no such profile")?;
+    let all = crate::config::profiles::available(&app, Some(&project));
+    let entry = all.iter().find(|e| e.id == profile).ok_or("no such profile")?;
+    // the profile with what it extends
+    let resolved = crate::config::profiles::resolve(&entry.profile, &all)?;
     // Fail fast with a clear message instead of an event later.
     if !crate::config::accounts::usable(&app) {
         return Err("no Claude account is ready: add a setup token in Settings > LLM".into());
     }
-    if crate::vm::images::path(&app, &scope, &entry.profile.image).is_none() {
-        return Err(format!("the image {} is not built yet", entry.profile.image));
+    if crate::vm::images::path(&app, &scope, resolved.image_id()).is_none() {
+        return Err(format!("the image {} is not built yet", resolved.image_id()));
     }
 
     let run_id = new_run_id();
     let who = identity(&[("project", &project), ("profile", &entry.id)], &run_id);
-    let (profile_env, profile_hosts) = crate::config::integrations::expand(&app, &scope, &entry.profile)?;
+    let (profile_env, profile_hosts) = crate::config::integrations::expand(&app, &scope, &resolved)?;
     let (env, injections) = crate::config::injections::prepare(&app, &scope, &profile_env)?;
     let task = Task {
         prompt,
-        model: entry.profile.model.clone(),
-        effort: entry.profile.effort.clone(),
+        model: resolved.model.clone(),
+        effort: resolved.effort.clone(),
         session_id: uuid_v4(),
         resume: false,
         schema: crate::vm::protocol::RESULT_SCHEMA.into(),
-        system_prompt: crate::workflow::combine_system_prompts(&crate::config::projects::load(&app, &project).map(|p| p.system_prompt).unwrap_or_default(), &entry.profile.system_prompt),
+        // the global and the project's prompt first, then the profile's (with its parents')
+        system_prompt: crate::workflow::combine_system_prompts(&crate::config::system_prompt::with_project(&app, &project), &resolved.system_prompt),
         env,
         timeout_secs: 30 * 60,
     };
@@ -398,7 +401,7 @@ pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: Strin
     let _ = std::fs::create_dir_all(log_path.parent().unwrap());
     let mut log = std::fs::File::create(&log_path).ok();
     if let Some(f) = log.as_mut() {
-        let head = serde_json::json!({"kind": "start", "body": {"run": run_id, "identity": who, "project": project, "profile": entry.id, "image": entry.profile.image, "prompt": task.prompt}});
+        let head = serde_json::json!({"kind": "start", "body": {"run": run_id, "identity": who, "project": project, "profile": entry.id, "image": resolved.image_id(), "prompt": task.prompt}});
         let _ = writeln!(f, "{head}");
     }
 
@@ -412,7 +415,7 @@ pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: Strin
         };
         let mut emit = emit;
         let watch = crate::net::leaks::watched(&profile_env, &|n| crate::config::secrets::secret_value(&scope, n));
-        let spec = Spec { run_id: id.clone(), project: scope, image: entry.profile.image.clone(), identity: who, cpus: entry.profile.cpus, memory_mb: entry.profile.memory_mb, allow_hosts: profile_hosts, injections, max_connections: entry.profile.max_connections, max_upload_mb: entry.profile.max_upload_mb, max_download_mb: entry.profile.max_download_mb, watch, task };
+        let spec = Spec { run_id: id.clone(), project: scope, image: resolved.image_id().to_string(), identity: who, cpus: resolved.cpus, memory_mb: resolved.memory(), allow_hosts: profile_hosts, injections, max_connections: resolved.max_connections, max_upload_mb: resolved.max_upload_mb, max_download_mb: resolved.max_download_mb, watch, task };
         if let Err(e) = run_vm(&app, spec, cancel_rx, &mut emit).await {
             emit(&Outbound::Final(failed(e)));
         }

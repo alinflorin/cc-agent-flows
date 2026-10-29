@@ -10,6 +10,7 @@ import { useNotify } from "../notifications";
 import { getPref, setPref } from "../prefs";
 import { useUpdates } from "../updates";
 import { AppearanceFields } from "../components/AppearanceFields";
+import { Profiles } from "./Profiles";
 import { ImagesSettings } from "./settings/Images";
 import { LlmSettings } from "./settings/Llm";
 import { NetworkSettings } from "./settings/Network";
@@ -112,6 +113,7 @@ export function Settings() {
     general: <GeneralSettings />,
     llm: <LlmSettings />,
     vm: <VmSettingsSection />,
+    profiles: <Profiles />,
     images: <ImagesSettings />,
     network: <NetworkSettings />,
     secrets: <SecretsSettings />,

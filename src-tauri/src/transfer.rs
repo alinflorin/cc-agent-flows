@@ -166,7 +166,7 @@ fn classify(rel: &str) -> Option<(Option<&str>, &str)> {
         None => (None, rel),
     };
     let top = SCOPE_FILES.contains(&inner)
-        || (project.is_none() && (inner == "webhook.json" || inner == "claude-accounts.json" || inner == "vm.json"))
+        || (project.is_none() && (inner == "webhook.json" || inner == "claude-accounts.json" || inner == "vm.json" || inner == "system_prompt.json"))
         || (project.is_some() && inner == projects::FILE);
     let in_dir = SCOPE_DIRS.iter().any(|d| {
         inner.strip_prefix(d).and_then(|r| r.strip_prefix('/')).and_then(|f| f.strip_suffix(".json")).is_some_and(plain_id)
@@ -177,7 +177,7 @@ fn classify(rel: &str) -> Option<(Option<&str>, &str)> {
 fn read_scope(dir: &Path, prefix: &str, global: bool, out: &mut BTreeMap<String, String>) {
     let mut names: Vec<String> = SCOPE_FILES.iter().map(|s| s.to_string()).collect();
     if global {
-        names.extend(["webhook.json".to_string(), "claude-accounts.json".to_string()]);
+        names.extend(["webhook.json".to_string(), "claude-accounts.json".to_string(), "system_prompt.json".to_string()]);
     } else {
         names.push(projects::FILE.to_string());
     }
@@ -304,6 +304,17 @@ fn merge(file: &str, existing: Value, incoming: Value, overwrite: bool, skipped:
             Some(Value::Object(e))
         }
         ("injections.json" | "integrations.json", Value::Array(e), Value::Array(i)) => Some(Value::Array(by_key(e, i, "name", overwrite, skipped))),
+        ("system_prompt.json", Value::Object(mut e), Value::Object(i)) => {
+            // one text: the file's replaces ours only when asked to, or when ours is empty
+            let empty = e.get("system_prompt").and_then(Value::as_str).is_none_or(|t| t.trim().is_empty());
+            match i.get("system_prompt") {
+                Some(v) if overwrite || empty => {
+                    e.insert("system_prompt".into(), v.clone());
+                }
+                _ => *skipped += 1,
+            }
+            Some(Value::Object(e))
+        }
         ("vm.json", Value::Object(mut e), Value::Object(i)) => {
             for (k, v) in i {
                 if overwrite || !e.contains_key(&k) {
@@ -532,6 +543,20 @@ mod tests {
         assert!(portable_vm(r#"{"max_vms":2}"#).is_none());
         assert!(classify("vm.json").is_some());
         assert!(classify("projects/demo/vm.json").is_none());
+    }
+
+    #[test]
+    fn the_global_system_prompt_travels_and_keeps_ours_unless_asked() {
+        assert!(classify("system_prompt.json").is_some());
+        assert!(classify("projects/demo/system_prompt.json").is_none());
+        let mut skipped = 0;
+        let ours = serde_json::json!({"system_prompt": "mine"});
+        let theirs = serde_json::json!({"system_prompt": "theirs"});
+        assert_eq!(merge("system_prompt.json", ours.clone(), theirs.clone(), false, &mut skipped).unwrap(), ours);
+        assert_eq!(skipped, 1);
+        assert_eq!(merge("system_prompt.json", ours, theirs.clone(), true, &mut skipped).unwrap(), theirs);
+        let empty = serde_json::json!({"system_prompt": " "});
+        assert_eq!(merge("system_prompt.json", empty, theirs.clone(), false, &mut skipped).unwrap(), theirs);
     }
 
     #[test]

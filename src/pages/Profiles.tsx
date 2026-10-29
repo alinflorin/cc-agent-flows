@@ -34,7 +34,8 @@ import { inTauri } from "../prefs";
 import { MODELS } from "../llm";
 import { useNotify } from "../notifications";
 import { call } from "../tauri";
-import { useProjectId } from "../project";
+import { useProject } from "../project";
+import { SettingsIntro } from "../components/SettingsIntro";
 
 interface EnvVar {
   name: string;
@@ -49,13 +50,14 @@ interface Profile {
   model: string | null;
   effort: string | null;
   cpus: number | null;
-  memory_mb: number;
-  image: string;
+  memory_mb: number | null;
+  image: string | null;
   allow_hosts: string[];
   integrations: string[];
   max_connections: number | null;
   max_upload_mb: number | null;
   max_download_mb: number | null;
+  extends: string | null;
 }
 
 interface ImageInfo {
@@ -66,9 +68,10 @@ interface ImageInfo {
 
 interface Entry extends Profile {
   id: string;
+  global: boolean;
 }
 
-const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: null, cpus: null, memory_mb: 2048, image: "base", allow_hosts: [], integrations: [], max_connections: null, max_upload_mb: null, max_download_mb: null };
+const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: null, cpus: null, memory_mb: 2048, image: "base", allow_hosts: [], integrations: [], max_connections: null, max_upload_mb: null, max_download_mb: null, extends: null };
 
 const useStyles = makeStyles({
   list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM },
@@ -85,7 +88,8 @@ export function Profiles() {
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
-  const project = useProjectId();
+  // null in the global settings: the global profiles
+  const project = useProject();
   const desktop = inTauri();
   const confirm = useConfirmDelete();
   const [saving, setSaving] = useState(false);
@@ -93,6 +97,8 @@ export function Profiles() {
   const [defaultMemory, setDefaultMemory] = useState(EMPTY.memory_mb);
 
   const [entries, setEntries] = useState<Entry[]>([]);
+  // what a profile can extend: the project's own and the global ones
+  const [parents, setParents] = useState<Entry[]>([]);
   const [images, setImages] = useState<ImageInfo[]>([]);
   const [secrets, setSecrets] = useState<string[]>([]);
   const [injections, setInjections] = useState<string[]>([]);
@@ -110,6 +116,7 @@ export function Profiles() {
     try {
       setDefaultMemory((await call<{ default_memory_mb: number }>("vm_settings_get")).default_memory_mb);
       setEntries(await call<Entry[]>("profiles_list", { project }));
+      setParents(project === null ? await call<Entry[]>("profiles_list", { project: null }) : await call<Entry[]>("profiles_available", { project }));
       setImages(await call<ImageInfo[]>("images_list", { project }));
       // what a profile can refer to: the project's own and the global ones
       const both = async <T,>(cmd: string, pick: (x: T) => string) => {
@@ -156,19 +163,23 @@ export function Profiles() {
   const setEnv = (i: number, patch: Partial<EnvVar>) =>
     set({ env: editing!.profile.env.map((v, j) => (j === i ? { ...v, ...patch } : v)) });
 
+  const actions = (
+    <>
+      <ResetDemoButton command="profiles_reset_demo" what="profiles" onDone={load} />
+      <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit({ id: null, profile: { ...EMPTY, memory_mb: defaultMemory } })}>
+        {t("profiles.new")}
+      </Button>
+    </>
+  );
+  const parentName = (id: string) => parents.find((p) => p.id === id)?.name ?? id;
+
   return (
     <>
-      <PageHeader
-        title={t("profiles.title")}
-        actions={
-          <>
-            <ResetDemoButton command="profiles_reset_demo" what="profiles" onDone={load} />
-            <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit({ id: null, profile: { ...EMPTY, memory_mb: defaultMemory } })}>
-              {t("profiles.new")}
-            </Button>
-          </>
-        }
-      />
+      {project === null ? (
+        <SettingsIntro text={t("settings.profiles.intro")}>{actions}</SettingsIntro>
+      ) : (
+        <PageHeader title={t("profiles.title")} actions={actions} />
+      )}
       {!desktop && <Body1 block>{t("profiles.desktopOnly")}</Body1>}
       {desktop && entries.length === 0 && <EmptyState>{t("profiles.empty")}</EmptyState>}
       <div className={styles.list}>
@@ -201,7 +212,8 @@ export function Profiles() {
               }
             />
             <div className={styles.chips}>
-              <Badge appearance="tint" color="brand" size="small">{e.image}</Badge>
+              {e.image && <Badge appearance="tint" color="brand" size="small">{e.image}</Badge>}
+              {e.extends && <Badge appearance="outline" size="small">{t("profiles.extendsBadge", { name: parentName(e.extends) })}</Badge>}
               {e.model && <Badge appearance="outline" size="small">{e.model}</Badge>}
             </div>
           </Card>
@@ -222,7 +234,19 @@ export function Profiles() {
                   <Field label={t("profiles.description")}>
                     <Input value={editing.profile.description} onChange={(_, d) => set({ description: d.value })} />
                   </Field>
-                  <Field label={t("profiles.systemPrompt")} hint={t("profiles.systemPromptHint")}>
+                  <Field label={t("profiles.extends")} hint={t("profiles.extendsHint")}>
+                    <Select value={editing.profile.extends ?? ""} onChange={(_, d) => set({ extends: d.value || null })}>
+                      <option value="">{t("profiles.extendsNone")}</option>
+                      {parents
+                        .filter((p) => p.id !== editing.id)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.global && project !== null ? t("profiles.globalOption", { name: p.name }) : p.name}
+                          </option>
+                        ))}
+                    </Select>
+                  </Field>
+                  <Field label={t("profiles.systemPrompt")} hint={t(editing.profile.extends ? "profiles.systemPromptExtendsHint" : "profiles.systemPromptHint")}>
                     <Textarea rows={5} value={editing.profile.system_prompt} onChange={(_, d) => set({ system_prompt: d.value })} />
                   </Field>
                   <Field label={t("profiles.integrations")} hint={integrations.length === 0 ? t("profiles.noIntegrations") : t("profiles.integrationsHint")}>
@@ -363,12 +387,14 @@ export function Profiles() {
                       type="number"
                       min={1024}
                       step={512}
-                      value={String(editing.profile.memory_mb)}
-                      onChange={(_, d) => set({ memory_mb: Math.floor(Number(d.value)) || 0 })}
+                      placeholder={t("profiles.inherited")}
+                      value={editing.profile.memory_mb === null ? "" : String(editing.profile.memory_mb)}
+                      onChange={(_, d) => set({ memory_mb: d.value === "" ? null : Math.floor(Number(d.value)) || 0 })}
                     />
                   </Field>
                   <Field label={t("profiles.image")} hint={t("profiles.imageHint")}>
-                    <Select value={editing.profile.image} onChange={(_, d) => set({ image: d.value })}>
+                    <Select value={editing.profile.image ?? ""} onChange={(_, d) => set({ image: d.value || null })}>
+                      <option value="">{t("profiles.imageInherited")}</option>
                       {images.map((i) => (
                         <option key={i.id} value={i.id}>
                           {i.name}
@@ -383,7 +409,7 @@ export function Profiles() {
               <Button appearance="secondary" onClick={() => setOpen(false)}>
                 {t("common.cancel")}
               </Button>
-              <Button appearance="primary" disabled={saving || !editing?.profile.name.trim() || (editing?.profile.memory_mb ?? 0) < 1024} onClick={save}>
+              <Button appearance="primary" disabled={saving || !editing?.profile.name.trim() || (editing?.profile.memory_mb !== null && (editing?.profile.memory_mb ?? 0) < 1024)} onClick={save}>
                 {t("common.save")}
               </Button>
             </DialogActions>

@@ -131,7 +131,10 @@
       "modeHint": {
         "round_robin": "Fiecare rulare ia următorul cont, pe rând.",
         "drain": "Folosește mereu primul cont disponibil până când Claude spune că a atins limita, apoi trece la următorul."
-      }
+      },
+      "systemPrompt": "Prompt de sistem global",
+      "systemPromptHint": "Adăugat la promptul de sistem al fiecărui agent din fiecare proiect, înaintea celui al proiectului, al workflow-ului și al profilului.",
+      "systemPromptSaved": "Prompt de sistem salvat."
     },
     "saved": "Setările au fost salvate.",
     "images": {
@@ -256,7 +259,8 @@
       "secrets": "Secrete globale",
       "variables": "Variabile globale",
       "injections": "Injecții globale",
-      "integrations": "Integrări globale"
+      "integrations": "Integrări globale",
+      "profiles": "Profiluri de agent globale"
     },
     "integrations": {
       "intro": "Un serviciu folosit de agenți (Jira, GitHub), configurat într-un singur loc: variabile, secrete, injecții, gazde și mediu. Alege-l într-un profil de agent.",
@@ -335,6 +339,9 @@
       "builderCpus": "vCPU constructor",
       "builderHint": "VM-ul care construiește imaginile.",
       "builderMemory": "Memorie constructor (MB)"
+    },
+    "profiles": {
+      "intro": "Profiluri de agent pe care orice proiect le poate folosi și extinde. Un profil de proiect poate porni de la unul global (Extinde), iar un workflow poate folosi direct un profil global."
     }
   },
   "updates": {
@@ -389,7 +396,15 @@
     "networkDefault": "Limita globală",
     "dataBudget": "Buget de date pe rulare",
     "dataBudgetHint": "Trimis (↑) și primit (↓) pe toată rularea. Include traficul către API-ul Claude. Când unul e epuizat, conexiunile se închid și rularea se oprește. Gol înseamnă fără limită.",
-    "unlimited": "Fără limită"
+    "unlimited": "Fără limită",
+    "extends": "Extinde",
+    "extendsNone": "Nimic (profil de sine stătător)",
+    "extendsHint": "Pornește de la alt profil: promptul lui de sistem vine primul, variabilele de mediu, gazdele și integrările se adună (acest profil câștigă la același nume de variabilă), iar ce rămâne gol aici se ia de la el.",
+    "globalOption": "{{name}} (global)",
+    "extendsBadge": "extinde {{name}}",
+    "systemPromptExtendsHint": "Adăugat după promptul de sistem al profilului părinte.",
+    "inherited": "De la părinte, altfel 2048",
+    "imageInherited": "De la părinte, altfel imaginea de bază"
   },
   "welcome": {
     "text": "Configurezi conținut demo? Creează un proiect demo: trei imagini (construite în fundal), șapte profiluri de agent, secrete fictive și injecții pentru GitHub și Jira, plus fluxul standard de livrare (orchestrator → manager de proiect → analist, arhitect, dezvoltator, revizor, tester). Poți edita sau șterge totul mai târziu.",

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { fmtTime } from "../../text";
 import { useTranslation } from "react-i18next";
-import { Badge, Button, Caption1, Dropdown, Field, Input, Option, Subtitle2, Switch, makeStyles, tokens } from "@fluentui/react-components";
+import { Badge, Button, Caption1, Dropdown, Field, Input, Option, Subtitle2, Switch, Textarea, makeStyles, tokens } from "@fluentui/react-components";
 import { useConfirmDelete } from "../../components/Confirm";
 import { DEFAULT_MODEL, DEFAULT_THINKING, MODELS, THINKING_LEVELS } from "../../llm";
 import { getPref, inTauri, setPref } from "../../prefs";
@@ -37,6 +37,9 @@ export function LlmSettings() {
   const [mode, setMode] = useState<"round_robin" | "drain">("round_robin");
   const [name, setName] = useState("");
   const [token, setToken] = useState("");
+  // the text every agent gets first (saved with its own button)
+  const [prompt, setPrompt] = useState("");
+  const [savedPrompt, setSavedPrompt] = useState("");
   const [renew, setRenew] = useState<{ id: string; token: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -51,6 +54,27 @@ export function LlmSettings() {
   useEffect(() => {
     if (desktop) void load();
   }, [desktop, load]);
+
+  // apart from `load`, which runs after every account change and would drop an unsaved text
+  useEffect(() => {
+    if (!desktop) return;
+    call<string>("system_prompt_get")
+      .then((text) => {
+        setPrompt(text);
+        setSavedPrompt(text);
+      })
+      .catch((e) => notify(String(e), "error"));
+  }, [desktop, notify]);
+
+  const savePrompt = async () => {
+    try {
+      await call("system_prompt_set", { text: prompt });
+      setSavedPrompt(prompt);
+      notify(t("settings.llm.systemPromptSaved"), "success");
+    } catch (e) {
+      notify(String(e), "error");
+    }
+  };
 
   const run = async (cmd: string, args: Record<string, unknown>, ok?: string) => {
     try {
@@ -192,6 +216,18 @@ export function LlmSettings() {
           ))}
         </Dropdown>
       </Field>
+
+      <Field label={t("settings.llm.systemPrompt")} hint={t("settings.llm.systemPromptHint")}>
+        <Textarea rows={8} disabled={!desktop} value={prompt} onChange={(_, d) => setPrompt(d.value)} />
+      </Field>
+      <div className={styles.row}>
+        <Button appearance="primary" disabled={!desktop || prompt === savedPrompt} onClick={() => void savePrompt()}>
+          {t("common.save")}
+        </Button>
+        <Button disabled={prompt === savedPrompt} onClick={() => setPrompt(savedPrompt)}>
+          {t("common.reset")}
+        </Button>
+      </div>
       {confirm.dialog}
     </div>
   );

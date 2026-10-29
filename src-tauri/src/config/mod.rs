@@ -10,5 +10,6 @@ pub mod profiles;
 pub mod projects;
 pub mod scope;
 pub mod secrets;
+pub mod system_prompt;
 pub mod variables;
 pub mod vm_settings;
