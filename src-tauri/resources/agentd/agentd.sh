@@ -186,13 +186,12 @@ $TOOLS"
 fi
 # No `--json-schema`: it adds a StructuredOutput tool and a model turn. The answer is asked for in
 # the prompt instead and read from the end of `claude`'s last message (see the final below).
+KEYS=$(printf '%s' "$SCHEMA" | jq -r '(.properties // {}) | keys | join(", ")' 2>/dev/null)
 SYSTEM="${SYSTEM:+$SYSTEM
 
 }# Final answer
 
-End your last message with one JSON object, as plain text (no code fence, nothing after it), your answer in this shape:
-{\"status\": \"done\", \"summary\": \"what you did or found, in a few sentences\", \"questions\": [], \"assumptions\": []}
-\"status\" is done, needs_input (then \"questions\" holds what you need to ask) or failed. The object must be valid for the JSON schema below; print your answer, never the schema itself:
+End your last message with one JSON object, as plain text (no code fence, nothing after it): your answer, with a real value for each of the keys the schema below lists ($KEYS). Print the answer, never the schema itself, and use the exact keys and allowed values the schema gives:
 $SCHEMA"
 set -- "$@" --append-system-prompt "$SYSTEM"
 
