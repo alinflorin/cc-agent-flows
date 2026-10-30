@@ -190,7 +190,9 @@ SYSTEM="${SYSTEM:+$SYSTEM
 
 }# Final answer
 
-End your last message with one JSON object that matches this JSON schema, as plain text (no code fence, nothing after it):
+End your last message with one JSON object, as plain text (no code fence, nothing after it), your answer in this shape:
+{\"status\": \"done\", \"summary\": \"what you did or found, in a few sentences\", \"questions\": [], \"assumptions\": []}
+\"status\" is done, needs_input (then \"questions\" holds what you need to ask) or failed. The object must be valid for the JSON schema below; print your answer, never the schema itself:
 $SCHEMA"
 set -- "$@" --append-system-prompt "$SYSTEM"
 
@@ -276,7 +278,7 @@ else
 		# from the first "{", or from the last line starting with "{", to the last "}". Anything else is plain text, reported as done.
 		((.result // "" | strings) as $t |
 			([$t, ($t | capture("```(?:json)?\\s*(?<j>\\{[^`]*\\})\\s*```"; "g") | .j), ($t | sub("^[^{]*(?=\\{)"; "") | sub("(?<=\\})[^}]*$"; "")), ($t | sub("^(?s:.*\\n)(?=\\{)"; "") | sub("(?<=\\})[^}]*$"; ""))]
-				| map(try fromjson catch null | select(type == "object")) | last // {})) as $s |
+				| map(try fromjson catch null | select(type == "object" and (has("properties") | not))) | last // {})) as $s |
 		{kind: "final", body: {
 			status: (if .is_error == true then "failed"
 				elif ($s.status | IN("done", "needs_input", "failed")) then $s.status
