@@ -71,7 +71,7 @@ interface Entry extends Profile {
   global: boolean;
 }
 
-const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: null, cpus: null, memory_mb: 2048, image: "base", allow_hosts: [], integrations: [], max_connections: null, max_upload_mb: null, max_download_mb: null, extends: null };
+const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: "low", cpus: null, memory_mb: 2048, image: "base", allow_hosts: [], integrations: [], max_connections: null, max_upload_mb: null, max_download_mb: null, extends: null };
 
 const useStyles = makeStyles({
   list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM },

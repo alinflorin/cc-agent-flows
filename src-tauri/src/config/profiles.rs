@@ -97,6 +97,8 @@ pub fn clean_host(entry: &str) -> Result<String, String> {
 }
 
 pub const DEFAULT_MEMORY_MB: u32 = 2048;
+/// The thinking effort of a profile that sets none: agents mostly act, and thinking costs seconds.
+pub const DEFAULT_EFFORT: &str = "low";
 
 /// How many profiles a chain of `extends` may have.
 const MAX_DEPTH: usize = 8;
@@ -140,6 +142,11 @@ impl Profile {
     }
 
     /// The VM's memory in MB (of a resolved profile).
+    /// The effort a run uses: the profile's, else `DEFAULT_EFFORT`.
+    pub fn effort_or_default(&self) -> String {
+        self.effort.clone().unwrap_or_else(|| DEFAULT_EFFORT.into())
+    }
+
     pub fn memory(&self) -> u32 {
         self.memory_mb.unwrap_or(DEFAULT_MEMORY_MB)
     }
