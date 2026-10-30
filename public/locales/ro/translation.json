@@ -680,7 +680,8 @@
     "profiles": "Profilele starter (orchestrator, project manager, business analyst, architect, developer, reviewer, qa) sunt scrise din nou așa cum au fost create prima dată, cu prompturi, variabile și gazde permise; modificările tale la ele se pierd, iar cele șterse revin. Celelalte profile nu sunt atinse.",
     "secrets": "GITHUB_TOKEN, GITHUB_READONLY_TOKEN și JIRA_TOKEN primesc din nou valoarea dummy. Dacă ai pus tokenuri reale sub aceste nume, se pierd. Celelalte secrete nu sunt atinse.",
     "variables": "ATLASSIAN_HOST și ATLASSIAN_EMAIL primesc din nou valorile placeholder. Dacă le-ai completat cu ale tale, se pierd. Celelalte variabile nu sunt atinse.",
-    "injections": "Injecțiile GITHUB, GITHUB_READONLY și JIRA sunt scrise din nou așa cum au fost create prima dată; modificările tale la ele se pierd. Celelalte injecții nu sunt atinse."
+    "injections": "Injecțiile GITHUB, GITHUB_READONLY și JIRA sunt scrise din nou așa cum au fost create prima dată; modificările tale la ele se pierd. Celelalte injecții nu sunt atinse.",
+    "integrations": "Integrările Jira, GitHub read-write și GitHub read-only sunt scrise din nou așa cum au fost create prima dată; modificările tale la ele se pierd. Variabilele, secretele și injecțiile lor nu se schimbă (resetează-le pe paginile lor). Celelalte integrări nu sunt atinse."
   },
   "analytics": {
     "intro": "Tokeni, timp și eșecuri pentru sesiunile tale, din jurnalele lor.",

@@ -5,6 +5,7 @@
 
 use crate::vm::images::{Doc, Spec};
 use crate::config::injections::Injection;
+use crate::config::integrations::Integration;
 use crate::config::profiles::{self, Profile};
 use crate::config::projects::Project;
 use crate::config::scope::Scope;
@@ -101,6 +102,7 @@ struct Raw {
     variables: BTreeMap<String, String>,
     secrets: Vec<String>,
     injections: Vec<Injection>,
+    integrations: Vec<Integration>,
     images: Vec<Item<RawImage>>,
     profiles: Vec<Item<Profile>>,
     workflow: RawWorkflow,
@@ -140,6 +142,11 @@ pub fn secrets() -> &'static [String] {
 
 pub fn injections() -> Vec<Injection> {
     raw().injections.clone()
+}
+
+/// The demo integrations (names of the variables, secrets and injections above, hosts, environment).
+pub fn integrations() -> Vec<Integration> {
+    raw().integrations.clone()
 }
 
 /// The starter images, parents first, as (id, spec).
@@ -203,6 +210,7 @@ pub fn provision_starters(app: tauri::AppHandle) -> Result<String, String> {
     crate::config::secrets::provision_demo(&app, &scope, false)?;
     crate::config::variables::provision_demo(&app, &scope, false)?;
     crate::config::injections::provision_demo(&app, &scope, false)?;
+    crate::config::integrations::provision_demo(&app, &scope, false)?;
     crate::workflow::provision_defaults(&app, id)?;
     Ok(id.to_string())
 }
@@ -225,6 +233,22 @@ mod tests {
         }
         for i in injections() {
             assert!(secrets().contains(&i.secret), "injection {}: unknown secret {}", i.name, i.secret);
+        }
+        let (vars, injs) = (variables(), injections());
+        let integrations = integrations();
+        for i in &integrations {
+            assert!(i.variables.iter().all(|v| vars.iter().any(|(n, _)| n == v)), "integration {}: unknown variable", i.name);
+            assert!(i.secrets.iter().all(|s| secrets().contains(s)), "integration {}: unknown secret", i.name);
+            assert!(i.injections.iter().all(|n| injs.iter().any(|x| x.name == *n)), "integration {}: unknown injection", i.name);
+            // an injection only works on a host the agent may reach
+            for n in &i.injections {
+                for r in injs.iter().filter(|x| x.name == *n).flat_map(|x| &x.rules) {
+                    assert!(i.hosts.contains(&r.host), "integration {}: the injection {n} is for {}, which is not in its hosts", i.name, r.host);
+                }
+            }
+        }
+        for (id, p) in &profiles {
+            assert!(p.integrations.iter().all(|n| integrations.iter().any(|i| i.name == *n)), "profile {id}: unknown integration");
         }
     }
 }

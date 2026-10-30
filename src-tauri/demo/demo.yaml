@@ -43,6 +43,35 @@ injections:
     secret: "JIRA_TOKEN"
     username: "${var:ATLASSIAN_EMAIL}"
 
+# Integrations (project > Integrations): what a service needs, in one place. They name the variables,
+# secrets and injections above and add the hosts and environment variables an agent gets; profiles
+# list them in `integrations`. GitHub comes twice because the token's scope is the only difference.
+integrations:
+  - name: "Jira"
+    description: "Jira Cloud: the `jtk` CLI and the REST API, with the token added by the proxy."
+    hosts: ["${var:ATLASSIAN_HOST}", "api.media.atlassian.com"]
+    env:
+      - {name: "JIRA_API_TOKEN", value: "${injection:JIRA}"}
+      - {name: "ATLASSIAN_URL", value: "https://${var:ATLASSIAN_HOST}"}
+      - {name: "ATLASSIAN_EMAIL", value: "${var:ATLASSIAN_EMAIL}"}
+    variables: ["ATLASSIAN_HOST", "ATLASSIAN_EMAIL"]
+    secrets: ["JIRA_TOKEN"]
+    injections: ["JIRA"]
+  - name: "GitHub read-write"
+    description: "GitHub with a token that can push and merge (developer, reviewer)."
+    hosts: ["github.com", "api.github.com"]
+    env:
+      - {name: "GH_TOKEN", value: "${injection:GITHUB}"}
+    secrets: ["GITHUB_TOKEN"]
+    injections: ["GITHUB"]
+  - name: "GitHub read-only"
+    description: "GitHub with a read-only token (architect, QA)."
+    hosts: ["github.com", "api.github.com"]
+    env:
+      - {name: "GH_TOKEN", value: "${injection:GITHUB_READONLY}"}
+    secrets: ["GITHUB_READONLY_TOKEN"]
+    injections: ["GITHUB_READONLY"]
+
 # Images (project > Images): built after the base, in this order; `script` is a file next to this one.
 images:
   - id: "manager"
@@ -99,11 +128,14 @@ profiles:
     model: "haiku"
     memory_mb: 1024
     system_prompt: >-
-      You are a manual QA tester. You read Jira tickets with `jtk` and test the application the
-      way a user would, with agent-browser (a headless Chromium; `agent-browser --help` lists its
-      commands): follow the acceptance criteria, try edge cases and bad input, and compare what
-      you see with what is expected. You do not change the code under test and never change a
-      ticket's status.
+      You are the orchestrator of a software delivery team, and the only agent the user talks to.
+      You do not write code and you do not change Jira or GitHub yourself: you turn the user's
+      request into a precise brief for the project manager, who runs the team, and you report back
+      to the user in plain words. Keep the request's meaning: do not add work, drop constraints or
+      guess ticket ids. If the request is unclear in a way that changes what gets delivered, ask the
+      user before handing it on; otherwise decide and state your assumptions. When the project
+      manager reports back, check the report against the request and say honestly what was
+      delivered, what is blocked and why, and what is left.
   - id: "project-manager"
     name: "Project manager"
     description: >-
@@ -124,11 +156,7 @@ profiles:
       read the ticket themselves. When a specialist reports a problem you decide whether to send
       the work back, go on or give up, and say why in a comment on the ticket. Report briefly and
       concretely.
-    env:
-      - {name: "JIRA_API_TOKEN", value: "${injection:JIRA}"}
-      - {name: "ATLASSIAN_URL", value: "https://${var:ATLASSIAN_HOST}"}
-      - {name: "ATLASSIAN_EMAIL", value: "${var:ATLASSIAN_EMAIL}"}
-    allow_hosts: ["${var:ATLASSIAN_HOST}", "api.media.atlassian.com"]
+    integrations: ["Jira"]
   - id: "business-analyst"
     name: "Business analyst"
     description: "Defines what done means for a Jira ticket and attaches it to the ticket."
@@ -141,11 +169,7 @@ profiles:
       each with acceptance criteria a tester can check, plus edge cases and what is explicitly out
       of scope. Make reasonable assumptions and list them instead of stopping to ask. You do not
       write code and never change a ticket's status. Always check the ticket's subtickets and its parent too: you may be given a subticket (its parent is named: read the parent for context) or a ticket with subtickets, which are part of your work; leave your comments and attachments on the ticket you were given.
-    env:
-      - {name: "JIRA_API_TOKEN", value: "${injection:JIRA}"}
-      - {name: "ATLASSIAN_URL", value: "https://${var:ATLASSIAN_HOST}"}
-      - {name: "ATLASSIAN_EMAIL", value: "${var:ATLASSIAN_EMAIL}"}
-    allow_hosts: ["${var:ATLASSIAN_HOST}", "api.media.atlassian.com"]
+    integrations: ["Jira"]
   - id: "architect"
     name: "Architect"
     description: "Designs a change for a Jira ticket and attaches the architecture to the ticket."
@@ -156,20 +180,12 @@ profiles:
       changes: which parts change and how, the interfaces involved, the risks and the order of the
       work. Keep the design as small as the requirements allow. You do not write code and never
       change a ticket's status. Always check the ticket's subtickets and its parent too: you may be given a subticket (its parent is named: read the parent for context) or a ticket with subtickets, which are part of your work; leave your comments and attachments on the ticket you were given.
-    env:
-      - {name: "GH_TOKEN", value: "${injection:GITHUB_READONLY}"}
-      - {name: "JIRA_API_TOKEN", value: "${injection:JIRA}"}
-      - {name: "ATLASSIAN_URL", value: "https://${var:ATLASSIAN_HOST}"}
-      - {name: "ATLASSIAN_EMAIL", value: "${var:ATLASSIAN_EMAIL}"}
+    integrations: ["Jira", "GitHub read-only"]
     allow_hosts:
-      - "github.com"
-      - "api.github.com"
       - "*.githubusercontent.com"
       - "registry.npmjs.org"
       - "pypi.org"
       - "files.pythonhosted.org"
-      - "${var:ATLASSIAN_HOST}"
-      - "api.media.atlassian.com"
   - id: "developer"
     name: "Developer"
     description: "Implements a Jira ticket in a git repository and raises a pull request."
@@ -190,20 +206,12 @@ profiles:
       report again. Do not merge and never change the ticket's status. If something is unclear and
       you cannot find it out yourself, assume the most reasonable thing and say so in your report
       instead of stopping. Always check the ticket's subtickets and its parent too: you may be given a subticket (its parent is named: read the parent for context) or a ticket with subtickets, which are part of your work; leave your comments and attachments on the ticket you were given.
-    env:
-      - {name: "GH_TOKEN", value: "${injection:GITHUB}"}
-      - {name: "JIRA_API_TOKEN", value: "${injection:JIRA}"}
-      - {name: "ATLASSIAN_URL", value: "https://${var:ATLASSIAN_HOST}"}
-      - {name: "ATLASSIAN_EMAIL", value: "${var:ATLASSIAN_EMAIL}"}
+    integrations: ["Jira", "GitHub read-write"]
     allow_hosts:
-      - "github.com"
-      - "api.github.com"
       - "*.githubusercontent.com"
       - "registry.npmjs.org"
       - "pypi.org"
       - "files.pythonhosted.org"
-      - "${var:ATLASSIAN_HOST}"
-      - "api.media.atlassian.com"
   - id: "reviewer"
     name: "Code reviewer"
     description: "Reviews and merges a pull request for a Jira ticket."
@@ -218,20 +226,12 @@ profiles:
       to approve or request changes because the pull request was opened with the same account,
       leave a comment that starts with APPROVED or CHANGES REQUESTED instead and say so in your
       report. Always check the ticket's subtickets and its parent too: you may be given a subticket (its parent is named: read the parent for context) or a ticket with subtickets, which are part of your work; leave your comments and attachments on the ticket you were given.
-    env:
-      - {name: "GH_TOKEN", value: "${injection:GITHUB}"}
-      - {name: "JIRA_API_TOKEN", value: "${injection:JIRA}"}
-      - {name: "ATLASSIAN_URL", value: "https://${var:ATLASSIAN_HOST}"}
-      - {name: "ATLASSIAN_EMAIL", value: "${var:ATLASSIAN_EMAIL}"}
+    integrations: ["Jira", "GitHub read-write"]
     allow_hosts:
-      - "github.com"
-      - "api.github.com"
       - "*.githubusercontent.com"
       - "registry.npmjs.org"
       - "pypi.org"
       - "files.pythonhosted.org"
-      - "${var:ATLASSIAN_HOST}"
-      - "api.media.atlassian.com"
   - id: "qa"
     name: "Manual QA"
     description: "Tests a Jira ticket by hand in a headless browser."
@@ -246,20 +246,12 @@ profiles:
       what you expected and what happened, and leave the results as a comment on the ticket
       (attach screenshots that show a problem). Do not change the code under test and never change
       the ticket's status. Always check the ticket's subtickets and its parent too: you may be given a subticket (its parent is named: read the parent for context) or a ticket with subtickets, which are part of your work; leave your comments and attachments on the ticket you were given.
-    env:
-      - {name: "GH_TOKEN", value: "${injection:GITHUB_READONLY}"}
-      - {name: "JIRA_API_TOKEN", value: "${injection:JIRA}"}
-      - {name: "ATLASSIAN_URL", value: "https://${var:ATLASSIAN_HOST}"}
-      - {name: "ATLASSIAN_EMAIL", value: "${var:ATLASSIAN_EMAIL}"}
+    integrations: ["Jira", "GitHub read-only"]
     allow_hosts:
-      - "github.com"
-      - "api.github.com"
       - "*.githubusercontent.com"
       - "registry.npmjs.org"
       - "pypi.org"
       - "files.pythonhosted.org"
-      - "${var:ATLASSIAN_HOST}"
-      - "api.media.atlassian.com"
 
 # The standard workflow: nodes are agents (`profile` is a profile id above), edges are who may hand work to whom; `before` is an order.
 workflow:

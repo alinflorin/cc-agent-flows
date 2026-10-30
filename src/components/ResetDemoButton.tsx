@@ -7,7 +7,7 @@ import { useNotify } from "../notifications";
 import { DEMO_PROJECT, useProject } from "../project";
 
 /** A small button that puts one kind of demo content back (what the welcome dialog creates), after a confirmation that says what is lost. `what` is the key under `reset.` in the translations. */
-export function ResetDemoButton({ command, what, onDone }: { command: string; what: "images" | "profiles" | "secrets" | "variables" | "injections"; onDone?: () => void }) {
+export function ResetDemoButton({ command, what, onDone }: { command: string; what: "images" | "profiles" | "secrets" | "variables" | "injections" | "integrations"; onDone?: () => void }) {
   const { t } = useTranslation();
   const notify = useNotify();
   const project = useProject();

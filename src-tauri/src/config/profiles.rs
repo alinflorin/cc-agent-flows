@@ -554,7 +554,11 @@ mod tests {
 
     #[test]
     fn demo_credentials_follow_least_privilege() {
-        let demo_env = |id: &str| crate::demo::profiles().into_iter().find(|(i, _)| i == id).unwrap().1.env;
+        // what a run gets: the profile's own variables plus those of its integrations
+        let demo_env = |id: &str| {
+            let profile = crate::demo::profiles().into_iter().find(|(i, _)| i == id).unwrap().1;
+            crate::config::integrations::merge(&profile, &crate::demo::integrations()).unwrap().0
+        };
         let value = |id: &str, name: &str| demo_env(id).into_iter().find(|v| v.name == name).map(|v| v.value);
         assert_eq!(value("developer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB}"));
         assert_eq!(value("reviewer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB}"));

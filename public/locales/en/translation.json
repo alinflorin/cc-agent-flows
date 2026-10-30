@@ -678,7 +678,8 @@
     "profiles": "The starter profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, qa) are written again as they were first created, with their prompts, variables and allowed hosts; your edits to them are lost and deleted ones come back. Other profiles are not touched.",
     "secrets": "GITHUB_TOKEN, GITHUB_READONLY_TOKEN and JIRA_TOKEN are set to the dummy value again. If you stored real tokens under these names, they are lost. Other secrets are not touched.",
     "variables": "ATLASSIAN_HOST and ATLASSIAN_EMAIL are set to their placeholder values again. If you entered your own, they are lost. Other variables are not touched.",
-    "injections": "The injections GITHUB, GITHUB_READONLY and JIRA are written again as they were first created; your edits to them are lost. Other injections are not touched."
+    "injections": "The injections GITHUB, GITHUB_READONLY and JIRA are written again as they were first created; your edits to them are lost. Other injections are not touched.",
+    "integrations": "The integrations Jira, GitHub read-write and GitHub read-only are written again as they were first created; your edits to them are lost. Their variables, secrets and injections are not changed (reset those on their own pages). Other integrations are not touched."
   },
   "analytics": {
     "intro": "Tokens, time and failures over your sessions, from their logs.",
