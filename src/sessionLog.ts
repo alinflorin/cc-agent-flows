@@ -116,6 +116,19 @@ export interface Digest {
   errors: string[];
 }
 
+/** The assistant's text without the JSON answer `agentd` asks it to end with (the final shows it). */
+export function withoutAnswer(text: string): string {
+  const end = text.lastIndexOf("}");
+  if (end < 0) return text;
+  for (let i = text.lastIndexOf("{", end); i >= 0; i = text.lastIndexOf("{", i - 1)) {
+    try {
+      const o = JSON.parse(text.slice(i, end + 1));
+      if (o && typeof o === "object" && "status" in o) return text.slice(0, i).trimEnd() + text.slice(end + 1).trimEnd();
+    } catch { /* not the answer */ }
+  }
+  return text;
+}
+
 export const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
 /** The call a run key belongs to: `r:2:1` and `r~1` both belong to `r`. */
@@ -203,7 +216,7 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
         }
         if (!r || b.event?.type !== "assistant") break;
         for (const c of b.event.message?.content ?? []) {
-          if (c.type === "text" && c.text) r.pieces.push({ kind: "text", text: c.text });
+          if (c.type === "text" && withoutAnswer(c.text ?? "").trim()) r.pieces.push({ kind: "text", text: withoutAnswer(c.text) });
           else if (c.type === "tool_use") r.pieces.push({ kind: "tool", text: `${c.name} ${clip(JSON.stringify(c.input), 160)}` });
         }
         break;

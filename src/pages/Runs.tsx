@@ -7,7 +7,7 @@ import { useNotify } from "../notifications";
 import { call } from "../tauri";
 import { useProjectId } from "../project";
 import { fmtTime } from "../text";
-import type { NetSpeed, NetTotals, Traffic, VmState, VmStats } from "../sessionLog";
+import { withoutAnswer, type NetSpeed, type NetTotals, type Traffic, type VmState, type VmStats } from "../sessionLog";
 import { NetStats, TrafficLines } from "./session/Calls";
 import { Meters, VmPill } from "./session/Graph";
 import { fmtBytes, fmtTokens } from "./session/types";
@@ -91,7 +91,7 @@ function linesOf(run: string, msg: Msg): Line[] {
   const out: Line[] = [];
   (ev.message?.content ?? []).forEach((c: any, i: number) => {
     const key = `${run}-${msg.body.seq}-${i}`;
-    if (c.type === "text" && c.text) out.push({ key, kind: "text", text: c.text });
+    if (c.type === "text" && withoutAnswer(c.text ?? "").trim()) out.push({ key, kind: "text", text: withoutAnswer(c.text) });
     if (c.type === "tool_use") out.push({ key, kind: "tool", text: `${c.name} ${JSON.stringify(c.input).slice(0, 200)}` });
   });
   return out;
@@ -125,7 +125,13 @@ export function Runs() {
       listen<{ run: string; msg: Msg }>("agent-run", (e) => {
         if (e.payload.run !== current.current) return;
         setInfo((i) => fold(i, e.payload.msg));
-        setLines((l) => [...l, ...linesOf(e.payload.run, e.payload.msg)]);
+        setLines((l) => {
+          const add = linesOf(e.payload.run, e.payload.msg);
+          // The final repeats the agent's last words: show them once.
+          const last = l[l.length - 1];
+          const fin = add.find((x) => x.kind === "final");
+          return fin && last?.kind === "text" && last.text.trim() === fin.text.trim() ? [...l.slice(0, -1), ...add] : [...l, ...add];
+        });
         if (e.payload.msg.kind === "final") {
           setFinished(true);
           // the agent answered: the box is ready for the next message (a failed run keeps the text so it can be sent again)
