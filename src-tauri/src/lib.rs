@@ -153,6 +153,7 @@ pub fn run() {
             config::injections::injections_reset_demo,
             config::integrations::integrations_list,
             config::integrations::integrations_save,
+            config::integrations::integrations_reset_demo,
             config::integrations::integrations_delete
         ])
         .setup(|app| {

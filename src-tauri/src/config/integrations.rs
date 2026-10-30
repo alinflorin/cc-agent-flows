@@ -255,6 +255,30 @@ pub fn integrations_delete(app: tauri::AppHandle, project: Option<String>, name:
     store(&path, &list)
 }
 
+/// Part of the demo content: adds the demo integrations that do not exist yet (their variables,
+/// secrets and injections come from their own `provision_demo`).
+///
+/// `reset`: the demo integrations are written again over the ones with their names, others are left alone.
+pub fn provision_demo(app: &tauri::AppHandle, scope: &Scope, reset: bool) -> Result<(), String> {
+    let path = file(app, scope)?;
+    let mut list = load(&path);
+    for i in crate::demo::integrations() {
+        let i = clean(i)?;
+        match list.iter_mut().find(|o| o.name == i.name) {
+            Some(o) if reset => *o = i,
+            Some(_) => {}
+            None => list.push(i),
+        }
+    }
+    store(&path, &list)
+}
+
+/// Integrations > Reset to demo content.
+#[tauri::command]
+pub fn integrations_reset_demo(app: tauri::AppHandle, project: Option<String>) -> Result<(), String> {
+    provision_demo(&app, &Scope::of(project)?, true)
+}
+
 /// What a profile runs with: its own environment variables and hosts plus those of its
 /// integrations (the profile's own win on a name). A missing integration fails.
 pub fn expand(app: &tauri::AppHandle, scope: &Scope, profile: &Profile) -> Result<(Vec<EnvVar>, Vec<String>), String> {
@@ -266,7 +290,7 @@ pub fn expand(app: &tauri::AppHandle, scope: &Scope, profile: &Profile) -> Resul
 }
 
 /// [`expand`] over a list where earlier entries win on a name.
-fn merge(profile: &Profile, available: &[Integration]) -> Result<(Vec<EnvVar>, Vec<String>), String> {
+pub(crate) fn merge(profile: &Profile, available: &[Integration]) -> Result<(Vec<EnvVar>, Vec<String>), String> {
     let mut env = profile.env.clone();
     let mut hosts = profile.allow_hosts.clone();
     for name in &profile.integrations {
