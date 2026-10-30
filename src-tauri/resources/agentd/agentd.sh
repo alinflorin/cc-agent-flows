@@ -19,6 +19,9 @@ SSH=ssh
 CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 CA_FILE=/etc/ccaf-ca.pem
 TOOLS_DIR=/usr/share/ccaf/tools
+# The only tools `claude` gets: the rest (subagents, cron, worktrees, skills...) are useless in a
+# throwaway VM and cost prompt tokens. The web tools still go through the egress allowlist.
+CLAUDE_TOOLS="Bash,Read,Write,Edit,WebFetch,WebSearch"
 RUN_AS=
 POWEROFF=0
 while [ $# -gt 0 ]; do
@@ -153,7 +156,7 @@ if [ -n "$RUN_AS" ]; then
 fi
 
 set -- -p "$PROMPT" --output-format stream-json --verbose --include-partial-messages \
-	--dangerously-skip-permissions
+	--dangerously-skip-permissions --tools "$CLAUDE_TOOLS"
 if [ "$RESUME" = true ]; then set -- "$@" --resume "$SID"; else set -- "$@" --session-id "$SID"; fi
 [ -z "$MODEL" ] || set -- "$@" --model "$MODEL"
 [ -z "$EFFORT" ] || set -- "$@" --effort "$EFFORT"
