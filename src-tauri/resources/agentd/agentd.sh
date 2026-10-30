@@ -153,7 +153,7 @@ if [ -n "$RUN_AS" ]; then
 fi
 
 set -- -p "$PROMPT" --output-format stream-json --verbose --include-partial-messages \
-	--json-schema "$SCHEMA" --dangerously-skip-permissions
+	--dangerously-skip-permissions
 if [ "$RESUME" = true ]; then set -- "$@" --resume "$SID"; else set -- "$@" --session-id "$SID"; fi
 [ -z "$MODEL" ] || set -- "$@" --model "$MODEL"
 [ -z "$EFFORT" ] || set -- "$@" --effort "$EFFORT"
@@ -169,7 +169,15 @@ if [ -n "$TOOLS" ]; then
 
 $TOOLS"
 fi
-[ -z "$SYSTEM" ] || set -- "$@" --append-system-prompt "$SYSTEM"
+# No `--json-schema`: it adds a StructuredOutput tool and a model turn. The answer is asked for in
+# the prompt instead and read from the end of `claude`'s last message (see the final below).
+SYSTEM="${SYSTEM:+$SYSTEM
+
+}# Final answer
+
+End your last message with one JSON object that matches this JSON schema, as plain text (no code fence, nothing after it):
+$SCHEMA"
+set -- "$@" --append-system-prompt "$SYSTEM"
 
 # The token is exported only in the subshell that becomes `claude`, so it is in no other
 # environment and on no command line. setsid gives `claude` and its children their own process
@@ -242,7 +250,11 @@ if [ -n "${REASON:-}" ]; then
 else
 	# `claude` failing outranks what its answer claims.
 	FINAL=$(printf '%s' "$RESULT" | jq -c --arg sid "$SID" --argjson code "$CODE" '
-		(.structured_output | if type == "object" then . else {} end) as $s |
+		# The answer is the last JSON object in the reply: the whole text, a fenced block, or the span
+		# from the first "{", or from the last line starting with "{", to the last "}". Anything else is plain text, reported as done.
+		((.result // "" | strings) as $t |
+			([$t, ($t | capture("```(?:json)?\\s*(?<j>\\{[^`]*\\})\\s*```"; "g") | .j), ($t | sub("^[^{]*(?=\\{)"; "") | sub("(?<=\\})[^}]*$"; "")), ($t | sub("^(?s:.*\\n)(?=\\{)"; "") | sub("(?<=\\})[^}]*$"; ""))]
+				| map(try fromjson catch null | select(type == "object")) | last // {})) as $s |
 		{kind: "final", body: {
 			status: (if .is_error == true then "failed"
 				elif ($s.status | IN("done", "needs_input", "failed")) then $s.status
@@ -251,7 +263,7 @@ else
 			questions: [($s.questions // [])[]? | strings],
 			session_id: ((.session_id | strings) // $sid),
 			tokens: (if (.usage | type) == "object" then ([.usage.input_tokens, .usage.cache_creation_input_tokens, .usage.cache_read_input_tokens, .usage.output_tokens] | map(numbers) | add) else null end),
-			output: (if (.structured_output | type) == "object" then .structured_output else null end),
+			output: (if $s == {} then null else $s end),
 			exit_code: $code}}')
 fi
 [ -n "$FINAL" ] || fail "could not build the final message"

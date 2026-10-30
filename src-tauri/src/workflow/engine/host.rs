@@ -76,7 +76,7 @@ impl Host for RealHost {
         let task = Task {
             prompt: req.prompt,
             model: profile.model.clone(),
-            effort: profile.effort.clone(),
+            effort: Some(profile.effort_or_default()),
             session_id: crate::vm::runs::uuid_v4(),
             resume: false,
             schema: req.schema,

@@ -384,7 +384,7 @@ pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: Strin
     let task = Task {
         prompt,
         model: resolved.model.clone(),
-        effort: resolved.effort.clone(),
+        effort: Some(resolved.effort_or_default()),
         session_id: uuid_v4(),
         resume: false,
         schema: crate::vm::protocol::RESULT_SCHEMA.into(),

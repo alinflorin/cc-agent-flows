@@ -48,7 +48,7 @@ echo '{"type":"system","subtype":"init"}'
 echo '{"type":"assistant","message":{"content":[{"type":"text","text":"working \"quoted\" ünï"}]}}'
 echo 'not json at all'
 echo "hello" > made-by-claude.txt
-echo '{"type":"result","is_error":false,"result":"free text","structured_output":{"status":"needs_input","summary":"half done","questions":["which db?"]},"usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":25,"output_tokens":75},"session_id":"sess-1"}'
+echo '{"type":"result","is_error":false,"result":"free text\\n{\"status\":\"needs_input\",\"summary\":\"half done\",\"questions\":[\"which db?\"]}","usage":{"input_tokens":100,"cache_creation_input_tokens":50,"cache_read_input_tokens":25,"output_tokens":75},"session_id":"sess-1"}'
 "#;
 
     /// Never finishes: the script has to kill it, and the process it leaves behind.
@@ -176,7 +176,9 @@ first
 
 ## second
 second"
-[ "$sp" = "$expected" ] || { echo "bad prompt: $sp" >&2; exit 2; }
+# agentd ends the system prompt with the instruction to answer in JSON, after the notes.
+case "$sp" in "$expected"*Final?answer*) ;; *) echo "bad prompt: $sp" >&2; exit 2;; esac
+true
 echo '{"type":"result","is_error":false,"result":"ok","session_id":"s"}'
 "#;
 

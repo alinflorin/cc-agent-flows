@@ -377,7 +377,7 @@
     "modelDefault": "Implicit",
     "effort": "Efort de gândire",
     "effortHint": "Cât gândește agentul înainte să răspundă. Mai mare înseamnă mai lent și mai mulți tokeni.",
-    "effortDefault": "Implicit",
+    "effortDefault": "Implicit (scăzut)",
     "cpus": "CPU-uri",
     "cpusAll": "Toate ale gazdei",
     "cpusHint": "CPU-uri virtuale ale VM-ului. Gol = nucleele gazdei, cel mult 4.",

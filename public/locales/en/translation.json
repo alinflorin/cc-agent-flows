@@ -377,7 +377,7 @@
     "modelDefault": "Default",
     "effort": "Thinking effort",
     "effortHint": "How much the agent thinks before answering. Higher is slower and uses more tokens.",
-    "effortDefault": "Default",
+    "effortDefault": "Default (low)",
     "cpus": "CPUs",
     "cpusAll": "All of the host's",
     "cpusHint": "Virtual CPUs of the VM. Empty = the host's cores, at most 4.",
