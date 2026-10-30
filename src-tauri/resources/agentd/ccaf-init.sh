@@ -20,6 +20,10 @@ echo 2 >/proc/sys/kernel/yama/ptrace_scope 2>/dev/null
 echo /sbin/mdev >/proc/sys/kernel/hotplug
 mdev -s
 
+# agentd waits for the app's bootstrap anyway: read what it will run into the page cache meanwhile
+# (the disk is a cold overlay, and Claude Code is a big binary)
+{ cat "$(readlink -f /usr/local/bin/claude)" /usr/bin/jq /usr/bin/ssh /usr/bin/rg /usr/lib/lib*.so* >/dev/null 2>&1; } &
+
 # QEMU's user-mode network is fixed, so no DHCP round trip
 ip link set lo up
 ip addr add 10.0.2.15/24 dev eth0

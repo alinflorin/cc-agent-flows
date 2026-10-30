@@ -50,10 +50,14 @@ fn hw_accel() -> bool {
 pub fn boot_args(dir: &Path, arch: &str, agent: bool) -> Vec<std::ffi::OsString> {
     let tty = if arch == "aarch64" { "ttyAMA0" } else { "ttyS0" };
     let mut cmdline = if agent {
-        "quiet loglevel=0 8250.nr_uarts=0 noresume root=/dev/vda rootfstype=ext4 rootflags=noatime rw init=/sbin/ccaf-init".to_string()
+        "quiet loglevel=0 8250.nr_uarts=0 random.trust_cpu=on mitigations=off noresume raid=noautodetect root=/dev/vda rootfstype=ext4 rootflags=noatime rw init=/sbin/ccaf-init".to_string()
     } else {
         format!("console={tty} root=/dev/vda rootfstype=ext4 rw")
     };
+    if agent && arch == "x86_64" {
+        // no keyboard controller probe, no timer checks, a trusted TSC: all time off the boot
+        cmdline.push_str(" i8042.noaux i8042.nokbd tsc=reliable no_timer_check");
+    }
     // WHPX: the guest kernel panics while setting up XSAVE state (fpu__init_system_xstate), so it
     // must not use XSAVE (no AVX in the guest; Claude Code's SSE4.2 baseline is enough)
     if cfg!(windows) && arch == "x86_64" {
