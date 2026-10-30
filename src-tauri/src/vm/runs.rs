@@ -175,6 +175,35 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
     }
 }
 
+/// A fresh qcow2 overlay of `disk` at `overlay`. Making one with `qemu-img` costs a process per run,
+/// so an empty overlay is made once per version of the image (path, size and time of the file) and
+/// every run gets a copy of it (a reflink where the file system has them).
+async fn make_overlay(app: &AppHandle, disk: &Path, overlay: &Path) -> Result<(), String> {
+    use std::hash::{Hash, Hasher};
+    let meta = std::fs::metadata(disk).map_err(|e| format!("the image: {e}"))?;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    disk.hash(&mut h);
+    let prefix = format!("{:016x}", h.finish());
+    let stamp = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+    let dir = runs_dir(app)?.join("overlays");
+    let template = dir.join(format!("{prefix}-{}-{stamp}.qcow2", meta.len()));
+    if !template.exists() {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        // older versions of this image's template are of no use any more
+        for old in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            if old.file_name().to_string_lossy().starts_with(&prefix) {
+                let _ = std::fs::remove_file(old.path());
+            }
+        }
+        // unique name, then rename: runs that start together do not see a half-written file
+        let tmp = dir.join(format!("{prefix}.{}.tmp", new_run_id()));
+        let (base, top) = (disk.to_string_lossy(), tmp.to_string_lossy());
+        crate::vm::machine::qemu_img(app, &["create", "-q", "-f", "qcow2", "-b", &base, "-F", "qcow2", &top]).await?;
+        std::fs::rename(&tmp, &template).map_err(|e| e.to_string())?;
+    }
+    std::fs::copy(&template, overlay).map(|_| ()).map_err(|e| format!("overlay: {e}"))
+}
+
 /// Reads the files a boot needs (disk, kernel, initramfs) once per process in the background, so
 /// the first run after the app starts does not wait on a cold disk; later runs find them cached.
 fn warm_cache(app: &AppHandle, disk: &Path) {
@@ -238,10 +267,8 @@ async fn boot_and_drive(
     let proxy = crate::net::egress::Proxy::with_limits(rules, Some(inspector), limits);
     let meter = proxy.meter();
     // Never boot the image itself: a throwaway overlay on top of it (made while the tunnel starts).
-    let (base, top) = (disk.to_string_lossy(), overlay.to_string_lossy());
-    let img_args = ["create", "-q", "-f", "qcow2", "-b", &base, "-F", "qcow2", &top];
     let (overlay_made, tunnel) = tokio::join!(
-        crate::vm::machine::qemu_img(app, &img_args),
+        make_overlay(app, disk, &overlay),
         crate::net::tunnel::Tunnel::start(
             proxy,
             std::sync::Arc::new(move |line| {

@@ -54,6 +54,13 @@ FINISHED=0
 
 send() { printf '%s\n' "$1" >&4; }
 
+# Where the time of a run goes: an event (seq 0, ignored by the UI, kept in the run log) with the
+# guest's uptime in seconds, so the boot shows next to what agentd did afterwards.
+mark() {
+	read -r _up _ </proc/uptime
+	send "{\"kind\":\"event\",\"body\":{\"seq\":0,\"event\":{\"type\":\"timing\",\"what\":\"$1\",\"uptime\":${_up:-0}}}}"
+}
+
 # Waits up to $1 seconds for a line from the app into $line. Before the app connects the port reads
 # as end of file, so that is retried.
 readline() {
@@ -84,7 +91,9 @@ fail() {
 # Safety net: whatever goes wrong, the app gets a final and the VM goes away.
 trap '[ "$FINISHED" = 1 ] || fail "agentd stopped unexpectedly"' EXIT
 
+mark agentd_up
 readline 300 || fail "no bootstrap from the app"
+mark bootstrap
 TOKEN=$(printf '%s' "$line" | jq -r '.claude_token // empty') || fail "bad bootstrap"
 AGENT_ID=$(printf '%s' "$line" | jq -r '.id // empty')
 [ -n "$TOKEN" ] || fail "bootstrap without a token"
@@ -96,6 +105,7 @@ CA=$(printf '%s' "$line" | jq -r '.ca // empty')
 
 send '{"kind":"ready"}'
 readline 300 || fail "no task from the app"
+mark task
 TASK=$line
 field() { printf '%s' "$TASK" | jq -r ".body.$1 // empty"; }
 PROMPT=$(field prompt)
@@ -135,6 +145,8 @@ if [ -n "$TUNNEL_KEY" ]; then
 	rm -f "$T/tunnel.key"
 	[ "$_rc" = 0 ] || fail "tunnel: cannot reach the network proxy (ssh exit $_rc): $(tail -c 500 "$T/ssh.err" 2>/dev/null)"
 fi
+
+mark tunnel_up
 
 # Make the VM trust that CA: appended to the system bundle (curl, git, Go and most others read it)
 # and kept in a file for Node (NODE_EXTRA_CA_CERTS) and Python requests. It is a public certificate.
@@ -211,6 +223,7 @@ run_claude() {
 	exec setsid "$CLAUDE" "$@"
 }
 
+mark claude_start
 (
 	{
 		(run_claude "$@") 2>"$T/stderr"
@@ -223,23 +236,25 @@ run_claude() {
 			 else (. as $l | try fromjson catch {type: "raw", text: $l}) end)}}' >&4
 	: >"$T/done"
 ) &
+PIPE=$!
 
-START=$(date +%s)
+# The deadline: a watcher kills claude's process group when it passes, and the pipeline (in case a
+# child escaped the group and keeps it open) ten seconds later. Waiting for the pipeline with
+# `wait` ends the run the moment claude does, with no polling.
 TIMED_OUT=0
-while [ ! -e "$T/done" ]; do
-	if [ $(($(date +%s) - START)) -ge "$TIMEOUT" ]; then
-		TIMED_OUT=1
-		kill -s KILL -- "-$(cat "$T/pid" 2>/dev/null)" 2>/dev/null
-		break
-	fi
-	sleep 1
-done
-# After a kill give the pipeline a moment to drain; a child that escaped its group is left behind.
-n=0
-while [ ! -e "$T/done" ] && [ $n -lt 10 ]; do
-	sleep 1
-	n=$((n + 1))
-done
+(
+	sleep "$TIMEOUT" &
+	echo $! >"$T/sleep"
+	wait
+	: >"$T/timedout"
+	kill -s KILL -- "-$(cat "$T/pid" 2>/dev/null)" 2>/dev/null
+	sleep 10
+	kill -s KILL "$PIPE" 2>/dev/null
+) &
+WATCHER=$!
+wait "$PIPE"
+kill "$WATCHER" "$(cat "$T/sleep" 2>/dev/null)" 2>/dev/null
+[ -e "$T/timedout" ] && TIMED_OUT=1
 
 CODE=$(cat "$T/code" 2>/dev/null)
 case $CODE in '' | *[!0-9]*) CODE=null ;; esac

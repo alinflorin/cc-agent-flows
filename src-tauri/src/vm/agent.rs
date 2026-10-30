@@ -27,10 +27,11 @@ where
     tokio::spawn(async move {
         let (read, mut write) = tokio::io::split(stream);
         let mut read = BufReader::new(read);
-        if write_line(&mut write, &boot).await.is_err() {
+        // The task goes right behind the bootstrap: the channel buffers it until agentd reads it, so
+        // there is no round trip to wait for after the guest boots. agentd still says `ready`.
+        if write_line(&mut write, &boot).await.is_err() || write_line(&mut write, &Inbound::Task(task)).await.is_err() {
             return;
         }
-        let mut task = Some(task);
         let mut line = String::new();
         loop {
             line.clear();
@@ -41,14 +42,7 @@ where
             }
             let Ok(msg) = serde_json::from_str::<Outbound>(&line) else { continue };
             match msg {
-                Outbound::Ready => {
-                    // Only the first `ready` gets the task.
-                    if let Some(t) = task.take()
-                        && write_line(&mut write, &Inbound::Task(t)).await.is_err()
-                    {
-                        return;
-                    }
-                }
+                Outbound::Ready => {}
                 other => {
                     if tx.send(other).await.is_err() {
                         return;

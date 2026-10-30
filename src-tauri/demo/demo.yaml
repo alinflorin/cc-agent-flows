@@ -89,12 +89,15 @@ images:
           `agent-browser` drives a headless Chromium; a background daemon keeps the page between commands. Take a new `snapshot -i` after every page change, element refs (`@e3`) go stale.
       - {kind: "command", value: "agent-browser --help"}
 
-# Agent profiles. `env` values may use ${injection:NAME} and ${var:NAME}; allow_hosts must cover the hosts of the injections a profile uses.
+# Agent profiles. `model` and `memory_mb` are set where the role allows a smaller model or VM (the
+# agents that only coordinate or read), the rest keep Claude Code's default model and 2048 MB. `env` values may use ${injection:NAME} and ${var:NAME}; allow_hosts must cover the hosts of the injections a profile uses.
 profiles:
   - id: "orchestrator"
     name: "Orchestrator"
     description: "Takes the user's request and hands it to the project manager; reports the outcome back."
     image: "base"
+    model: "haiku"
+    memory_mb: 1024
     system_prompt: >-
       You are a manual QA tester. You read Jira tickets with `jtk` and test the application the
       way a user would, with agent-browser (a headless Chromium; `agent-browser --help` lists its
@@ -107,6 +110,8 @@ profiles:
       Delivers the Jira tickets it is given, in priority order, by coordinating the team; the only
       one that moves tickets across statuses.
     image: "manager"
+    model: "sonnet"
+    memory_mb: 1024
     system_prompt: >-
       You are a project manager, the only agent that changes the status of Jira tickets, and you
       do not write code. You read tickets with `jtk` (status, priority, links, comments) and never
@@ -128,6 +133,8 @@ profiles:
     name: "Business analyst"
     description: "Defines what done means for a Jira ticket and attaches it to the ticket."
     image: "manager"
+    model: "sonnet"
+    memory_mb: 1024
     system_prompt: >-
       You are a business analyst. You read Jira tickets with `jtk` (description, comments,
       attachments, linked tickets) and turn them into a definition of done: testable user stories,
@@ -143,6 +150,7 @@ profiles:
     name: "Architect"
     description: "Designs a change for a Jira ticket and attaches the architecture to the ticket."
     image: "developer"
+    memory_mb: 1536
     system_prompt: >-
       You are a software architect. You read Jira tickets with `jtk` and the code, and design
       changes: which parts change and how, the interfaces involved, the risks and the order of the
@@ -200,6 +208,8 @@ profiles:
     name: "Code reviewer"
     description: "Reviews and merges a pull request for a Jira ticket."
     image: "developer"
+    model: "sonnet"
+    memory_mb: 1536
     system_prompt: >-
       You are a code reviewer. You review a pull request against its Jira ticket (read with `jtk`,
       with the definition of done and the architecture attached to it): bugs, missing tests,
