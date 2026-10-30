@@ -2,8 +2,8 @@
 //! (`resources/agentd/agentd.sh`, which builds and parses these by hand with `jq`: keep them in step).
 //!
 //! They travel over one virtio-serial port per VM (the guest sees `/dev/virtio-ports/agent`), one
-//! JSON message per line, in this order: the app sends `Bootstrap`, `agentd` answers `Ready`, the
-//! app sends the `Task`, then `agentd` streams `Event`s and finally one `Final`. The
+//! JSON message per line, in this order: the app sends `Bootstrap` and the `Task` (without
+//! waiting for `agentd`'s `Ready`, which only tells that it is up), then `agentd` streams `Event`s and finally one `Final`. The
 //! channel belongs to one VM, so there are no tokens or identities: the app knows who is talking
 //! because of the socket. Everything the agent sends is untrusted: the app validates it.
 

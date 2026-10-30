@@ -146,9 +146,12 @@ echo '{"type":"result","is_error":false,"result":"free text\\n{\"status\":\"need
         let mut run = start("agentd", FAKE_CLAUDE, task(40));
         let (seen, fin) = run.finish(30).await;
 
-        let events: Vec<_> = seen.iter().filter_map(|m| if let Outbound::Event(e) = m { Some(e) } else { None }).collect();
+        // agentd's own timing marks (seq 0) are not claude's output
+        let timing = seen.iter().filter(|m| matches!(m, Outbound::Event(e) if e.event["type"] == "timing")).count();
+        assert!(timing >= 3, "agentd reports where the time goes");
+        let events: Vec<_> = seen.iter().filter_map(|m| if let Outbound::Event(e) = m { Some(e) } else { None }).filter(|e| e.event["type"] != "timing").collect();
         assert_eq!(events.len(), 4);
-        assert_eq!(seen.len(), 4, "events are all there is before the final");
+        assert_eq!(seen.len(), 4 + timing, "events are all there is before the final");
         assert_eq!(events[1].seq, 2);
         assert_eq!(events[1].event["message"]["content"][0]["text"], "working \"quoted\" ünï");
         assert_eq!(events[2].event["type"], "raw", "a line that is not JSON is wrapped");
