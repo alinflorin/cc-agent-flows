@@ -175,6 +175,31 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
     }
 }
 
+/// Reads the files a boot needs (disk, kernel, initramfs) once per process in the background, so
+/// the first run after the app starts does not wait on a cold disk; later runs find them cached.
+fn warm_cache(app: &AppHandle, disk: &Path) {
+    static DONE: std::sync::Mutex<Vec<std::path::PathBuf>> = std::sync::Mutex::new(Vec::new());
+    let mut files = vec![disk.to_path_buf()];
+    if let (Ok(res), Ok(arch)) = (crate::vm::machine::resources(app), crate::vm::machine::arch()) {
+        let dir = res.join("images");
+        files.push(dir.join(format!("alpine-{arch}.vmlinuz")));
+        files.push(dir.join(format!("alpine-{arch}.initramfs")));
+    }
+    let Ok(mut done) = DONE.lock() else { return };
+    files.retain(|f| !done.contains(f));
+    done.extend(files.iter().cloned());
+    drop(done);
+    if !files.is_empty() {
+        tokio::task::spawn_blocking(move || {
+            for f in files {
+                if let Ok(mut r) = std::fs::File::open(f) {
+                    let _ = std::io::copy(&mut r, &mut std::io::sink());
+                }
+            }
+        });
+    }
+}
+
 /// What the egress proxy of a run enforces.
 #[derive(Clone)]
 struct Egress {
@@ -199,13 +224,7 @@ async fn boot_and_drive(
 ) -> Result<Final, String> {
     vm_state(on_msg, "preparing");
     let overlay = work.join("disk.qcow2");
-    // Never boot the image itself: a throwaway overlay on top of it.
-    crate::vm::machine::qemu_img(
-        app,
-        &["create", "-q", "-f", "qcow2", "-b", &disk.to_string_lossy(), "-F", "qcow2", &overlay.to_string_lossy()],
-    )
-    .await?;
-
+    warm_cache(app, disk);
     // The VM's only way out: its NIC is sealed and QEMU forwards one connection to this SSH server,
     // which hands the agent's traffic to the egress proxy. The server must listen before QEMU
     // starts, which connects to it at once.
@@ -218,13 +237,20 @@ async fn boot_and_drive(
     let ca = Some(inspector.ca_pem().to_string());
     let proxy = crate::net::egress::Proxy::with_limits(rules, Some(inspector), limits);
     let meter = proxy.meter();
-    let tunnel = crate::net::tunnel::Tunnel::start(
-        proxy,
-        std::sync::Arc::new(move |line| {
-            let _ = egress_tx.send(line);
-        }),
-    )
-    .await?;
+    // Never boot the image itself: a throwaway overlay on top of it (made while the tunnel starts).
+    let (base, top) = (disk.to_string_lossy(), overlay.to_string_lossy());
+    let img_args = ["create", "-q", "-f", "qcow2", "-b", &base, "-F", "qcow2", &top];
+    let (overlay_made, tunnel) = tokio::join!(
+        crate::vm::machine::qemu_img(app, &img_args),
+        crate::net::tunnel::Tunnel::start(
+            proxy,
+            std::sync::Arc::new(move |line| {
+                let _ = egress_tx.send(line);
+            }),
+        )
+    );
+    overlay_made?;
+    let tunnel = tunnel?;
 
     let channel = Serial::named(work, "agent");
     let errlog = work.join("qemu.err");

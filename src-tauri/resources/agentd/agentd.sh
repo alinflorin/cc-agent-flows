@@ -156,7 +156,7 @@ if [ -n "$RUN_AS" ]; then
 fi
 
 set -- -p "$PROMPT" --output-format stream-json --verbose --include-partial-messages \
-	--dangerously-skip-permissions --tools "$CLAUDE_TOOLS"
+	--dangerously-skip-permissions --tools "$CLAUDE_TOOLS" --disable-slash-commands --strict-mcp-config
 if [ "$RESUME" = true ]; then set -- "$@" --resume "$SID"; else set -- "$@" --session-id "$SID"; fi
 [ -z "$MODEL" ] || set -- "$@" --model "$MODEL"
 [ -z "$EFFORT" ] || set -- "$@" --effort "$EFFORT"
@@ -193,6 +193,10 @@ run_claude() {
 	# the profile's variables first, so they cannot override what follows
 	eval "$ENVSET"
 	export CLAUDE_CODE_OAUTH_TOKEN="$TOKEN" HOME="$HOME_DIR" CCAF_AGENT_ID="$AGENT_ID"
+	# less to do at start: no update check, telemetry or error reports, no CLAUDE.md search, no
+	# auto-memory (--bare would skip these too but never reads the OAuth token)
+	export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 DISABLE_AUTOUPDATER=1 DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 \
+		CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 CLAUDE_CODE_DISABLE_AUTO_MEMORY=1
 	if [ -n "$CA" ]; then
 		export NODE_EXTRA_CA_CERTS=$CA_FILE REQUESTS_CA_BUNDLE=$CA_BUNDLE
 	fi

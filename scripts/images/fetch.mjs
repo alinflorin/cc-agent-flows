@@ -7,6 +7,7 @@
 // host's architecture: aarch64 targets get the aarch64 image, everything else x86_64. Without
 // --required a missing image only warns.
 import { execFileSync } from "node:child_process";
+import { gunzipSync } from "node:zlib";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,7 +39,12 @@ try {
   // Never leave another architecture's image behind.
   mkdirSync(dest, { recursive: true });
   for (const f of readdirSync(dest)) if (f.startsWith("alpine-")) rmSync(join(dest, f));
-  for (const n of names) copyFileSync(join(here, "../../vendor/images", n), join(dest, n));
+  for (const n of names) {
+    const from = join(here, "../../vendor/images", n);
+    // the initramfs is stored gzipped; the kernel then needs no time to unpack it
+    if (n.endsWith(".initramfs")) writeFileSync(join(dest, n), gunzipSync(readFileSync(from)));
+    else copyFileSync(from, join(dest, n));
+  }
   writeFileSync(marker, stamp);
 } catch (e) {
   if (required) throw e;

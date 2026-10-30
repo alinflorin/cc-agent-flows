@@ -14,6 +14,11 @@ install -d -o agent -g agent /home/agent/work
 # the bundled one does not run on musl.
 su agent -c 'export PATH="$HOME/.local/bin:$PATH"; curl -fsSL https://claude.ai/install.sh | bash'
 ln -s /home/agent/.local/bin/claude /usr/local/bin/claude
+# What Claude Code writes on its first start, made now: onboarding done, no update or tips nags
+install -d -o agent -g agent /home/agent/.claude
+printf '%s\n' '{"hasCompletedOnboarding":true,"numStartups":3,"autoUpdates":false,"hasSeenTasksHint":true,"tipsHistory":{}}' >/home/agent/.claude.json
+printf '%s\n' '{"autoUpdates":false,"includeCoAuthoredBy":false}' >/home/agent/.claude/settings.json
+chown agent:agent /home/agent/.claude.json /home/agent/.claude/settings.json
 # Claude Code's own bin directory on PATH (for logins; the symlink above covers the service)
 cat >/etc/profile.d/claude.sh <<'EOP'
 export USE_BUILTIN_RIPGREP=0
