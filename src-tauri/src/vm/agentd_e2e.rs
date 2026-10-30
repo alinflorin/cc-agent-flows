@@ -39,6 +39,7 @@ mod e2e {
     const FAKE_CLAUDE: &str = r#"#!/bin/sh
 case "$*" in *--dangerously-skip-permissions*--session-id*|*--session-id*--dangerously-skip-permissions*) ;; *) echo "bad args: $*" >&2; exit 2;; esac
 [ "$CLAUDE_CODE_OAUTH_TOKEN" = "sk-test-token" ] || { echo "no token" >&2; exit 3; }
+case "$*" in *"--tools Bash,Read,Write,Edit,WebFetch,WebSearch"*) ;; *) echo "bad tools: $*" >&2; exit 9;; esac
 case "$*" in *"--append-system-prompt be brief"*) ;; *) echo "no system prompt: $*" >&2; exit 4;; esac
 [ "$TEAM" = 'it'"'"'s "red" $HOME' ] || { echo "bad env: $TEAM" >&2; exit 5; }
 [ "$PATH" != /nowhere ] || { echo "PATH was overridden" >&2; exit 6; }
