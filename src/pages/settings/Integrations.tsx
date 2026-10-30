@@ -299,9 +299,9 @@ export function IntegrationsSettings() {
                               placeholder={t("settings.injections.username")}
                               input={{ className: styles.mono }}
                               value={x.username}
-                              selectedOptions={[x.username]}
+                              selectedOptions={[]}
                               onChange={(e) => setInj(i, { username: e.target.value })}
-                              onOptionSelect={(_, d) => setInj(i, { username: d.optionValue ?? "" })}
+                              onOptionSelect={(_, d) => d.optionValue && setInj(i, { username: d.optionValue })}
                             >
                               {userRefs.map((r) => (
                                 <Option key={r} value={r}>

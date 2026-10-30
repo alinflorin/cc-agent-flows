@@ -242,9 +242,9 @@ export function InjectionsSettings() {
                       <Combobox
                         freeform
                         value={v.username}
-                        selectedOptions={[v.username]}
+                        selectedOptions={[]}
                         onChange={(e) => set({ username: e.target.value })}
-                        onOptionSelect={(_, d) => set({ username: d.optionValue ?? "" })}
+                        onOptionSelect={(_, d) => d.optionValue && set({ username: d.optionValue })}
                       >
                         {variables.map((n) => (
                           <Option key={`var:${n}`} value={`\${var:${n}}`} text={`\${var:${n}}`}>

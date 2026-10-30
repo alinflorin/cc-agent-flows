@@ -12,9 +12,9 @@ export function RefCombobox({ value, options, placeholder, onChange }: { value: 
       input={{ className: styles.mono }}
       placeholder={placeholder}
       value={value}
-      selectedOptions={[value]}
+      selectedOptions={options.includes(value) ? [value] : []}
       onChange={(e) => onChange(e.target.value)}
-      onOptionSelect={(_, d) => onChange(d.optionValue ?? "")}
+      onOptionSelect={(_, d) => d.optionValue !== undefined && onChange(d.optionValue)}
     >
       {options.map((o) => (
         <Option key={o} value={o}>
