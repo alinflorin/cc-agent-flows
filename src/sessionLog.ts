@@ -123,7 +123,7 @@ export function withoutAnswer(text: string): string {
   for (let i = text.lastIndexOf("{", end); i >= 0; i = text.lastIndexOf("{", i - 1)) {
     try {
       const o = JSON.parse(text.slice(i, end + 1));
-      if (o && typeof o === "object" && "status" in o) return text.slice(0, i).trimEnd() + text.slice(end + 1).trimEnd();
+      if (o && typeof o === "object" && "status" in o) return (text.slice(0, i) + text.slice(end + 1)).replace(/```(?:json)?\s*```/g, "").trim();
     } catch { /* not the answer */ }
   }
   return text;
