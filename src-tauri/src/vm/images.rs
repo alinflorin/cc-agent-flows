@@ -722,10 +722,15 @@ fn launch(app: &AppHandle, disk: &Path, serial: &Serial) -> Result<tokio::proces
         .arg(drive_arg(disk))
         .arg("-serial")
         .arg(&serial.qemu_arg);
+    // the builder's own folder holds its overlay, console socket and error log
+    let work = disk.parent().unwrap_or(disk);
+    super::machine::confine(app, &mut cmd, &[disk], &[work]);
     let mut cmd = Command::from(cmd);
     let err = disk.parent().and_then(|d| std::fs::File::create(d.join("qemu.err")).ok());
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(err.map_or_else(Stdio::null, Stdio::from)).kill_on_drop(true);
-    cmd.spawn().map_err(|e| super::qemu::spawn_error(app, &format!("qemu-system-{}", arch().unwrap_or("?")), &e))
+    let child = cmd.spawn().map_err(|e| super::qemu::spawn_error(app, &format!("qemu-system-{}", arch().unwrap_or("?")), &e))?;
+    super::machine::confine_started(app, &child);
+    Ok(child)
 }
 
 #[cfg(test)]

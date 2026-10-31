@@ -338,7 +338,9 @@
       "imageScriptHint": "How long an image build script may run.",
       "builderCpus": "Builder vCPUs",
       "builderHint": "The VM that builds images.",
-      "builderMemory": "Builder memory (MB)"
+      "builderMemory": "Builder memory (MB)",
+      "confine": "Confine the VM process",
+      "confineHint": "Boxes in the QEMU process on this computer so that a bug in it cannot reach your files or run other programs (Landlock and seccomp on Linux, a sandbox profile on macOS, a job object on Windows). Turn off only if VMs fail to start."
     },
     "profiles": {
       "intro": "Agent profiles every project can use and extend. A project's profile can build on a global one (Extends) and a workflow can use a global profile directly."

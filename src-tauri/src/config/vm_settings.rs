@@ -39,6 +39,9 @@ pub struct VmSettings {
     pub image_script_mins: u32,
     pub builder_cpus: u32,
     pub builder_memory_mb: u32,
+    /// Box in the QEMU process on this computer (see `vm::confine`): on by default; off only when
+    /// it gets in the way of a VM starting.
+    pub confine: bool,
 }
 
 impl Default for VmSettings {
@@ -53,6 +56,7 @@ impl Default for VmSettings {
             image_script_mins: 25,
             builder_cpus: 2,
             builder_memory_mb: 1024,
+            confine: true,
         }
     }
 }
