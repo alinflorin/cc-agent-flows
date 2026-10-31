@@ -57,7 +57,8 @@ send() { printf '%s\n' "$1" >&4; }
 # Where the time of a run goes: an event (seq 0, ignored by the UI, kept in the run log) with the
 # guest's uptime in seconds, so the boot shows next to what agentd did afterwards.
 mark() {
-	read -r _up _ </proc/uptime
+	_up=${2:-}
+	[ -n "$_up" ] || read -r _up _ </proc/uptime
 	send "{\"kind\":\"event\",\"body\":{\"seq\":0,\"event\":{\"type\":\"timing\",\"what\":\"$1\",\"uptime\":${_up:-0}}}}"
 }
 
@@ -94,41 +95,24 @@ trap '[ "$FINISHED" = 1 ] || fail "agentd stopped unexpectedly"' EXIT
 mark agentd_up
 readline 300 || fail "no bootstrap from the app"
 mark bootstrap
-TOKEN=$(printf '%s' "$line" | jq -r '.claude_token // empty') || fail "bad bootstrap"
-AGENT_ID=$(printf '%s' "$line" | jq -r '.id // empty')
+# One jq for the whole bootstrap (each spawn costs a lot under software emulation); the values come
+# back shell-quoted by jq (@sh), so evaluating them cannot run anything.
+_b=$(printf '%s' "$line" | jq -r '
+	"TOKEN=\(.claude_token // "" | tostring | @sh)",
+	"AGENT_ID=\(.id // "" | tostring | @sh)",
+	"TUNNEL_KEY=\(.tunnel.key // "" | tostring | @sh)",
+	"TUNNEL_HOST=\(.tunnel.host_key // "" | tostring | @sh)",
+	"CA=\(.ca // "" | tostring | @sh)"') || fail "bad bootstrap"
+eval "$_b"
 [ -n "$TOKEN" ] || fail "bootstrap without a token"
-# With a sealed network the app sends the keys of the tunnel to its egress proxy.
-TUNNEL_KEY=$(printf '%s' "$line" | jq -r '.tunnel.key // empty')
-TUNNEL_HOST=$(printf '%s' "$line" | jq -r '.tunnel.host_key // empty')
-# The CA that signs the certificates of the hosts the app injects credentials for (public).
-CA=$(printf '%s' "$line" | jq -r '.ca // empty')
-
-send '{"kind":"ready"}'
-readline 300 || fail "no task from the app"
-mark task
-TASK=$line
-field() { printf '%s' "$TASK" | jq -r ".body.$1 // empty"; }
-PROMPT=$(field prompt)
-SID=$(field session_id)
-MODEL=$(field model)
-EFFORT=$(field effort)
-RESUME=$(field resume)
-SCHEMA=$(field schema)
-TIMEOUT=$(field timeout_secs)
-[ -n "$PROMPT" ] && [ -n "$SID" ] && [ -n "$SCHEMA" ] || fail "bad task"
-SYSTEM=$(field system_prompt)
-# The profile's variables as `export NAME='value'` lines, for `claude` only. Names that are not
-# plain identifiers or that agentd and the image own are dropped; values are shell-quoted by jq.
-ENVSET=$(printf '%s' "$TASK" | jq -r '
-	.body.env[]? | select((.name | type == "string") and (.name | test("^[A-Za-z_][A-Za-z0-9_]*$"))
-		and ((.name | IN("CLAUDE_CODE_OAUTH_TOKEN", "PATH", "HOME", "USER", "LOGNAME", "SHELL", "USE_BUILTIN_RIPGREP", "CCAF_AGENT_ID")) | not)
-		and (.name | startswith("LD_") | not)) |
-	"export \(.name)=\(.value // "" | tostring | @sh)"') || fail "bad task environment"
-case $TIMEOUT in '' | *[!0-9]*) TIMEOUT=1800 ;; esac
+# With a sealed network the app sends the keys of the tunnel to its egress proxy; the CA signs the
+# certificates of the hosts the app injects credentials for (public).
 
 # The only way out of the VM is one connection to the app (QEMU forwards 10.0.2.100:22 to it).
 # ssh carries the traffic of `claude` to the app's proxy as channels: HTTPS_PROXY points at the
-# local end. The key is read by ssh as root and deleted at once; `claude` never sees it.
+# local end. The key is read by ssh as root and deleted at once; `claude` never sees it. It needs
+# nothing but the bootstrap, so it is opened in the background while the task is read and parsed.
+TUNNEL_PID=
 if [ -n "$TUNNEL_KEY" ]; then
 	[ -n "$TUNNEL_HOST" ] || fail "tunnel: no host key"
 	(
@@ -136,17 +120,48 @@ if [ -n "$TUNNEL_KEY" ]; then
 		printf '%s\n' "$TUNNEL_KEY" >"$T/tunnel.key"
 		printf '10.0.2.100 %s\n' "$TUNNEL_HOST" >"$T/tunnel.hosts"
 	) || fail "tunnel: cannot write the key"
-	# -f returns once the tunnel is up (or ssh failed), in the background it keeps running
-	timeout 90 "$SSH" -F /dev/null -f -N -T -i "$T/tunnel.key" -o IdentitiesOnly=yes -o BatchMode=yes \
-		-o UserKnownHostsFile="$T/tunnel.hosts" -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes \
-		-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
-		-L 127.0.0.1:3128:egress:3128 -p 22 agent@10.0.2.100 2>"$T/ssh.err"
-	_rc=$?
-	rm -f "$T/tunnel.key"
-	[ "$_rc" = 0 ] || fail "tunnel: cannot reach the network proxy (ssh exit $_rc): $(tail -c 500 "$T/ssh.err" 2>/dev/null)"
+	(
+		# -f returns once the tunnel is up (or ssh failed), in the background it keeps running
+		timeout 90 "$SSH" -F /dev/null -f -N -T -i "$T/tunnel.key" -o IdentitiesOnly=yes -o BatchMode=yes \
+			-o UserKnownHostsFile="$T/tunnel.hosts" -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes \
+			-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
+			-L 127.0.0.1:3128:egress:3128 -p 22 agent@10.0.2.100 2>"$T/ssh.err"
+		_rc=$?
+		rm -f "$T/tunnel.key"
+		read -r _u _ </proc/uptime
+		echo "${_u:-0}" >"$T/tunnel.up"
+		exit $_rc
+	) &
+	TUNNEL_PID=$!
 fi
 
-mark tunnel_up
+send '{"kind":"ready"}'
+readline 300 || fail "no task from the app"
+mark task
+TASK=$line
+# One jq for the whole task. The profile's variables become `export NAME='value'` lines, for
+# `claude` only: names that are not plain identifiers or that agentd and the image own are dropped,
+# values are shell-quoted by jq.
+_t=$(printf '%s' "$TASK" | jq -r '
+	.body as $b |
+	([$b.env[]? | select((.name | type == "string") and (.name | test("^[A-Za-z_][A-Za-z0-9_]*$"))
+		and ((.name | IN("CLAUDE_CODE_OAUTH_TOKEN", "PATH", "HOME", "USER", "LOGNAME", "SHELL", "USE_BUILTIN_RIPGREP", "CCAF_AGENT_ID")) | not)
+		and (.name | startswith("LD_") | not)) |
+		"export \(.name)=\(.value // "" | tostring | @sh)"] | join("\n")) as $env |
+	($b.schema // "" | tostring) as $schema |
+	"PROMPT=\($b.prompt // "" | tostring | @sh)",
+	"SID=\($b.session_id // "" | tostring | @sh)",
+	"MODEL=\($b.model // "" | tostring | @sh)",
+	"EFFORT=\($b.effort // "" | tostring | @sh)",
+	"RESUME=\($b.resume // "" | tostring | @sh)",
+	"SCHEMA=\($schema | @sh)",
+	"TIMEOUT=\($b.timeout_secs // "" | tostring | @sh)",
+	"SYSTEM=\($b.system_prompt // "" | tostring | @sh)",
+	"ENVSET=\($env | @sh)",
+	"KEYS=\(try ($schema | fromjson | (.properties // {}) | keys | join(", ")) catch "" | @sh)"') || fail "bad task"
+eval "$_t"
+[ -n "$PROMPT" ] && [ -n "$SID" ] && [ -n "$SCHEMA" ] || fail "bad task"
+case $TIMEOUT in '' | *[!0-9]*) TIMEOUT=1800 ;; esac
 
 # Make the VM trust that CA: appended to the system bundle (curl, git, Go and most others read it)
 # and kept in a file for Node (NODE_EXTRA_CA_CERTS) and Python requests. It is a public certificate.
@@ -169,7 +184,7 @@ fi
 
 set -- -p "$PROMPT" --output-format stream-json --verbose --include-partial-messages \
 	--dangerously-skip-permissions --tools "$CLAUDE_TOOLS" --disable-slash-commands --strict-mcp-config
-if [ "$RESUME" = true ]; then set -- "$@" --resume "$SID"; else set -- "$@" --session-id "$SID"; fi
+if [ "$RESUME" = true ]; then set -- "$@" --resume "$SID"; else set -- "$@" --session-id "$SID" --no-session-persistence; fi
 [ -z "$MODEL" ] || set -- "$@" --model "$MODEL"
 [ -z "$EFFORT" ] || set -- "$@" --effort "$EFFORT"
 # The image's notes on its command-line tools (`*.md` written when it was built, see images.rs),
@@ -186,7 +201,6 @@ $TOOLS"
 fi
 # No `--json-schema`: it adds a StructuredOutput tool and a model turn. The answer is asked for in
 # the prompt instead and read from the end of `claude`'s last message (see the final below).
-KEYS=$(printf '%s' "$SCHEMA" | jq -r '(.properties // {}) | keys | join(", ")' 2>/dev/null)
 SYSTEM="${SYSTEM:+$SYSTEM
 
 }# Final answer
@@ -223,6 +237,17 @@ run_claude() {
 	fi
 	exec setsid "$CLAUDE" "$@"
 }
+
+# The tunnel was started with the bootstrap and has been coming up while the task was parsed and
+# the CA, the workspace and the arguments were set up; `claude` needs it.
+if [ -n "$TUNNEL_PID" ]; then
+	wait "$TUNNEL_PID"
+	_rc=$?
+	[ "$_rc" = 0 ] || fail "tunnel: cannot reach the network proxy (ssh exit $_rc): $(tail -c 500 "$T/ssh.err" 2>/dev/null)"
+	read -r _tu <"$T/tunnel.up" 2>/dev/null
+fi
+
+mark tunnel_up "${_tu:-}"
 
 mark claude_start
 (
