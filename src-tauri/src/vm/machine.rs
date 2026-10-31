@@ -42,15 +42,15 @@ fn hw_accel() -> bool {
     })
 }
 
-/// The arguments that boot the kernel and initramfs shipped beside the plain image directly (no
-/// bootloader, no firmware): `dir` is where `alpine-<arch>.vmlinuz` and `.initramfs` are. The root
+/// The arguments that boot the kernel shipped beside the plain image directly (no initramfs, no
+/// bootloader, no firmware): `dir` is where `alpine-<arch>.vmlinuz` is. The root
 /// is the first virtio disk. A builder (`agent` false) gets the kernel's output and the stock init
 /// with a login on the serial port; an agent VM is silent and starts `ccaf-init`, which brings up
 /// the little it needs and runs agentd (no OpenRC, no DHCP).
 pub fn boot_args(dir: &Path, arch: &str, agent: bool) -> Vec<std::ffi::OsString> {
     let tty = if arch == "aarch64" { "ttyAMA0" } else { "ttyS0" };
     let mut cmdline = if agent {
-        "quiet loglevel=0 8250.nr_uarts=0 random.trust_cpu=on mitigations=off noresume raid=noautodetect root=/dev/vda rootfstype=ext4 rootflags=noatime rw init=/sbin/ccaf-init".to_string()
+        "quiet loglevel=0 8250.nr_uarts=0 random.trust_cpu=on mitigations=off noresume raid=noautodetect root=/dev/vda rootfstype=ext4 rw init=/sbin/ccaf-init".to_string()
     } else {
         format!("console={tty} root=/dev/vda rootfstype=ext4 rw")
     };
@@ -66,8 +66,6 @@ pub fn boot_args(dir: &Path, arch: &str, agent: bool) -> Vec<std::ffi::OsString>
     vec![
         "-kernel".into(),
         dir.join(format!("alpine-{arch}.vmlinuz")).into(),
-        "-initrd".into(),
-        dir.join(format!("alpine-{arch}.initramfs")).into(),
         "-append".into(),
         cmdline.into(),
     ]

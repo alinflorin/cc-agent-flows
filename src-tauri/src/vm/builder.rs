@@ -286,9 +286,13 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("resources")
     }
 
+    /// KVM when the machine has it, else (slow) software emulation.
+    pub(crate) fn accel() -> &'static str {
+        if std::path::Path::new("/dev/kvm").exists() { "kvm" } else { "tcg" }
+    }
+
     fn can_run() -> bool {
-        std::path::Path::new("/dev/kvm").exists()
-            && res().join("qemu/bin/qemu-system-x86_64").exists()
+        res().join("qemu/bin/qemu-system-x86_64").exists()
             && res().join("images/alpine-x86_64.qcow2").exists()
             && res().join("images/alpine-x86_64.vmlinuz").exists()
     }
@@ -313,7 +317,7 @@ mod tests {
         let vm = tokio::process::Command::new(q.join("bin/qemu-system-x86_64"))
             .arg("-L")
             .arg(q.join("share/qemu"))
-            .args(["-accel", "kvm", "-cpu", "max", "-m", "1024", "-display", "none", "-monitor", "none", "-no-reboot", "-nic", "user,model=virtio-net-pci"])
+            .args(["-accel", accel(), "-cpu", "max", "-m", "1024", "-display", "none", "-monitor", "none", "-no-reboot", "-nic", "user,model=virtio-net-pci"])
             .args(crate::vm::machine::boot_args(&res().join("images"), "x86_64", false))
             .arg("-drive")
             .arg(format!("file={},if=virtio", disk.display()))
@@ -326,7 +330,7 @@ mod tests {
             .spawn()
             .unwrap();
         let mut con = Console::new(serial.connect().await.unwrap());
-        within(120, "boot", con.login()).await.unwrap();
+        within(900, "boot", con.login()).await.unwrap();
         (vm, con, work)
     }
 
@@ -362,7 +366,7 @@ mod tests {
         for f in ["setup.sh", "agentd.sh", "agentd.initd", "ccaf-init.sh"] {
             con.put(&format!("/tmp/setup/{f}"), &std::fs::read(res().join("agentd").join(f)).unwrap()).await.unwrap();
         }
-        let code = within(1500, "setup", con.run(&script_cmd("/tmp/setup/setup.sh"), |l| eprintln!("{l}"))).await.unwrap();
+        let code = within(7200, "setup", con.run(&script_cmd("/tmp/setup/setup.sh"), |l| eprintln!("{l}"))).await.unwrap();
         assert_eq!(code, 0);
         // CCAF_KEEP_BASE=<path> keeps the result there, to boot it in other tests.
         if let Ok(out) = std::env::var("CCAF_KEEP_BASE") {
