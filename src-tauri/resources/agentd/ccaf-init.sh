@@ -15,8 +15,8 @@ mount -t tmpfs -o nosuid,nodev,mode=1777 tmpfs /tmp
 # the agent must not read or trace agentd's process
 echo 2 >/proc/sys/kernel/yama/ptrace_scope 2>/dev/null
 
-# the initramfs loaded the drivers of the devices there were at boot; the nodes and the
-# /dev/virtio-ports/agent link come from mdev
+# the drivers are built into the kernel; the nodes and the /dev/virtio-ports/agent link come
+# from mdev
 echo /sbin/mdev >/proc/sys/kernel/hotplug
 mdev -s
 

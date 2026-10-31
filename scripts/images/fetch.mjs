@@ -1,4 +1,4 @@
-// Copies the plain Alpine image (disk, kernel and initramfs) for the target's architecture from vendor/images (committed to the
+// Copies the plain Alpine image (disk and kernel) for the target's architecture from vendor/images (committed to the
 // repo) into src-tauri/resources/images, where tauri.conf.json bundles it. No network needed.
 //
 //   node scripts/images/fetch.mjs [target-triple] [--required]
@@ -7,7 +7,6 @@
 // host's architecture: aarch64 targets get the aarch64 image, everything else x86_64. Without
 // --required a missing image only warns.
 import { execFileSync } from "node:child_process";
-import { gunzipSync } from "node:zlib";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,8 +22,8 @@ const triple =
   /^host: (.+)$/m.exec(execFileSync("rustc", ["-vV"], { encoding: "utf8" }))[1];
 const arch = triple.startsWith("aarch64") ? "aarch64" : "x86_64";
 const name = `alpine-${arch}.qcow2`;
-// the disk, the kernel and the initramfs the VMs boot directly
-const names = [name, `alpine-${arch}.vmlinuz`, `alpine-${arch}.initramfs`];
+// the disk and the kernel the VMs boot directly
+const names = [name, `alpine-${arch}.vmlinuz`];
 const source = join(here, "../../vendor/images", name);
 const file = join(dest, name);
 const marker = `${file}.version`;
@@ -41,9 +40,7 @@ try {
   for (const f of readdirSync(dest)) if (f.startsWith("alpine-")) rmSync(join(dest, f));
   for (const n of names) {
     const from = join(here, "../../vendor/images", n);
-    // the initramfs is stored gzipped; the kernel then needs no time to unpack it
-    if (n.endsWith(".initramfs")) writeFileSync(join(dest, n), gunzipSync(readFileSync(from)));
-    else copyFileSync(from, join(dest, n));
+    copyFileSync(from, join(dest, n));
   }
   writeFileSync(marker, stamp);
 } catch (e) {

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Builds the plain Alpine image: alpine-base and the linux-virt kernel on one ext4 root (no partition
-# table, no bootloader, no firmware), DHCP on eth0 and a serial login for the builder. The kernel and
-# a slim initramfs (virtio + ext4 only) come out next to the disk: QEMU boots them directly
-# (-kernel/-initrd, root=/dev/vda). Linux only, needs root (chroot, mounts) plus curl, e2fsprogs,
-# qemu-img.
+# Builds the plain Alpine image: alpine-base on one ext4 root (no partition table, no bootloader, no
+# kernel, no modules, no firmware), DHCP on eth0 and a serial login for the builder. The kernel is
+# not part of it: it ships beside the disk as vendor/images/alpine-<arch>.vmlinuz (a custom build with
+# every driver built in, see CLAUDE.md) and QEMU boots it directly (-kernel, root=/dev/vda). Linux
+# only, needs root (chroot, mounts) plus curl, jq, e2fsprogs, qemu-img.
 #
 #   build-plain.sh <x86_64|aarch64> <out-dir>
 #
-# Builds natively: run it on a host of the architecture it builds. Outputs, in <out-dir>:
-# alpine-<arch>.qcow2, alpine-<arch>.vmlinuz, alpine-<arch>.initramfs.
+# Builds natively: run it on a host of the architecture it builds. Output, in <out-dir>:
+# alpine-<arch>.qcow2.
 set -euo pipefail
 
 arch=$1
@@ -46,20 +46,11 @@ mount --rbind /sys "$root/sys"
 cp /etc/resolv.conf "$root/etc/resolv.conf"
 printf "%s/main\n%s/community\n" "$cdn/$branch" "$cdn/$branch" >"$root/etc/apk/repositories"
 
-# which modules the initramfs carries: the root disk, ext4 and the virtio devices the VM has
-mkdir -p "$root/etc/mkinitfs"
-cat >"$root/etc/mkinitfs/mkinitfs.conf" <<'CONF'
-features="base ext4 virtio"
-CONF
 cat >"$root/provision.sh" <<PROVISION
 #!/bin/sh
 set -eu
 apk update
-apk add --no-cache --no-progress alpine-base linux-virt mkinitfs
-# apk keeps the package's own mkinitfs.conf next to ours; build the initramfs from ours
-kver=\$(ls /lib/modules | head -n 1)
-mkinitfs -c /etc/mkinitfs/mkinitfs.conf -o /boot/initramfs-virt "\$kver"
-
+apk add --no-cache --no-progress alpine-base
 cat >/etc/network/interfaces <<'NET'
 auto lo
 iface lo inet loopback
@@ -82,34 +73,14 @@ TAB
 echo $console >>/etc/securetty
 passwd -d root
 
-for s in devfs dmesg mdev hwdrivers; do rc-update add \$s sysinit; done
-for s in modules sysctl hostname bootmisc networking root localmount; do rc-update add \$s boot; done
+for s in devfs dmesg mdev; do rc-update add \$s sysinit; done
+for s in sysctl hostname bootmisc networking root localmount; do rc-update add \$s boot; done
 for s in mount-ro killprocs; do rc-update add \$s shutdown; done
 rm -rf /var/cache/apk/* /etc/resolv.conf
 PROVISION
 chmod +x "$root/provision.sh"
 chroot "$root" /provision.sh
 rm "$root/provision.sh"
-
-cp "$root/boot/vmlinuz-virt" "$out/alpine-$arch.vmlinuz"
-# Alpine's arm64 kernel is an EFI "zboot" wrapper (MZ, "zimg", payload offset and size, compression
-# name) around the real Image, which QEMU's -kernel cannot run: unwrap it
-kernel=$out/alpine-$arch.vmlinuz
-if [ "$(head -c 2 "$kernel")" = MZ ] && [ "$(dd if="$kernel" bs=1 skip=4 count=4 2>/dev/null)" = zimg ]; then
-  read -r off size < <(od -An -tu4 -j8 -N8 "$kernel")
-  algo=$(dd if="$kernel" bs=1 skip=24 count=8 2>/dev/null | tr -d '\0')
-  case $algo in
-    gzip) unpack="gzip -dc" ;;
-    zstd) unpack="zstd -dc" ;;
-    *) echo "unsupported zboot compression: $algo" >&2; exit 1 ;;
-  esac
-  tail -c +$((off + 1)) "$kernel" | head -c "$size" | $unpack >"$work/Image"
-  [ "$(dd if="$work/Image" bs=1 skip=56 count=4 2>/dev/null)" = "ARM$(printf '\144')" ] || { echo "unwrapped kernel is not an arm64 Image" >&2; exit 1; }
-  mv "$work/Image" "$kernel"
-fi
-cp "$root/boot/initramfs-virt" "$out/alpine-$arch.initramfs"
-# the kernel and initramfs are shipped beside the disk, /boot is dead weight in it
-rm -rf "$root/boot"/*
 
 for m in dev/pts dev proc sys; do umount -l "$root/$m" 2>/dev/null || true; done
 truncate -s 8G "$work/disk.raw"

@@ -204,7 +204,7 @@ async fn make_overlay(app: &AppHandle, disk: &Path, overlay: &Path) -> Result<()
     std::fs::copy(&template, overlay).map(|_| ()).map_err(|e| format!("overlay: {e}"))
 }
 
-/// Reads the files a boot needs (disk, kernel, initramfs) once per process in the background, so
+/// Reads the files a boot needs (disk, kernel) once per process in the background, so
 /// the first run after the app starts does not wait on a cold disk; later runs find them cached.
 fn warm_cache(app: &AppHandle, disk: &Path) {
     static DONE: std::sync::Mutex<Vec<std::path::PathBuf>> = std::sync::Mutex::new(Vec::new());
@@ -212,7 +212,6 @@ fn warm_cache(app: &AppHandle, disk: &Path) {
     if let (Ok(res), Ok(arch)) = (crate::vm::machine::resources(app), crate::vm::machine::arch()) {
         let dir = res.join("images");
         files.push(dir.join(format!("alpine-{arch}.vmlinuz")));
-        files.push(dir.join(format!("alpine-{arch}.initramfs")));
     }
     let Ok(mut done) = DONE.lock() else { return };
     files.retain(|f| !done.contains(f));
@@ -533,7 +532,7 @@ mod tests {
         let base = std::env::var_os("CCAF_BASE").map(PathBuf::from).unwrap_or_else(|| {
             PathBuf::from(std::env::var("HOME").unwrap()).join(".local/share/com.alinflorin.ccagentflows/images/built/base.qcow2")
         });
-        if !Path::new("/dev/kvm").exists() || !base.exists() || !res.join("qemu/bin/qemu-system-x86_64").exists() {
+        if !base.exists() || !res.join("qemu/bin/qemu-system-x86_64").exists() {
             eprintln!("needs KVM, the bundled QEMU and a built base image, skipping");
             return;
         }
@@ -562,7 +561,7 @@ mod tests {
         let mut vm = Command::new(q.join("bin/qemu-system-x86_64"))
             .arg("-L")
             .arg(q.join("share/qemu"))
-            .args(["-accel", "kvm", "-cpu", "max", "-m", "2048", "-smp", "2", "-M", "pc,usb=off,vmport=off", "-nodefaults", "-no-user-config", "-display", "none", "-monitor", "none"])
+            .args(["-accel", if Path::new("/dev/kvm").exists() { "kvm" } else { "tcg" }, "-cpu", "max", "-m", "2048", "-smp", "2", "-M", "pc,usb=off,vmport=off", "-nodefaults", "-no-user-config", "-display", "none", "-monitor", "none"])
             .args(crate::vm::machine::boot_args(&res.join("images"), "x86_64", true))
             .args(["-no-reboot", "-action", "panic=exit-failure", "-serial", "null"])
             .args(["-nic", &sealed_nic(tunnel.port)])
