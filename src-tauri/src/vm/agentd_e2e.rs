@@ -40,6 +40,7 @@ mod e2e {
 case "$*" in *--dangerously-skip-permissions*--session-id*|*--session-id*--dangerously-skip-permissions*) ;; *) echo "bad args: $*" >&2; exit 2;; esac
 [ "$CLAUDE_CODE_OAUTH_TOKEN" = "sk-test-token" ] || { echo "no token" >&2; exit 3; }
 case "$*" in *"--tools Bash,Read,Write,Edit,WebFetch,WebSearch"*) ;; *) echo "bad tools: $*" >&2; exit 9;; esac
+case "$*" in *--no-session-persistence*) ;; *) echo "sessions would be saved: $*" >&2; exit 10;; esac
 case "$*" in *"--append-system-prompt be brief"*) ;; *) echo "no system prompt: $*" >&2; exit 4;; esac
 [ "$TEAM" = 'it'"'"'s "red" $HOME' ] || { echo "bad env: $TEAM" >&2; exit 5; }
 [ "$PATH" != /nowhere ] || { echo "PATH was overridden" >&2; exit 6; }
@@ -165,6 +166,43 @@ echo '{"type":"result","is_error":false,"result":"free text\\n{\"status\":\"need
         assert_eq!(fin.output.as_ref().unwrap()["summary"], "half done", "the structured answer is passed on");
         assert!(run.dir.join("work/made-by-claude.txt").is_file(), "claude ran in the workspace");
 
+        let _ = std::fs::remove_dir_all(run.dir);
+    }
+
+    /// `claude` that writes the prompt, the system prompt and one variable it got to files next to
+    /// the workspace, byte for byte.
+    const ECHO_CLAUDE: &str = r#"#!/bin/sh
+prompt=$2
+while [ $# -gt 0 ]; do [ "$1" = --append-system-prompt ] && sp=$2; shift; done
+printf '%s' "$prompt" >../got-prompt
+printf '%s' "$sp" >../got-system
+printf '%s' "$HOSTILE" >../got-env
+echo '{"type":"result","is_error":false,"result":"ok","session_id":"s"}'
+"#;
+
+    #[tokio::test]
+    async fn agentd_passes_hostile_text_through_unchanged() {
+        if !have_jq() {
+            eprintln!("needs jq, skipping");
+            return;
+        }
+        let marker = std::env::temp_dir().join(format!("ccaf-pwned-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        let m = marker.display();
+        // quotes, newlines, command substitution, backticks, a trailing newline, a `$'` and unicode
+        let nasty = format!("it's \"x\"\nline2 $(touch {m}) `touch {m}` ${{HOME}} \\n '; touch {m}; '\n$'q' ünï\n");
+        let mut t = task(40);
+        t.prompt = nasty.clone();
+        t.system_prompt = Some(nasty.clone());
+        t.env = vec![TaskEnv { name: "HOSTILE".into(), value: nasty.clone() }];
+        let mut run = start("hostile", ECHO_CLAUDE, t);
+        let (_, fin) = run.finish(30).await;
+        assert_eq!(fin.status, Status::Done, "{}", fin.result);
+        let got = |name: &str| std::fs::read_to_string(run.dir.join(name)).unwrap();
+        assert_eq!(got("got-prompt"), nasty);
+        assert!(got("got-system").starts_with(&nasty), "the system prompt keeps its text");
+        assert_eq!(got("got-env"), nasty);
+        assert!(!marker.exists(), "nothing in the task was run as a command");
         let _ = std::fs::remove_dir_all(run.dir);
     }
 
