@@ -1,0 +1,25 @@
+name: QEMU Linux with seccomp (temporary)
+on:
+  push:
+    paths: [".github/workflows/qemu-linux.yml", "scripts/qemu/**"]
+  workflow_dispatch:
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { triple: x86_64-unknown-linux-gnu, runner: ubuntu-22.04 }
+          - { triple: aarch64-unknown-linux-gnu, runner: ubuntu-22.04-arm }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build python3-venv libglib2.0-dev libpixman-1-dev libslirp-dev libfdt-dev libseccomp-dev patchelf
+      - run: scripts/qemu/build.sh "$(jq -r .version scripts/qemu/version.json)" "$(jq -r .sha256 scripts/qemu/version.json)" qemu-out
+      - run: tar -czf "qemu-${{ matrix.triple }}.tar.gz" -C qemu-out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qemu-${{ matrix.triple }}
+          path: qemu-${{ matrix.triple }}.tar.gz
