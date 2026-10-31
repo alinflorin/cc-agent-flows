@@ -245,7 +245,7 @@ pub fn valid_id(id: &str) -> bool {
 
 const SETUP_FILES: [&str; 4] = ["setup.sh", "agentd.sh", "agentd.initd", "ccaf-init.sh"];
 
-/// What the base image is made of: the setup files and the sizes of the plain image, kernel and initramfs.
+/// What the base image is made of: the setup files and the sizes of the plain image and kernel.
 fn base_stamp(app: &AppHandle) -> Result<String, String> {
     let dir = resources(app)?.join("agentd");
     let mut h = Sha256::new();
@@ -254,11 +254,9 @@ fn base_stamp(app: &AppHandle) -> Result<String, String> {
     }
     let plain = std::fs::metadata(plain_image(app)?).map_err(|e| format!("plain image: {e}"))?;
     h.update(plain.len().to_le_bytes());
-    // the kernel and initramfs the image's modules belong to
-    for ext in ["vmlinuz", "initramfs"] {
-        let f = plain_image(app)?.with_extension(ext);
-        h.update(std::fs::metadata(&f).map_err(|e| format!("{}: {e}", f.display()))?.len().to_le_bytes());
-    }
+    // the kernel the image boots
+    let f = plain_image(app)?.with_extension("vmlinuz");
+    h.update(std::fs::metadata(&f).map_err(|e| format!("{}: {e}", f.display()))?.len().to_le_bytes());
     Ok(hex(&h.finalize()))
 }
 
