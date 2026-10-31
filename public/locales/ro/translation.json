@@ -338,7 +338,9 @@
       "imageScriptHint": "Cât poate rula scriptul de construire al unei imagini.",
       "builderCpus": "vCPU constructor",
       "builderHint": "VM-ul care construiește imaginile.",
-      "builderMemory": "Memorie constructor (MB)"
+      "builderMemory": "Memorie constructor (MB)",
+      "confine": "Izolează procesul mașinii virtuale",
+      "confineHint": "Închide procesul QEMU pe acest calculator, astfel încât o eroare în el să nu poată ajunge la fișierele tale sau să pornească alte programe (Landlock și seccomp pe Linux, un profil de sandbox pe macOS, un obiect job pe Windows). Dezactivează doar dacă mașinile virtuale nu pornesc."
     },
     "profiles": {
       "intro": "Profiluri de agent pe care orice proiect le poate folosi și extinde. Un profil de proiect poate porni de la unul global (Extinde), iar un workflow poate folosi direct un profil global."
