@@ -18,11 +18,15 @@
 //! Nothing here changes what the guest sees. The setting `confine` (Settings > General > Virtual
 //! machines) turns all of it off, for a computer where it gets in the way.
 
-use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::Command;
 
-/// What one VM's QEMU process may touch on the host.
+/// What one VM's QEMU process may touch on the host. Only Linux reads every field (macOS has no
+/// `exec`, Windows uses none), so the others would warn about dead code.
 #[derive(Debug, Default, Clone)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub struct Plan {
     /// Disks it opens: each is readable together with its whole backing chain.
     pub disks: Vec<PathBuf>,
@@ -35,6 +39,7 @@ pub struct Plan {
     pub exec: Vec<PathBuf>,
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 /// `disk` and the files it is backed by, found in the qcow2 headers, nearest first. Stops at a
 /// file that is not qcow2, has no backing file or names one through a protocol (`json:`).
 pub fn backing_chain(disk: &Path) -> Vec<PathBuf> {
