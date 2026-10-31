@@ -662,6 +662,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "keyring",
+ "libc",
  "log",
  "rand 0.10.3",
  "rcgen",
@@ -685,6 +686,7 @@ dependencies = [
  "tokio-rustls",
  "ts-rs",
  "webpki-roots",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

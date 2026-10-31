@@ -117,6 +117,29 @@ pub fn machine(app: &AppHandle, mem_mb: u32, cpus: Option<u32>, agent: bool) -> 
     Ok(cmd)
 }
 
+/// Boxes in the QEMU process that `cmd` will start (see `confine`), unless the setting is off.
+/// `disks` are the disks it opens (their backing chains are found), `write` the VM's own folder.
+pub fn confine(app: &AppHandle, cmd: &mut std::process::Command, disks: &[&Path], write: &[&Path]) {
+    if !crate::config::vm_settings::current(app).confine {
+        return;
+    }
+    let plan = super::confine::Plan {
+        disks: disks.iter().map(|p| p.to_path_buf()).collect(),
+        // the shipped kernel (and the plain image beside it)
+        read: resources(app).map(|r| vec![r.join("images")]).unwrap_or_default(),
+        write: write.iter().map(|p| p.to_path_buf()).collect(),
+        exec: Vec::new(),
+    };
+    super::confine::apply(cmd, &plan);
+}
+
+/// Windows: puts the started VM process into a restricted job object (see `confine`). Elsewhere a no-op.
+pub fn confine_started(app: &AppHandle, child: &tokio::process::Child) {
+    if crate::config::vm_settings::current(app).confine {
+        super::confine::after_spawn(child);
+    }
+}
+
 /// The disk of a VM that boots a throwaway overlay: no flushes (the overlay is deleted afterwards).
 pub fn drive_arg(overlay: &Path) -> String {
     format!("file={},if=virtio,discard=unmap,cache=unsafe", overlay.display())

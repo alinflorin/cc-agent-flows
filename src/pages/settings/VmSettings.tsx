@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button, Dropdown, Field, Input, Option, makeStyles, tokens } from "@fluentui/react-components";
+import { Button, Dropdown, Field, Input, Option, Switch, makeStyles, tokens } from "@fluentui/react-components";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
@@ -17,6 +17,7 @@ export interface VmSettings {
   image_script_mins: number;
   builder_cpus: number;
   builder_memory_mb: number;
+  confine: boolean;
 }
 
 const useStyles = makeStyles({
@@ -122,6 +123,9 @@ export function VmSettingsSection() {
           <Input {...num("builder_memory_mb", 1024, 32768)} step={512} />
         </Field>
       </div>
+      <Field hint={t("settings.vm.confineHint")}>
+        <Switch checked={v.confine} label={t("settings.vm.confine")} onChange={(_, d) => set({ confine: d.checked })} />
+      </Field>
       <div className={styles.actions}>
         <Button appearance="primary" disabled={!dirty} onClick={() => void save()}>
           {t("common.save")}
