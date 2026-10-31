@@ -105,6 +105,7 @@ impl Inspector {
     }
 
     /// With the roots the real servers are checked against (the tests use their own).
+    #[cfg(test)]
     pub fn with_roots(active: Vec<Active>, roots: RootCertStore) -> Result<Inspector, String> {
         Inspector::build(active, Arc::new(upstream_config(roots)?))
     }
