@@ -1,0 +1,29 @@
+name: Kernel
+
+# Builds the agent VM kernel (kernel/) natively per architecture and uploads it as an artifact.
+on:
+  workflow_dispatch:
+  push:
+    paths: ["kernel/**", ".github/workflows/kernel.yml"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-22.04 }
+          - { arch: aarch64, runner: ubuntu-22.04-arm }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y bc bison flex libelf-dev libssl-dev lz4
+      - name: Build
+        run: kernel/build.sh ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ matrix.arch }}
+          path: |
+            kernel/out/vmlinuz-${{ matrix.arch }}
+            kernel/out/config-${{ matrix.arch }}
