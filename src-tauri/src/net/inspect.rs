@@ -14,8 +14,9 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
@@ -46,6 +47,52 @@ pub struct Inspector {
     issuer: Issuer<'static, KeyPair>,
     leaves: Mutex<HashMap<String, Arc<ServerConfig>>>,
     upstream: Arc<ClientConfig>,
+    /// Connections to the real servers made ahead of time (see `stock`).
+    stocked: Mutex<HashMap<String, Vec<Ready>>>,
+    /// Woken when a stocked connection was taken (and when this is dropped), so the proxy tops the stock up.
+    refill: Arc<tokio::sync::Notify>,
+}
+
+/// A finished TLS and HTTP handshake with the real server, waiting for a guest connection.
+pub struct Ready {
+    sender: hyper::client::conn::http1::SendRequest<Body>,
+    driver: tokio::task::JoinHandle<()>,
+    made: Instant,
+}
+
+/// Where a guest connection's server side comes from.
+pub enum Upstream {
+    /// A TCP connection to the server; the TLS handshake still has to be done.
+    Fresh(TcpStream),
+    /// One made ahead of time.
+    Ready(Ready),
+}
+
+/// A stocked connection older than this is not used: servers close idle connections.
+const STOCK_MAX_AGE: Duration = Duration::from_secs(25);
+/// Connections kept ready per host. Claude Code opens a few at its start.
+pub const STOCK_PER_HOST: usize = 2;
+
+/// The client side of the connections to the real servers is the same for every run, so the TLS
+/// session tickets a server hands out are kept and later runs resume them (no certificate chain to
+/// verify again). A ticket is session state, not a credential: requests carry their own headers.
+fn shared_upstream() -> Result<Arc<ClientConfig>, String> {
+    static CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
+    if let Some(c) = CONFIG.get() {
+        return Ok(c.clone());
+    }
+    let roots = RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
+    Ok(CONFIG.get_or_init(|| Arc::new(upstream_config(roots).expect("TLS client configuration"))).clone())
+}
+
+fn upstream_config(roots: RootCertStore) -> Result<ClientConfig, String> {
+    let mut client = ClientConfig::builder_with_provider(provider())
+        .with_safe_default_protocol_versions()
+        .map_err(|x| x.to_string())?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    client.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(client)
 }
 
 fn provider() -> Arc<rustls::crypto::CryptoProvider> {
@@ -54,12 +101,15 @@ fn provider() -> Arc<rustls::crypto::CryptoProvider> {
 
 impl Inspector {
     pub fn new(active: Vec<Active>) -> Result<Inspector, String> {
-        let roots = RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
-        Inspector::with_roots(active, roots)
+        Inspector::build(active, shared_upstream()?)
     }
 
     /// With the roots the real servers are checked against (the tests use their own).
     pub fn with_roots(active: Vec<Active>, roots: RootCertStore) -> Result<Inspector, String> {
+        Inspector::build(active, Arc::new(upstream_config(roots)?))
+    }
+
+    fn build(active: Vec<Active>, upstream: Arc<ClientConfig>) -> Result<Inspector, String> {
         let e = |e: &dyn std::fmt::Display| e.to_string();
         let mut params = CertificateParams::new(Vec::<String>::new()).map_err(|x| e(&x))?;
         params.distinguished_name = DistinguishedName::new();
@@ -68,13 +118,16 @@ impl Inspector {
         params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
         let key = KeyPair::generate().map_err(|x| e(&x))?;
         let ca_pem = params.self_signed(&key).map_err(|x| e(&x))?.pem();
-        let mut client = ClientConfig::builder_with_provider(provider())
-            .with_safe_default_protocol_versions()
-            .map_err(|x| e(&x))?
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        client.alpn_protocols = vec![b"http/1.1".to_vec()];
-        Ok(Inspector { active, leaks: None, ca_pem, issuer: Issuer::new(params, key), leaves: Mutex::new(HashMap::new()), upstream: Arc::new(client) })
+        Ok(Inspector {
+            active,
+            leaks: None,
+            ca_pem,
+            issuer: Issuer::new(params, key),
+            leaves: Mutex::new(HashMap::new()),
+            upstream,
+            stocked: Mutex::new(HashMap::new()),
+            refill: Arc::new(tokio::sync::Notify::new()),
+        })
     }
 
     /// Also inspects the hosts the run's protected secrets must not reach, to refuse requests that carry them.
@@ -119,10 +172,73 @@ impl Inspector {
         Ok(config)
     }
 
+    /// The exact hosts of the injections' rules (not the `*.host` ones): where a connection can be
+    /// made ahead of time.
+    pub fn stockable(&self) -> Vec<String> {
+        let mut hosts: Vec<String> = self.active.iter().flat_map(|a| a.rules.iter()).map(|r| r.host.to_ascii_lowercase()).filter(|h| !h.starts_with('*')).collect();
+        hosts.sort();
+        hosts.dedup();
+        hosts
+    }
+
+    /// How many of the connections ready for `host` are still usable.
+    pub fn stocked(&self, host: &str) -> usize {
+        self.stocked.lock().unwrap().get(host).map_or(0, |v| v.iter().filter(|r| r.usable()).count())
+    }
+
+    /// Signal that fires when a stocked connection was taken or the inspector is gone.
+    pub fn refill_signal(&self) -> Arc<tokio::sync::Notify> {
+        self.refill.clone()
+    }
+
+    /// Does the TLS and HTTP handshake with the real server on `tcp` and keeps the connection for
+    /// the next guest connection to `host`. Nothing is sent that a guest did not ask for.
+    pub async fn stock(&self, host: &str, tcp: TcpStream) -> Result<(), String> {
+        let ready = self.handshake(host, tcp).await?;
+        let mut all = self.stocked.lock().unwrap();
+        let list = all.entry(host.to_string()).or_default();
+        list.retain(|r| r.usable());
+        if list.len() < STOCK_PER_HOST {
+            list.push(ready);
+        } else {
+            ready.driver.abort();
+        }
+        Ok(())
+    }
+
+    /// A ready connection to `host`, if one is left and still alive.
+    pub fn take(&self, host: &str) -> Option<Ready> {
+        let taken = {
+            let mut all = self.stocked.lock().unwrap();
+            let list = all.get_mut(host)?;
+            let mut found = None;
+            while let Some(r) = list.pop() {
+                if r.usable() {
+                    found = Some(r);
+                    break;
+                }
+                r.driver.abort();
+            }
+            found
+        };
+        self.refill.notify_one();
+        taken
+    }
+
+    async fn handshake(&self, host: &str, tcp: TcpStream) -> Result<Ready, String> {
+        let name = ServerName::try_from(host.to_string()).map_err(|e| e.to_string())?;
+        let up = TlsConnector::from(self.upstream.clone()).connect(name, tcp).await.map_err(|e| format!("TLS handshake with the server failed: {e}"))?;
+        let (sender, conn) = hyper::client::conn::http1::handshake::<_, Body>(TokioIo::new(up)).await.map_err(|e| e.to_string())?;
+        let driver = tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        Ok(Ready { sender, driver, made: Instant::now() })
+    }
+
     /// Serves one guest connection to `host` whose `CONNECT` was accepted: `client` is the guest's
-    /// stream (what it sent after the `CONNECT` first), `upstream` the TCP connection to the real
+    /// stream (what it sent after the `CONNECT` first), `upstream` the connection to the real
     /// server. Ends when either side closes.
-    pub async fn serve<S>(&self, client: S, upstream: TcpStream, host: &str, log: &(dyn Fn(String) + Sync))
+    pub async fn serve<S>(&self, client: S, upstream: Upstream, host: &str, log: &(dyn Fn(String) + Sync))
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
@@ -137,18 +253,13 @@ impl Inspector {
         if !tls.get_ref().1.server_name().is_some_and(|n| n.eq_ignore_ascii_case(host)) {
             return log(format!("egress: {host}: refused, the TLS server name is not the CONNECT host"));
         }
-        let Ok(name) = ServerName::try_from(host.to_string()) else { return };
-        let up = match TlsConnector::from(self.upstream.clone()).connect(name, upstream).await {
-            Ok(t) => t,
-            Err(e) => return log(format!("egress: {host}: TLS handshake with the server failed: {e}")),
+        let Ready { sender, driver, .. } = match upstream {
+            Upstream::Ready(r) => r,
+            Upstream::Fresh(tcp) => match self.handshake(host, tcp).await {
+                Ok(r) => r,
+                Err(e) => return log(format!("egress: {host}: {e}")),
+            },
         };
-        let (sender, conn) = match hyper::client::conn::http1::handshake::<_, Body>(TokioIo::new(up)).await {
-            Ok(v) => v,
-            Err(e) => return log(format!("egress: {host}: {e}")),
-        };
-        let driver = tokio::spawn(async move {
-            let _ = conn.await;
-        });
         let sender = tokio::sync::Mutex::new(sender);
         let service = service_fn(|req: Request<Incoming>| {
             let sender = &sender;
@@ -223,6 +334,21 @@ impl Inspector {
     }
 }
 
+impl Ready {
+    fn usable(&self) -> bool {
+        !self.sender.is_closed() && self.made.elapsed() < STOCK_MAX_AGE
+    }
+}
+
+impl Drop for Inspector {
+    fn drop(&mut self) {
+        for r in self.stocked.lock().unwrap().drain().flat_map(|(_, v)| v) {
+            r.driver.abort();
+        }
+        self.refill.notify_one();
+    }
+}
+
 /// A path for the log: no more than 100 characters.
 fn shown(path: &str) -> String {
     path.chars().take(100).collect()
@@ -282,6 +408,7 @@ mod tests {
     use base64::Engine;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use std::time::Duration;
 
     /// A server on localhost with a certificate of its own CA; answers `<Authorization>|<X-Api-Key>|<path>`.
     async fn upstream() -> (u16, RootCertStore) {
@@ -387,6 +514,93 @@ mod tests {
         // the secret is never logged
         let log = log.lock().unwrap().join("\n");
         assert!(log.contains("gets A") && !log.contains("real"), "{log}");
+    }
+
+    /// A relay to `port` that makes every connection after the first `quick` ones wait 400 ms, and
+    /// counts the connections.
+    async fn slow_relay(port: u16, quick: usize) -> (u16, Arc<std::sync::atomic::AtomicUsize>) {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let relay = l.local_addr().unwrap().port();
+        let n = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = n.clone();
+        tokio::spawn(async move {
+            while let Ok((mut a, _)) = l.accept().await {
+                let seen = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                tokio::spawn(async move {
+                    if seen >= quick {
+                        tokio::time::sleep(Duration::from_millis(400)).await;
+                    }
+                    let Ok(mut b) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else { return };
+                    let _ = tokio::io::copy_bidirectional(&mut a, &mut b).await;
+                });
+            }
+        });
+        (relay, n)
+    }
+
+    #[tokio::test]
+    async fn uses_a_connection_made_ahead_of_time_and_makes_another() {
+        let (up, roots) = upstream().await;
+        // only the first two connections to the server are quick: the stock; a third one is slow
+        let (port, count) = slow_relay(up, 2).await;
+        let inspector = Inspector::with_roots(vec![active("A", "Authorization", "Bearer real", "/user*", &["GET"])], roots).unwrap();
+        assert_eq!(inspector.stockable(), vec!["localhost".to_string()]);
+        let ca = inspector.ca_pem().to_string();
+        let proxy = Proxy::for_test(Rules::new([vec!["localhost".to_string()]]), port, Some(inspector));
+        proxy.warm();
+        for _ in 0..100 {
+            if proxy.stocked("localhost") == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(proxy.stocked("localhost"), 2, "two connections ready before any guest asked");
+        assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+
+        let (mut guest, server) = tokio::io::duplex(1 << 16);
+        let p = proxy.clone();
+        tokio::spawn(async move { p.serve(server, |_| {}).await });
+        let started = std::time::Instant::now();
+        guest.write_all(format!("CONNECT localhost:{port} HTTP/1.1\r\n\r\n").as_bytes()).await.unwrap();
+        let mut head = vec![];
+        while !head.ends_with(b"\r\n\r\n") {
+            head.push(guest.read_u8().await.unwrap());
+        }
+        let der = base64::engine::general_purpose::STANDARD.decode(ca.lines().filter(|l| !l.starts_with("-----")).collect::<String>()).unwrap();
+        let mut trust = RootCertStore::empty();
+        trust.add(CertificateDer::from(der)).unwrap();
+        let mut cfg = ClientConfig::builder_with_provider(provider()).with_safe_default_protocol_versions().unwrap().with_root_certificates(trust).with_no_client_auth();
+        cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+        let tls = TlsConnector::from(Arc::new(cfg)).connect(ServerName::try_from("localhost").unwrap(), guest).await.unwrap();
+        let (mut send, conn) = hyper::client::conn::http1::handshake::<_, Full<Bytes>>(TokioIo::new(tls)).await.unwrap();
+        tokio::spawn(conn);
+        let resp = send.send_request(Request::builder().uri("/user").header("host", "localhost").body(Full::new(Bytes::new())).unwrap()).await.unwrap();
+        let body = String::from_utf8(resp.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap();
+        assert_eq!(body, "Bearer real|-|/user", "the token is set on a request over a stocked connection too");
+        // a fresh connection would have waited 400 ms in the relay
+        assert!(started.elapsed() < Duration::from_millis(300), "took {:?}: the stock was not used", started.elapsed());
+
+        // the stock is topped up again (through the slow relay)
+        for _ in 0..200 {
+            if proxy.stocked("localhost") == 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert_eq!(proxy.stocked("localhost"), 2);
+        assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn does_not_connect_ahead_of_time_to_a_host_that_is_not_allowed() {
+        let (up, roots) = upstream().await;
+        let (port, count) = slow_relay(up, 10).await;
+        let inspector = Inspector::with_roots(vec![active("A", "Authorization", "Bearer real", "", &[])], roots).unwrap();
+        let proxy = Proxy::for_test(Rules::new([vec!["other.test".to_string()]]), port, Some(inspector));
+        proxy.warm();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(proxy.stocked("localhost"), 0);
+        assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

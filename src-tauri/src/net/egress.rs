@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use crate::net::inspect::{Inspector, Prefixed};
+use crate::net::inspect::{Inspector, Prefixed, Upstream, STOCK_PER_HOST};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::Semaphore;
@@ -279,6 +279,12 @@ impl Proxy {
         self.meter.clone()
     }
 
+    /// How many connections to `host` the inspector has ready.
+    #[cfg(test)]
+    pub(crate) fn stocked(&self, host: &str) -> usize {
+        self.inspector.as_ref().map_or(0, |i| i.stocked(host))
+    }
+
     #[cfg(test)]
     pub(crate) fn for_test(rules: Rules, port: u16, inspector: Option<Inspector>) -> Arc<Proxy> {
         Proxy::for_test_with(rules, port, inspector, Limits::default())
@@ -325,38 +331,85 @@ impl Proxy {
         self.meter.open.fetch_add(1, Ordering::Relaxed);
         self.meter.connections.fetch_add(1, Ordering::Relaxed);
         let _open = OpenGuard(self.meter.clone());
-        let addrs = match self.resolve(host, *port).await {
-            Ok(a) => a,
-            Err(e) => return deny(&mut client, log, &shown, &e).await,
-        };
-        // A name often has an IPv6 and an IPv4 address and only one of them may be reachable: try each.
-        let mut upstream = None;
-        let mut failure = String::new();
-        for addr in addrs {
-            match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
-                Ok(Ok(s)) => {
-                    upstream = Some(s);
-                    break;
-                }
-                Ok(Err(e)) => failure = format!("cannot connect: {e}"),
-                Err(_) => failure = "connect timed out".into(),
+        // A connection to an inspected host that was made ahead of time saves the TCP and TLS
+        // handshakes with the real server (see `warm`); the checks above have all been done.
+        let inspector = self.inspector.as_ref().filter(|i| i.wants(host));
+        if let Some(ready) = inspector.and_then(|i| i.take(host)) {
+            log(format!("egress: {shown} allowed"));
+            if client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await.is_err() {
+                return;
             }
+            return inspector.unwrap().serve(Prefixed::new(extra, client), Upstream::Ready(ready), host, log).await;
         }
-        let Some(mut upstream) = upstream else {
-            return deny(&mut client, log, &shown, &failure).await;
+        let mut upstream = match self.dial(host, *port).await {
+            Ok(s) => s,
+            Err(e) => return deny(&mut client, log, &shown, &e).await,
         };
         log(format!("egress: {shown} allowed"));
         if client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await.is_err() {
             return;
         }
-        if let Some(inspector) = self.inspector.as_ref().filter(|i| i.wants(host)) {
-            return inspector.serve(Prefixed::new(extra, client), upstream, host, log).await;
+        if let Some(inspector) = inspector {
+            return inspector.serve(Prefixed::new(extra, client), Upstream::Fresh(upstream), host, log).await;
         }
         // Whatever followed the request head in the same read belongs to the tunnel.
         if !extra.is_empty() && upstream.write_all(&extra).await.is_err() {
             return;
         }
         let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
+    }
+
+    /// Resolves `host` and connects to the first address the guard accepts. A name often has an
+    /// IPv6 and an IPv4 address and only one of them may be reachable: each is tried.
+    async fn dial(&self, host: &str, port: u16) -> Result<TcpStream, String> {
+        let mut failure = String::new();
+        for addr in self.resolve(host, port).await? {
+            match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
+                Ok(Ok(s)) => return Ok(s),
+                Ok(Err(e)) => failure = format!("cannot connect: {e}"),
+                Err(_) => failure = "connect timed out".into(),
+            }
+        }
+        Err(failure)
+    }
+
+    /// Keeps a few connections to the inspected hosts ready for the guest: the TCP and TLS
+    /// handshakes with the real server are a round trip or more each, and Claude Code opens its
+    /// connections to the API as the first thing it does. Only the exact hosts of the injections
+    /// are connected, through the same name checks and address guard as any connection; nothing is
+    /// sent on them until the guest asks, and a stocked connection older than 25 s is dropped.
+    /// Ends when the proxy is gone.
+    pub fn warm(self: &Arc<Self>) {
+        let Some(inspector) = self.inspector.as_ref() else { return };
+        let signal = inspector.refill_signal();
+        let proxy = Arc::downgrade(self);
+        tokio::spawn(async move {
+            loop {
+                let Some(p) = proxy.upgrade() else { return };
+                p.top_up().await;
+                drop(p);
+                signal.notified().await;
+            }
+        });
+    }
+
+    async fn top_up(&self) {
+        let Some(inspector) = self.inspector.as_ref() else { return };
+        let port = self.ports[0];
+        for host in inspector.stockable() {
+            if !self.rules.allows(&host) || self.meter.exhausted() {
+                continue;
+            }
+            let missing = STOCK_PER_HOST.saturating_sub(inspector.stocked(&host));
+            let one = || async {
+                let tcp = self.dial(&host, port).await?;
+                inspector.stock(&host, tcp).await
+            };
+            let (a, b) = tokio::join!(async { if missing > 0 { Some(one().await) } else { None } }, async { if missing > 1 { Some(one().await) } else { None } });
+            for e in [a, b].into_iter().flatten().filter_map(Result::err) {
+                log::debug!("egress: could not make a connection to {host} ahead of time: {e}");
+            }
+        }
     }
 
     /// Resolves `host` and returns the addresses the guard accepts.
