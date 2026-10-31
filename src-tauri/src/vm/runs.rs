@@ -265,6 +265,8 @@ async fn boot_and_drive(
     let ca = Some(inspector.ca_pem().to_string());
     let proxy = crate::net::egress::Proxy::with_limits(rules, Some(inspector), limits);
     let meter = proxy.meter();
+    // Connect to the Claude API while the VM boots, so its first requests find a connection ready.
+    proxy.warm();
     // Never boot the image itself: a throwaway overlay on top of it (made while the tunnel starts).
     let (overlay_made, tunnel) = tokio::join!(
         make_overlay(app, disk, &overlay),
