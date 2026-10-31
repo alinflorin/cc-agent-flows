@@ -5,6 +5,7 @@ pub mod agent;
 #[cfg(test)]
 mod agentd_e2e;
 pub mod builder;
+pub mod confine;
 pub mod images;
 pub mod machine;
 pub mod protocol;

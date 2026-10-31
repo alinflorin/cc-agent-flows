@@ -291,10 +291,12 @@ async fn boot_and_drive(
         .arg("-chardev")
         .arg(format!("{},id=agent", channel.chardev))
         .args(["-device", "virtserialport,chardev=agent,name=agent"]);
+    crate::vm::machine::confine(app, &mut cmd, &[overlay.as_path()], &[work]);
     let mut cmd = Command::from(cmd);
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).kill_on_drop(true);
     cmd.stderr(std::fs::File::create(&errlog).map(Stdio::from).unwrap_or_else(|_| Stdio::null()));
     let mut child = cmd.spawn().map_err(|e| super::qemu::spawn_error(app, &format!("qemu-system-{}", crate::vm::machine::arch().unwrap_or("?")), &e))?;
+    crate::vm::machine::confine_started(app, &child);
     vm_state(on_msg, "starting");
 
     let stream = match crate::vm::builder::within(30, "the agent channel", channel.connect()).await {
