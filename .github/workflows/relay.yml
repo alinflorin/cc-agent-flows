@@ -1,0 +1,35 @@
+# Disposable: builds the guest relay (relay/) as a static musl binary on each architecture and
+# uploads it. Download the artifacts into vendor/relay/ (ccaf-relay-x86_64, ccaf-relay-aarch64),
+# commit them, and delete this workflow, like the kernel and image builds before it.
+name: Relay
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.arch }}-unknown-linux-musl
+      - name: Test and build
+        working-directory: relay
+        run: |
+          cargo test --locked
+          cargo build --release --locked --target ${{ matrix.arch }}-unknown-linux-musl
+          cp target/${{ matrix.arch }}-unknown-linux-musl/release/ccaf-relay ../ccaf-relay-${{ matrix.arch }}
+          file ../ccaf-relay-${{ matrix.arch }}
+          sha256sum ../ccaf-relay-${{ matrix.arch }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ccaf-relay-${{ matrix.arch }}
+          path: ccaf-relay-${{ matrix.arch }}

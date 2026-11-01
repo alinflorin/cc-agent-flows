@@ -1,0 +1,22 @@
+[package]
+name = "ccaf-relay"
+version = "0.1.0"
+edition = "2024"
+description = "Carries an agent VM's TCP connections to the app over one virtio-serial port (yamux)"
+publish = false
+
+[dependencies]
+yamux = "0.14"
+tokio = { version = "1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
+tokio-util = { version = "0.7", features = ["compat"] }
+futures = "0.3"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -278,3 +278,7 @@ dist
 # End of https://www.toptal.com/developers/gitignore/api/node
 ### Local tools (pnpm driver:install) ###
 .tools/
+
+# built on CI, copied here by scripts/images/fetch.mjs
+src-tauri/resources/agentd/ccaf-relay
+relay/target/
