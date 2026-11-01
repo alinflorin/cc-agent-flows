@@ -137,6 +137,11 @@ impl Inspector {
         self
     }
 
+    /// The protected secrets of the run, if any.
+    pub fn leaks(&self) -> Option<&Leaks> {
+        self.leaks.as_ref()
+    }
+
     /// The CA certificate (PEM) the guest must trust.
     pub fn ca_pem(&self) -> &str {
         &self.ca_pem

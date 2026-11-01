@@ -173,7 +173,7 @@
     "network": {
       "intro": "Gazde la care orice agent poate ajunge prin HTTPS. Profilele pot adăuga altele. Fără alt acces la rețea.",
       "allowHosts": "Gazde permise",
-      "allowHostsHint": "Câte una pe linie: un nume (github.com) sau subdomeniile lui (*.github.com). Restul e blocat. O listă goală taie agenții de la API-ul Claude.",
+      "allowHostsHint": "Câte una pe rând: un nume (github.com) sau subdomeniile lui (*.github.com). Restul e blocat. O listă goală taie agenții de la API-ul Claude. Bifează HTTP ca să permiți și HTTP necriptat către gazda respectivă.",
       "defaults": "Restaurează valorile implicite",
       "webhook": "Webhook",
       "webhookPort": "Portul webhook",
@@ -386,7 +386,7 @@
     "memory": "Memorie (MB)",
     "memoryHint": "RAM-ul VM-ului, minimum 1024. Implicit 2048.",
     "allowHosts": "Gazde permise",
-    "allowHostsHint": "Gazde la care acest agent poate ajunge prin HTTPS, câte una pe linie (github.com sau *.github.com; merge și ${var:NAME}). Se adaugă la cele globale. Listează gazda fiecărei injecții folosite.",
+    "allowHostsHint": "Gazde la care acest agent poate ajunge, câte una pe rând (github.com sau *.github.com; merge și ${var:NAME}). Bifează HTTP ca să permiți și HTTP simplu. Se adaugă la cele globale. Listează gazda fiecărei injecții folosite.",
     "envValue": "Valoare, ${secret:NUME}, ${injection:NUME} sau ${var:NUME}",
     "secretWarning": "{{names}} primește un secret în text clar: valoarea ajunge în mediul VM-ului, unde agentul (și orice rulează el) o poate citi și trimite. Preferă o injecție (Setări > Injecții): VM-ul vede doar un înlocuitor, iar proxy-ul adaugă credențialul real.",
     "integrations": "Integrări",
@@ -535,7 +535,10 @@
     "title": "Rulări individuale",
     "hint": "Vorbești cu un singur agent al unui profil, în propriul VM, cu token-ul tău Claude (Setări > LLM).",
     "placeholder": "Ce să facă agentul? Enter trimite, Shift+Enter adaugă o linie.",
-    "tabs": { "output": "Rezultat", "network": "Rețea" },
+    "tabs": {
+      "output": "Rezultat",
+      "network": "Rețea"
+    },
     "prompt": "Sarcină",
     "start": "Pornește",
     "cancel": "Anulează",
@@ -781,5 +784,10 @@
       "title": "Primii pași",
       "text": "Adaugă un token Claude la Setări globale > LLM, creează un proiect (sau demo-ul), verifică fluxul și profilurile de agent, apoi deschide Sesiuni și scrie cererea."
     }
+  },
+  "hosts": {
+    "http": "HTTP",
+    "httpHint": "Permite și HTTP simplu (portul 80) către această gazdă. Fără bifă merge doar HTTPS.",
+    "add": "Adaugă gazdă"
   }
 }

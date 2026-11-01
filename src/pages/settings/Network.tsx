@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { capitalize } from "../../text";
 import { useTranslation } from "react-i18next";
-import { Body1, Button, Field, Input, Subtitle1, Switch, Textarea, makeStyles, tokens } from "@fluentui/react-components";
+import { Body1, Button, Field, Input, Subtitle1, Switch, makeStyles, tokens } from "@fluentui/react-components";
 import { SettingsIntro } from "../../components/SettingsIntro";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
 import { useProject } from "../../project";
+import { HostList } from "../../components/HostList";
 
 interface Network {
   allow_hosts: string[];
@@ -96,13 +97,7 @@ export function NetworkSettings() {
         {!desktop && <Body1 block>{t("settings.llm.tokenDesktopOnly")}</Body1>}
       </SettingsIntro>
       <Field label={t("settings.network.allowHosts")} hint={t("settings.network.allowHostsHint")}>
-        <Textarea
-          rows={8}
-          className={styles.mono}
-          disabled={!desktop}
-          value={hosts.join("\n")}
-          onChange={(_, d) => setHosts(d.value === "" ? [] : d.value.split("\n"))}
-        />
+        <HostList value={hosts} onChange={setHosts} disabled={!desktop} placeholder="api.example.com" />
       </Field>
       {project === null && (
         <>

@@ -1,3 +1,4 @@
+import { HostList } from "../../components/HostList";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -17,7 +18,6 @@ import {
   Input,
   Option,
   Subtitle2,
-  Textarea,
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
@@ -337,7 +337,7 @@ export function IntegrationsSettings() {
                   </Field>
 
                   <Field label={t("profiles.allowHosts")} hint={t("settings.integrations.hostsHint")}>
-                    <Textarea rows={3} className={styles.mono} placeholder={"api.example.com\n${var:HOST}"} value={v.hosts.join("\n")} onChange={(_, d) => set({ hosts: d.value === "" ? [] : d.value.split("\n") })} />
+                    <HostList value={v.hosts} onChange={(hosts) => set({ hosts })} placeholder="${var:HOST}" />
                   </Field>
 
                   <Field label={t("settings.integrations.env")} hint={t("settings.integrations.envHint")}>

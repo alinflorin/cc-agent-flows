@@ -92,21 +92,27 @@ impl Leaks {
         self.needles.iter().find(|(_, forms)| forms.iter().any(|n| contains(haystack, n))).map(|(name, _)| name.as_str())
     }
 
+    /// Looks in one header value (a `Basic` one also decoded).
+    pub fn find_in_value(&self, bytes: &[u8]) -> Option<&str> {
+        if let Some(n) = self.find(bytes) {
+            return Some(n);
+        }
+        let text = String::from_utf8_lossy(bytes);
+        if let Some(b64) = text.strip_prefix("Basic ").or_else(|| text.strip_prefix("basic "))
+            && let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64.trim())
+        {
+            return self.find(&decoded);
+        }
+        None
+    }
+
     /// Looks in the request line's target and the header values (a `Basic` one also decoded).
     pub fn find_in_head(&self, target: &str, headers: &HeaderMap) -> Option<&str> {
         if let Some(n) = self.find(target.as_bytes()) {
             return Some(n);
         }
         for v in headers.values() {
-            let bytes = v.as_bytes();
-            if let Some(n) = self.find(bytes) {
-                return Some(n);
-            }
-            let text = String::from_utf8_lossy(bytes);
-            if let Some(b64) = text.strip_prefix("Basic ").or_else(|| text.strip_prefix("basic "))
-                && let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64.trim())
-                && let Some(n) = self.find(&decoded)
-            {
+            if let Some(n) = self.find_in_value(v.as_bytes()) {
                 return Some(n);
             }
         }

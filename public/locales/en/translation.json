@@ -173,7 +173,7 @@
     "network": {
       "intro": "Hosts every agent may reach over HTTPS. Profiles can add more. No other network access.",
       "allowHosts": "Allowed hosts",
-      "allowHostsHint": "One per line: a name (github.com) or its subdomains (*.github.com). Everything else is blocked. An empty list cuts agents off from the Claude API.",
+      "allowHostsHint": "One per row: a name (github.com) or its subdomains (*.github.com). Everything else is blocked. An empty list cuts agents off from the Claude API. Tick HTTP to also allow unencrypted HTTP to that host.",
       "defaults": "Restore defaults",
       "webhook": "Webhook",
       "webhookPort": "Webhook port",
@@ -386,7 +386,7 @@
     "memory": "Memory (MB)",
     "memoryHint": "RAM of the VM, at least 1024. Default 2048.",
     "allowHosts": "Allowed hosts",
-    "allowHostsHint": "Hosts this agent may reach over HTTPS, one per line (github.com or *.github.com; ${var:NAME} works). Added to the global ones. List the host of every injection it uses.",
+    "allowHostsHint": "Hosts this agent may reach, one per row (github.com or *.github.com; ${var:NAME} works). Tick HTTP to also allow plain HTTP. Added to the global ones. List the host of every injection it uses.",
     "envValue": "Value, ${secret:NAME}, ${injection:NAME} or ${var:NAME}",
     "secretWarning": "{{names}} gets a secret in plain text: the value reaches the VM's environment, where the agent (and anything it runs) can read and send it. Prefer an injection (Settings > Injections): the VM then only sees a placeholder and the proxy adds the real credential.",
     "integrations": "Integrations",
@@ -535,7 +535,10 @@
     "title": "Single runs",
     "hint": "Talk to one agent of a profile in its own VM, with your Claude token (Settings > LLM).",
     "placeholder": "What should the agent do? Enter sends, Shift+Enter adds a line.",
-    "tabs": { "output": "Output", "network": "Network" },
+    "tabs": {
+      "output": "Output",
+      "network": "Network"
+    },
     "prompt": "Task",
     "start": "Start",
     "cancel": "Cancel",
@@ -776,5 +779,10 @@
       "title": "Getting started",
       "text": "Add a Claude token under Global settings > LLM, create a project (or the demo), check the workflow and agent profiles, then open Sessions and write your request."
     }
+  },
+  "hosts": {
+    "http": "HTTP",
+    "httpHint": "Also allow plain HTTP (port 80) to this host. Without it only HTTPS works.",
+    "add": "Add host"
   }
 }

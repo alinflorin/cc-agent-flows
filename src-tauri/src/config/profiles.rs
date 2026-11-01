@@ -82,6 +82,11 @@ const MAX_ALLOW_HOSTS: usize = 100;
 /// or a `*.` wildcard over one. IP addresses and single-label names are refused.
 pub fn clean_host(entry: &str) -> Result<String, String> {
     let host = entry.trim().trim_end_matches('.').to_ascii_lowercase();
+    // `http://` marks an entry that also allows plain HTTP (port 80), see `net::egress::Rules`
+    let (scheme, host) = match host.strip_prefix(HTTP_PREFIX) {
+        Some(rest) => (HTTP_PREFIX, rest.to_string()),
+        None => ("", host),
+    };
     let bad = || format!("{entry:?} is not a host name (use example.com or *.example.com)");
     let name = host.strip_prefix("*.").unwrap_or(&host);
     let labels: Vec<&str> = name.split('.').collect();
@@ -93,8 +98,11 @@ pub fn clean_host(entry: &str) -> Result<String, String> {
     if host.len() > 253 || labels.len() < 2 || !labels.iter().all(label_ok) || !tld_ok {
         return Err(bad());
     }
-    Ok(host)
+    Ok(format!("{scheme}{host}"))
 }
+
+/// Prefix of an allowed-hosts entry that also allows plain HTTP to the host.
+pub const HTTP_PREFIX: &str = "http://";
 
 pub const DEFAULT_MEMORY_MB: u32 = 2048;
 /// The thinking effort of a profile that sets none: agents mostly act, and thinking costs seconds.
@@ -527,6 +535,8 @@ mod tests {
         let id = save(&dir, None, &x).unwrap();
         let saved = list(&dir).into_iter().find(|e| e.id == id).unwrap();
         assert_eq!(saved.profile.allow_hosts, vec!["github.com", "*.npmjs.org"]);
+        assert_eq!(clean_host(" HTTP://Example.com. ").unwrap(), "http://example.com");
+        assert!(clean_host("http://10.0.0.1").is_err());
         for bad in ["1.2.3.4", "localhost", "https://a.com", "a.com:443", "a.com/x", "*", "a.*.com", "-a.com", "a b.com", "a..com"] {
             x.allow_hosts = vec![bad.into()];
             assert!(save(&dir, None, &x).is_err(), "{bad}");

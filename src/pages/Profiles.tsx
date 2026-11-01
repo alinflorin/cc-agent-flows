@@ -27,6 +27,7 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { Add20Regular, Copy20Regular, Delete20Regular } from "@fluentui/react-icons";
+import { HostList } from "../components/HostList";
 import { EmptyState, useConfirmDelete } from "../components/Confirm";
 import { FormDialogSurface } from "../components/FormDialogSurface";
 import { ResetDemoButton } from "../components/ResetDemoButton";
@@ -314,13 +315,7 @@ export function Profiles() {
                     </div>
                   </Field>
                   <Field label={t("profiles.allowHosts")} hint={t("profiles.allowHostsHint")}>
-                    <Textarea
-                      rows={4}
-                      className={styles.mono}
-                      placeholder={"github.com\n*.githubusercontent.com"}
-                      value={editing.profile.allow_hosts.join("\n")}
-                      onChange={(_, d) => set({ allow_hosts: d.value === "" ? [] : d.value.split("\n") })}
-                    />
+                    <HostList value={editing.profile.allow_hosts} onChange={(allow_hosts) => set({ allow_hosts })} placeholder="github.com" />
                   </Field>
                   <Field label={t("profiles.maxConnections")} hint={t("profiles.maxConnectionsHint")}>
                     <Input

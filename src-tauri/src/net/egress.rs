@@ -171,9 +171,13 @@ impl Drop for OpenGuard {
 }
 
 /// The hosts an agent may reach: exact names and `*.suffix` wildcards (subdomains only, the bare
-/// suffix is not matched). Entries are stored as `profiles::clean_host` leaves them.
+/// suffix is not matched). Entries are stored as `profiles::clean_host` leaves them. An entry
+/// that starts with `http://` also allows plain HTTP (port 80) to the host.
 #[derive(Debug, Clone, Default)]
-pub struct Rules(Vec<String>);
+pub struct Rules {
+    https: Vec<String>,
+    http: Vec<String>,
+}
 
 impl Rules {
     /// Builds the rules from several lists (the global one and the profile's), duplicates dropped.
@@ -182,28 +186,43 @@ impl Rules {
         I: IntoIterator<Item = S>,
         S: AsRef<[String]>,
     {
-        let mut hosts: Vec<String> = vec![];
+        let mut rules = Rules::default();
         for list in lists {
             for h in list.as_ref() {
                 let h = h.trim().trim_end_matches('.').to_ascii_lowercase();
-                if !h.is_empty() && !hosts.contains(&h) {
-                    hosts.push(h);
+                let (h, plain) = match h.strip_prefix(crate::config::profiles::HTTP_PREFIX) {
+                    Some(rest) => (rest.to_string(), true),
+                    None => (h, false),
+                };
+                if h.is_empty() {
+                    continue;
+                }
+                if plain && !rules.http.contains(&h) {
+                    rules.http.push(h.clone());
+                }
+                if !rules.https.contains(&h) {
+                    rules.https.push(h);
                 }
             }
         }
-        Rules(hosts)
+        rules
     }
 
     /// `host` must already be lowercase without a trailing dot.
     pub fn allows(&self, host: &str) -> bool {
-        self.0.iter().any(|rule| host_matches(rule, host))
+        self.https.iter().any(|rule| host_matches(rule, host))
+    }
+
+    /// Whether plain HTTP to `host` is allowed too (an entry marked `http://`).
+    pub fn allows_http(&self, host: &str) -> bool {
+        self.http.iter().any(|rule| host_matches(rule, host))
     }
 
     /// Whether every host `pattern` (a name or a `*.` wildcard, as in an injection's rule) can name is allowed.
     pub fn covers(&self, pattern: &str) -> bool {
         match pattern.strip_prefix("*.") {
             None => self.allows(pattern),
-            Some(suffix) => self.0.iter().any(|rule| match rule.strip_prefix("*.") {
+            Some(suffix) => self.https.iter().any(|rule| match rule.strip_prefix("*.") {
                 Some(s) => suffix == s || suffix.ends_with(&format!(".{s}")),
                 None => false,
             }),
@@ -266,6 +285,8 @@ pub struct Proxy {
     inspector: Option<Inspector>,
     slots: Semaphore,
     meter: Arc<Meter>,
+    /// Port plain HTTP requests are sent to (80; only the tests change it).
+    http_port: u16,
 }
 
 impl Proxy {
@@ -274,7 +295,7 @@ impl Proxy {
     }
 
     pub fn with_limits(rules: Rules, inspector: Option<Inspector>, limits: Limits) -> Arc<Proxy> {
-        Arc::new(Proxy { rules, ports: vec![443], guard: true, inspector, slots: Semaphore::new(limits.max_connections.max(1)), meter: Arc::new(Meter::new(limits)) })
+        Arc::new(Proxy { rules, ports: vec![443], guard: true, inspector, slots: Semaphore::new(limits.max_connections.max(1)), meter: Arc::new(Meter::new(limits)), http_port: 80 })
     }
 
     /// The run's traffic counters.
@@ -295,7 +316,7 @@ impl Proxy {
 
     #[cfg(test)]
     pub(crate) fn for_test_with(rules: Rules, port: u16, inspector: Option<Inspector>, limits: Limits) -> Arc<Proxy> {
-        Arc::new(Proxy { rules, ports: vec![port], guard: false, inspector, slots: Semaphore::new(limits.max_connections.max(1)), meter: Arc::new(Meter::new(limits)) })
+        Arc::new(Proxy { rules, ports: vec![port], guard: false, inspector, slots: Semaphore::new(limits.max_connections.max(1)), meter: Arc::new(Meter::new(limits)), http_port: port })
     }
 
     /// Serves one client connection: reads its `CONNECT`, checks it and tunnels. `log` gets one
@@ -312,10 +333,14 @@ impl Proxy {
     where
         S: AsyncRead + AsyncWrite + Unpin,
     {
-        let (target, extra) = match tokio::time::timeout(HEAD_TIMEOUT, read_connect(&mut client)).await {
+        let request = match tokio::time::timeout(HEAD_TIMEOUT, read_request(&mut client)).await {
             Ok(Ok(v)) => v,
             Ok(Err(e)) => return deny(&mut client, log, "-", &e).await,
             Err(_) => return log("egress: no request".into()),
+        };
+        let (target, extra) = match request {
+            Request::Connect { target, extra } => (target, extra),
+            Request::Plain(plain) => return self.serve_plain(client, log, plain).await,
         };
         let (host, port) = &target;
         let shown = format!("{host}:{port}");
@@ -360,6 +385,87 @@ impl Proxy {
             return;
         }
         let _ = tokio::io::copy_bidirectional_with_sizes(&mut client, &mut upstream, COPY_BUF, COPY_BUF).await;
+    }
+
+    /// A plain HTTP request (`GET http://host/path`) to a host marked `http://`: one request per
+    /// connection (`Connection: close`), sent to port 80 in origin form with `Host` set from the
+    /// URL. When the run protects secrets and the profile does not name the host, the whole
+    /// request is read first and refused if it carries one (a body must have a `Content-Length`).
+    async fn serve_plain<S>(&self, mut client: Counted<S>, log: &(impl Fn(String) + Sync), req: Plain)
+    where
+        S: AsyncRead + AsyncWrite + Unpin,
+    {
+        let shown = format!("http://{}{}", req.host, req.path);
+        if !self.rules.allows_http(&req.host) {
+            return deny(&mut client, log, &shown, "only HTTPS is allowed for this host (plain HTTP is not enabled for it)").await;
+        }
+        if self.meter.exhausted() {
+            return deny(&mut client, log, &shown, "the data budget of this agent is used up").await;
+        }
+        let guarded = self.inspector.as_ref().and_then(|i| i.leaks()).filter(|l| l.guards(&req.host));
+        let mut body = req.extra;
+        if let Some(leaks) = guarded {
+            if req.chunked {
+                return deny(&mut client, log, &shown, "a chunked body to a host the profile does not name cannot be checked for secrets").await;
+            }
+            let len = req.length.unwrap_or(0);
+            if len > MAX_SCANNED_BODY {
+                return deny(&mut client, log, &shown, "a body over 4 MiB to a host the profile does not name cannot be checked for secrets").await;
+            }
+            let mut chunk = [0u8; 8192];
+            body.truncate(len);
+            while body.len() < len {
+                match tokio::time::timeout(HEAD_TIMEOUT, client.read(&mut chunk)).await {
+                    Ok(Ok(n)) if n > 0 => body.extend_from_slice(&chunk[..n.min(len - body.len())]),
+                    _ => return deny(&mut client, log, &shown, "the request body ended early").await,
+                }
+            }
+            let found = leaks
+                .find(req.path.as_bytes())
+                .or_else(|| req.headers.iter().find_map(|(_, v)| leaks.find_in_value(v.as_bytes())))
+                .or_else(|| leaks.find(&body));
+            if let Some(name) = found {
+                return deny(&mut client, log, &shown, &format!("the request carries the protected secret {name} and the profile does not list this host")).await;
+            }
+        }
+        let Ok(_slot) = self.slots.try_acquire() else {
+            return deny(&mut client, log, &shown, "too many connections").await;
+        };
+        self.meter.open.fetch_add(1, Ordering::Relaxed);
+        self.meter.connections.fetch_add(1, Ordering::Relaxed);
+        let _open = OpenGuard(self.meter.clone());
+        let mut upstream = match self.dial(&req.host, self.http_port).await {
+            Ok(s) => s,
+            Err(e) => return deny(&mut client, log, &shown, &e).await,
+        };
+        log(format!("egress: {} {shown} allowed (plain HTTP)", req.method));
+        let mut head = format!("{} {} HTTP/1.1\r\nHost: {}\r\n", req.method, req.path, req.host);
+        for (name, value) in &req.headers {
+            head.push_str(&format!("{name}: {value}\r\n"));
+        }
+        head.push_str("Connection: close\r\n\r\n");
+        if upstream.write_all(head.as_bytes()).await.is_err() || (!body.is_empty() && upstream.write_all(&body).await.is_err()) {
+            return;
+        }
+        // The exchange ends with the response (`Connection: close`). When everything the client may
+        // send has been checked, whatever follows the request is not forwarded.
+        let (mut from_client, mut to_client) = tokio::io::split(client);
+        let (mut from_server, mut to_server) = upstream.into_split();
+        {
+            let down = tokio::io::copy(&mut from_server, &mut to_client);
+            tokio::pin!(down);
+            if guarded.is_some() {
+                let _ = down.await;
+            } else {
+                let up = tokio::io::copy(&mut from_client, &mut to_server);
+                tokio::pin!(up);
+                tokio::select! {
+                    _ = &mut down => {}
+                    _ = &mut up => { let _ = down.await; }
+                }
+            }
+        }
+        let _ = to_client.shutdown().await;
     }
 
     /// Resolves `host` and connects to the first address the guard accepts. A name often has an
@@ -445,10 +551,45 @@ async fn deny<S: AsyncWrite + Unpin>(client: &mut S, log: &impl Fn(String), targ
     let _ = client.shutdown().await;
 }
 
-/// Reads the request head. Returns the `(host, port)` of a `CONNECT` and the bytes read past the
-/// head. The host is lowercased without a trailing dot; IP literals are refused (the allowlist
-/// is about names).
-async fn read_connect<S: AsyncRead + Unpin>(client: &mut S) -> Result<((String, u16), Vec<u8>), String> {
+/// What a client asked for.
+enum Request {
+    /// A `CONNECT`: the `(host, port)` and the bytes read past the head.
+    Connect { target: (String, u16), extra: Vec<u8> },
+    Plain(Plain),
+}
+
+/// A plain HTTP request in proxy form, `GET http://host/path HTTP/1.1`, already taken apart.
+struct Plain {
+    method: String,
+    host: String,
+    /// The path and query, in origin form.
+    path: String,
+    /// The headers to pass on: no `Host`, `Connection` or other hop-by-hop ones.
+    headers: Vec<(String, String)>,
+    length: Option<usize>,
+    chunked: bool,
+    /// The bytes read past the head.
+    extra: Vec<u8>,
+}
+
+/// Largest body that is read whole to look for protected secrets.
+const MAX_SCANNED_BODY: usize = 4 * 1024 * 1024;
+
+/// The host name of a request target: lowercased without a trailing dot; IP literals are refused (the
+/// allowlist is about names).
+fn clean_name(host: &str) -> Result<String, String> {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() || host.starts_with('[') || host.parse::<IpAddr>().is_ok() {
+        return Err("IP addresses are not allowed, use a host name".into());
+    }
+    if !host.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') {
+        return Err("bad host name".into());
+    }
+    Ok(host)
+}
+
+/// Reads the request head: a `CONNECT`, or a plain HTTP request for a host marked `http://`.
+async fn read_request<S: AsyncRead + Unpin>(client: &mut S) -> Result<Request, String> {
     let mut buf = Vec::with_capacity(512);
     let mut chunk = [0u8; 1024];
     let end = loop {
@@ -465,23 +606,55 @@ async fn read_connect<S: AsyncRead + Unpin>(client: &mut S) -> Result<((String, 
         buf.extend_from_slice(&chunk[..n]);
     };
     let head = std::str::from_utf8(&buf[..end]).map_err(|_| "request is not text")?;
-    let line = head.lines().next().unwrap_or("");
+    let mut lines = head.split("\r\n");
+    let line = lines.next().unwrap_or("");
     let mut parts = line.split(' ');
-    let (method, authority, version) = (parts.next(), parts.next(), parts.next());
-    if method != Some("CONNECT") || !version.is_some_and(|v| v.starts_with("HTTP/1.")) || parts.next().is_some() {
-        return Err("only HTTPS (CONNECT) is allowed".into());
+    let (method, target, version) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next());
+    let https_only = || "only HTTPS (CONNECT) is allowed".to_string();
+    if !version.is_some_and(|v| v.starts_with("HTTP/1.")) || parts.next().is_some() {
+        return Err(https_only());
     }
-    let authority = authority.unwrap_or("");
-    let (host, port) = authority.rsplit_once(':').ok_or("the target needs a port")?;
+    if method != "CONNECT" {
+        let rest = target.strip_prefix("http://").ok_or_else(https_only)?;
+        if method.is_empty() || !method.bytes().all(|b| b.is_ascii_uppercase()) {
+            return Err(https_only());
+        }
+        let (authority, path) = match rest.find(['/', '?']) {
+            Some(i) => (&rest[..i], &rest[i..]),
+            None => (rest, "/"),
+        };
+        let path = if path.starts_with('?') { format!("/{path}") } else { path.to_string() };
+        let (host, port) = authority.rsplit_once(':').unwrap_or((authority, "80"));
+        if port != "80" || authority.contains('@') {
+            return Err("plain HTTP is only allowed on port 80, without credentials in the URL".into());
+        }
+        let host = clean_name(host)?;
+        let mut headers = vec![];
+        let (mut length, mut chunked) = (None, false);
+        for l in lines.take_while(|l| !l.is_empty()) {
+            let (name, value) = l.split_once(':').filter(|(n, _)| !n.is_empty() && !n.starts_with([' ', '\t']) && !n.ends_with([' ', '\t'])).ok_or("bad header")?;
+            let (lower, value) = (name.to_ascii_lowercase(), value.trim());
+            match lower.as_str() {
+                "host" | "connection" | "proxy-connection" | "proxy-authorization" | "keep-alive" | "upgrade" | "te" | "trailer" | "expect" => continue,
+                "content-length" => {
+                    if length.is_some() {
+                        return Err("two Content-Length headers".into());
+                    }
+                    length = Some(value.parse::<usize>().map_err(|_| "bad Content-Length")?);
+                }
+                "transfer-encoding" => chunked = true,
+                _ => {}
+            }
+            headers.push((name.to_string(), value.to_string()));
+        }
+        if chunked && length.is_some() {
+            return Err("both Content-Length and Transfer-Encoding".into());
+        }
+        return Ok(Request::Plain(Plain { method: method.into(), host, path, headers, length, chunked, extra: buf[end..].to_vec() }));
+    }
+    let (host, port) = target.rsplit_once(':').ok_or("the target needs a port")?;
     let port: u16 = port.parse().map_err(|_| "bad port")?;
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    if host.is_empty() || host.starts_with('[') || host.parse::<IpAddr>().is_ok() {
-        return Err("IP addresses are not allowed, use a host name".into());
-    }
-    if !host.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') {
-        return Err("bad host name".into());
-    }
-    Ok(((host, port), buf[end..].to_vec()))
+    Ok(Request::Connect { target: (clean_name(host)?, port), extra: buf[end..].to_vec() })
 }
 
 #[cfg(test)]
@@ -565,6 +738,80 @@ mod tests {
             assert!(reply.contains(why), "{req:?}: {reply}");
             assert!(log.iter().any(|l| l.contains("denied")), "{log:?}");
         }
+    }
+
+    /// A server that answers every connection with `ok` and reports the request it got.
+    async fn http_server() -> (u16, tokio::sync::mpsc::UnboundedReceiver<String>) {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            loop {
+                let (mut s, _) = l.accept().await.unwrap();
+                let tx = tx.clone();
+                tokio::spawn(async move {
+                    let mut got = vec![];
+                    let mut buf = [0u8; 1024];
+                    while !got.windows(4).any(|w| w == b"\r\n\r\n") {
+                        let n = s.read(&mut buf).await.unwrap_or(0);
+                        if n == 0 {
+                            break;
+                        }
+                        got.extend_from_slice(&buf[..n]);
+                    }
+                    let _ = tx.send(String::from_utf8_lossy(&got).into_owned());
+                    let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok").await;
+                });
+            }
+        });
+        (port, rx)
+    }
+
+    #[test]
+    fn an_http_entry_allows_plain_http_and_https() {
+        let r = rules(&["http://a.example.com", "b.example.com", "http://*.c.org"]);
+        assert!(r.allows("a.example.com") && r.allows_http("a.example.com"));
+        assert!(r.allows("b.example.com") && !r.allows_http("b.example.com"));
+        assert!(r.allows("x.c.org") && r.allows_http("x.c.org") && !r.allows_http("c.org"));
+    }
+
+    #[tokio::test]
+    async fn forwards_plain_http_only_to_marked_hosts() {
+        let (port, mut seen) = http_server().await;
+        let proxy = Proxy::for_test(rules(&["http://localhost", "other.com"]), port, None);
+        let (reply, log) = exchange(proxy.clone(), b"GET http://LocalHost./a/b?x=1 HTTP/1.1\r\nHost: evil.com\r\nProxy-Connection: keep-alive\r\nX-Test: 1\r\n\r\n").await;
+        assert!(reply.starts_with("HTTP/1.1 200") && reply.ends_with("ok"), "{reply}");
+        assert!(log.iter().any(|l| l.contains("allowed (plain HTTP)")), "{log:?}");
+        let sent = seen.recv().await.unwrap();
+        assert!(sent.starts_with("GET /a/b?x=1 HTTP/1.1\r\nHost: localhost\r\n"), "{sent}");
+        assert!(sent.contains("X-Test: 1") && sent.contains("Connection: close") && !sent.contains("evil.com") && !sent.contains("Proxy-Connection"), "{sent}");
+        // listed for HTTPS only, or not listed: refused
+        for req in ["GET http://other.com/ HTTP/1.1\r\n\r\n", "GET http://nope.com/ HTTP/1.1\r\n\r\n", "GET http://localhost:8080/ HTTP/1.1\r\n\r\n", "GET http://u:p@localhost/ HTTP/1.1\r\n\r\n", "GET http://127.0.0.1/ HTTP/1.1\r\n\r\n"] {
+            let (reply, _) = exchange(proxy.clone(), req.as_bytes()).await;
+            assert!(reply.starts_with("HTTP/1.1 403"), "{req}: {reply}");
+        }
+    }
+
+    #[tokio::test]
+    async fn plain_http_to_a_host_the_profile_does_not_name_is_checked_for_secrets() {
+        use crate::net::leaks::{Leaks, Watched};
+        let (port, mut seen) = http_server().await;
+        let leaks = Leaks::new(vec![Watched { name: "TOKEN".into(), value: "s3cret-token-value".into() }], rules(&["github.com"]));
+        let inspector = Inspector::with_roots(vec![], rustls::RootCertStore::empty()).unwrap().watching(leaks);
+        let proxy = Proxy::for_test(rules(&["http://localhost"]), port, Some(inspector));
+        for req in [
+            "GET http://localhost/?k=s3cret-token-value HTTP/1.1\r\n\r\n",
+            "GET http://localhost/ HTTP/1.1\r\nAuthorization: Bearer s3cret-token-value\r\n\r\n",
+            "POST http://localhost/ HTTP/1.1\r\nContent-Length: 24\r\n\r\nxx s3cret-token-value xx",
+            "POST http://localhost/ HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+        ] {
+            let (reply, _) = exchange(proxy.clone(), req.as_bytes()).await;
+            assert!(reply.starts_with("HTTP/1.1 403"), "{req}: {reply}");
+        }
+        assert!(seen.try_recv().is_err(), "nothing may reach the server");
+        let (reply, _) = exchange(proxy, b"POST http://localhost/ HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello").await;
+        assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+        assert!(seen.recv().await.unwrap().starts_with("POST / HTTP/1.1"));
     }
 
     #[tokio::test]
