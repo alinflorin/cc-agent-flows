@@ -21,7 +21,7 @@ use tokio::sync::oneshot;
 
 use crate::config::scope::Scope;
 use crate::vm::builder::Serial;
-use crate::vm::protocol::{Bootstrap, Event, Final, Outbound, Status, Task, TunnelKeys};
+use crate::vm::protocol::{Bootstrap, Event, Final, Outbound, Status, Task};
 
 /// The runs in flight, to cancel them.
 #[derive(Default)]
@@ -340,7 +340,7 @@ async fn boot_and_drive(
     let mut rx = crate::vm::agent::drive(stream, Bootstrap {
             id: identity.to_string(),
             claude_token: crate::config::injections::CLAUDE_PLACEHOLDER.to_string(),
-            tunnel: Some(TunnelKeys { key: tunnel.client_key.clone(), host_key: tunnel.host_key.clone() }),
+            tunnel: true,
             ca,
         },
         task,
@@ -621,7 +621,7 @@ mod tests {
         let mut rx = crate::vm::agent::drive(stream, Bootstrap {
                 id: who,
                 claude_token: "sk-ant-oat01-fake".into(),
-                tunnel: Some(TunnelKeys { key: tunnel.client_key.clone(), host_key: tunnel.host_key.clone() }),
+                tunnel: true,
                 ca: None,
             }, task);
         // where the time goes, from the QEMU spawn: `ready` is agentd up in the guest (boot over)

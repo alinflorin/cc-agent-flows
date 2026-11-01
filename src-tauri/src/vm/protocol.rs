@@ -23,23 +23,14 @@ pub struct Bootstrap {
     pub id: String,
     /// The Claude setup token. It goes only into the `claude` process environment.
     pub claude_token: String,
-    /// The run's way out to the internet, when the VM's network is sealed (see `tunnel.rs`);
-    /// without it `agentd` sets up no proxy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tunnel: Option<TunnelKeys>,
+    /// True when the VM's network is sealed and `ccaf-init` has opened the tunnel to the egress
+    /// proxy (see `tunnel.rs`); without it `agentd` sets up no proxy.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tunnel: bool,
     /// The certificate (PEM) of the CA that signs the certificates the egress proxy shows for the
     /// hosts of the run's credential injections. Public; `agentd` makes the VM trust it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ca: Option<String>,
-}
-
-/// What `agentd` needs to open the SSH tunnel to the app's egress proxy.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct TunnelKeys {
-    /// The client's private key, OpenSSH format. Used by `agentd` only, never readable by `claude`.
-    pub key: String,
-    /// The app's SSH host key (`ssh-ed25519 AAAA...`).
-    pub host_key: String,
 }
 
 /// A variable for the `claude` process (from the agent profile). `agentd` skips reserved names.

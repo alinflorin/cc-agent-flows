@@ -5,7 +5,7 @@
 # (src/protocol.rs). Needs busybox ash, jq, setpriv (util-linux) and setsid.
 #
 #   agentd.sh [--channel <path>] [--out <path>] [--workspace <dir>] [--claude <path>]
-#             [--ssh <path>] [--ca-bundle <path>] [--ca-file <path>] [--tools-dir <dir>] [--run-as <user>] [--poweroff]
+#             [--tunnel-fifo <path>] [--ca-bundle <path>] [--ca-file <path>] [--tools-dir <dir>] [--run-as <user>] [--poweroff]
 #
 # --out is only for tests: with it the channel is split into two files (fifos). Everything
 # `claude` prints is untrusted data: wrapped by jq, truncated, never run.
@@ -15,7 +15,7 @@ IN=/dev/virtio-ports/agent
 OUT=
 WS=/home/agent/work
 CLAUDE=claude
-SSH=ssh
+TUNNEL_FIFO=/run/ccaf/tunnel
 CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 CA_FILE=/etc/ccaf-ca.pem
 TOOLS_DIR=/usr/share/ccaf/tools
@@ -30,7 +30,7 @@ while [ $# -gt 0 ]; do
 	--out) OUT=$2; shift ;;
 	--workspace) WS=$2; shift ;;
 	--claude) CLAUDE=$2; shift ;;
-	--ssh) SSH=$2; shift ;;
+	--tunnel-fifo) TUNNEL_FIFO=$2; shift ;;
 	--ca-bundle) CA_BUNDLE=$2; shift ;;
 	--ca-file) CA_FILE=$2; shift ;;
 	--tools-dir) TOOLS_DIR=$2; shift ;;
@@ -100,45 +100,14 @@ mark bootstrap
 _b=$(printf '%s' "$line" | jq -r '
 	"TOKEN=\(.claude_token // "" | tostring | @sh)",
 	"AGENT_ID=\(.id // "" | tostring | @sh)",
-	"TUNNEL_KEY=\(.tunnel.key // "" | tostring | @sh)",
-	"TUNNEL_HOST=\(.tunnel.host_key // "" | tostring | @sh)",
+	"TUNNEL=\(.tunnel // false | tostring | @sh)",
 	"CA=\(.ca // "" | tostring | @sh)"') || fail "bad bootstrap"
 eval "$_b"
 [ -n "$TOKEN" ] || fail "bootstrap without a token"
-# With a sealed network the app sends the keys of the tunnel to its egress proxy; the CA signs the
-# certificates of the hosts the app injects credentials for (public).
-
-# The only way out of the VM is one connection to the app (QEMU forwards 10.0.2.100:22 to it).
-# ssh carries the traffic of `claude` to the app's proxy as channels: HTTPS_PROXY points at the
-# local end. The key is read by ssh as root and deleted at once; `claude` never sees it. It needs
-# nothing but the bootstrap, so it is opened in the background while the task is read and parsed.
-TUNNEL_PID=
-if [ -n "$TUNNEL_KEY" ]; then
-	[ -n "$TUNNEL_HOST" ] || fail "tunnel: no host key"
-	(
-		umask 077
-		printf '%s\n' "$TUNNEL_KEY" >"$T/tunnel.key"
-		printf '10.0.2.100 %s\n' "$TUNNEL_HOST" >"$T/tunnel.hosts"
-	) || fail "tunnel: cannot write the key"
-	(
-		# Pinned to what the app's server offers and what is cheapest to set up under software
-		# emulation: no compression, one cipher, plain curve25519 (not the post-quantum hybrid
-		# OpenSSH proposes first), ed25519 only.
-		# -f returns once the tunnel is up (or ssh failed), in the background it keeps running
-		timeout 90 "$SSH" -F /dev/null -f -N -T -i "$T/tunnel.key" -o IdentitiesOnly=yes -o BatchMode=yes \
-			-o UserKnownHostsFile="$T/tunnel.hosts" -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes \
-			-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
-			-o Compression=no -o IPQoS=none -o Ciphers=chacha20-poly1305@openssh.com,aes128-gcm@openssh.com \
-			-o KexAlgorithms=curve25519-sha256 -o HostKeyAlgorithms=ssh-ed25519 -o PubkeyAcceptedAlgorithms=ssh-ed25519 \
-			-L 127.0.0.1:3128:egress:3128 -p 22 agent@10.0.2.100 2>"$T/ssh.err"
-		_rc=$?
-		rm -f "$T/tunnel.key"
-		read -r _u _ </proc/uptime
-		echo "${_u:-0}" >"$T/tunnel.up"
-		exit $_rc
-	) &
-	TUNNEL_PID=$!
-fi
+# With a sealed network the app says so (`tunnel`): `ccaf-init` has already opened the tunnel to the
+# app's egress proxy (no key: the channel belongs to this VM) and reports how it went through a fifo,
+# read just before `claude` starts. The CA signs the certificates of the hosts the app injects
+# credentials for (public).
 
 send '{"kind":"ready"}'
 readline 300 || fail "no task from the app"
@@ -235,7 +204,7 @@ run_claude() {
 	if [ -n "$CA" ]; then
 		export NODE_EXTRA_CA_CERTS=$CA_FILE REQUESTS_CA_BUNDLE=$CA_BUNDLE
 	fi
-	if [ -n "$TUNNEL_KEY" ]; then
+	if [ "$TUNNEL" = true ]; then
 		export HTTPS_PROXY=http://127.0.0.1:3128 HTTP_PROXY=http://127.0.0.1:3128 NO_PROXY=localhost,127.0.0.1,::1
 		export https_proxy=$HTTPS_PROXY http_proxy=$HTTP_PROXY no_proxy=$NO_PROXY
 	fi
@@ -246,13 +215,10 @@ run_claude() {
 	exec setsid "$CLAUDE" "$@"
 }
 
-# The tunnel was started with the bootstrap and has been coming up while the task was parsed and
-# the CA, the workspace and the arguments were set up; `claude` needs it.
-if [ -n "$TUNNEL_PID" ]; then
-	wait "$TUNNEL_PID"
-	_rc=$?
-	[ "$_rc" = 0 ] || fail "tunnel: cannot reach the network proxy (ssh exit $_rc): $(tail -c 500 "$T/ssh.err" 2>/dev/null)"
-	read -r _tu <"$T/tunnel.up" 2>/dev/null
+# `ccaf-init` started the tunnel at boot; it has been coming up since. `claude` needs it.
+if [ "$TUNNEL" = true ]; then
+	read -r _rc _tu <"$TUNNEL_FIFO" 2>/dev/null
+	[ "${_rc:-1}" = 0 ] || fail "tunnel: cannot reach the network proxy (ssh exit ${_rc:-?}): $(tail -c 500 "$TUNNEL_FIFO.err" 2>/dev/null)"
 fi
 
 mark tunnel_up "${_tu:-}"

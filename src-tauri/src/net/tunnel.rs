@@ -5,15 +5,17 @@
 //! handed to the proxy (`egress.rs`). No shell, exec, subsystem, agent, X11 or remote forwarding:
 //! those channel kinds and requests are all refused (the defaults of `russh` drop them).
 //!
-//! One `Tunnel` per agent run. The client authenticates with the run's own key pair, generated
-//! here and sent to the VM in the bootstrap, so the connection is the run's and nothing else's.
+//! One `Tunnel` per agent run. There is no key: the client logs in with the `none` method, because
+//! the connection is the run's and nothing else's (QEMU's forward leads only to this listener, and
+//! the only thing the server will open is the proxy channel). That lets the guest open the tunnel at
+//! boot, before it has read anything from the app.
 
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use russh::keys::{Algorithm, PrivateKey, PublicKey, ssh_key::LineEnding};
-use russh::server::{Auth, Config, Handler, Msg, Session, VerifiedPublicKey, run_stream};
+use russh::keys::{Algorithm, PrivateKey};
+use russh::server::{Auth, Config, Handler, Msg, Session, run_stream};
 use russh::{Channel, ChannelOpenFailure};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -32,10 +34,6 @@ type Log = Arc<dyn Fn(String) + Send + Sync>;
 pub struct Tunnel {
     /// The loopback port QEMU forwards the guest's connection to.
     pub port: u16,
-    /// The client's private key, OpenSSH format, for the guest.
-    pub client_key: String,
-    /// The server's public key (`ssh-ed25519 AAAA...`), for the guest's `known_hosts`.
-    pub host_key: String,
     task: JoinHandle<()>,
 }
 
@@ -46,7 +44,6 @@ impl Drop for Tunnel {
 }
 
 struct Gate {
-    client: PublicKey,
     proxy: Arc<Proxy>,
     log: Log,
 }
@@ -54,12 +51,8 @@ struct Gate {
 impl Handler for Gate {
     type Error = russh::Error;
 
-    async fn auth_publickey_offered(&mut self, _user: &str, offer: russh::server::PublicKeyOffer<'_>) -> Result<Auth, Self::Error> {
-        Ok(if *offer.public_key == self.client { Auth::Accept } else { Auth::reject() })
-    }
-
-    async fn auth_publickey(&mut self, _user: &str, key: VerifiedPublicKey<'_>) -> Result<Auth, Self::Error> {
-        Ok(if *key.public_key == self.client { Auth::Accept } else { Auth::reject() })
+    async fn auth_none(&mut self, _user: &str) -> Result<Auth, Self::Error> {
+        Ok(Auth::Accept)
     }
 
     async fn channel_open_direct_tcpip(
@@ -89,15 +82,7 @@ impl Tunnel {
     /// be listening before the VM boots.
     pub async fn start(proxy: Arc<Proxy>, log: Log) -> Result<Tunnel, String> {
         // the generator is not Send: keep it out of the awaits below
-        let (host, client) = {
-            let mut rng = rand::rng();
-            let host = PrivateKey::random(&mut rng, Algorithm::Ed25519).map_err(|e| e.to_string())?;
-            let client = PrivateKey::random(&mut rng, Algorithm::Ed25519).map_err(|e| e.to_string())?;
-            (host, client)
-        };
-        let host_key = host.public_key().to_openssh().map_err(|e| e.to_string())?;
-        let client_key = client.to_openssh(LineEnding::LF).map_err(|e| e.to_string())?.to_string();
-        let client_pub = client.public_key().clone();
+        let host = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).map_err(|e| e.to_string())?;
 
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.map_err(|e| format!("cannot listen: {e}"))?;
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
@@ -120,7 +105,7 @@ impl Tunnel {
                 // russh sets this only in its own accept loop; this is one TCP stream for all of the
                 // guest's connections, so its small packets must not wait for Nagle's timer
                 let _ = stream.set_nodelay(true);
-                let gate = Gate { client: client_pub.clone(), proxy: proxy.clone(), log: log.clone() };
+                let gate = Gate { proxy: proxy.clone(), log: log.clone() };
                 let config = config.clone();
                 let log = log.clone();
                 tokio::spawn(async move {
@@ -135,7 +120,7 @@ impl Tunnel {
                 });
             }
         });
-        Ok(Tunnel { port, client_key, host_key, task })
+        Ok(Tunnel { port, task })
     }
 }
 
@@ -144,7 +129,6 @@ impl Tunnel {
 /// is allowed). Returns what it listened on.
 pub async fn self_check() -> Result<String, String> {
     use russh::client;
-    use russh::keys::PrivateKeyWithHashAlg;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     struct Client;
@@ -160,10 +144,9 @@ pub async fn self_check() -> Result<String, String> {
     let probe = async {
         let stream = tokio::net::TcpStream::connect(("127.0.0.1", tunnel.port)).await.map_err(|e| e.to_string())?;
         let mut h = client::connect_stream(Arc::new(client::Config::default()), stream, Client).await.map_err(|e| format!("handshake: {e}"))?;
-        let key = PrivateKey::from_openssh(&tunnel.client_key).map_err(|e| e.to_string())?;
-        let auth = h.authenticate_publickey(USER, PrivateKeyWithHashAlg::new(Arc::new(key), None)).await.map_err(|e| e.to_string())?;
+        let auth = h.authenticate_none(USER).await.map_err(|e| e.to_string())?;
         if !auth.success() {
-            return Err("the run's key was refused".to_string());
+            return Err("the login was refused".to_string());
         }
         let ch = h.channel_open_direct_tcpip(PROXY_HOST, PROXY_PORT, "127.0.0.1", 1).await.map_err(|e| format!("proxy channel: {e}"))?;
         let mut s = ch.into_stream();
@@ -182,7 +165,6 @@ pub async fn self_check() -> Result<String, String> {
 mod tests {
     use super::*;
     use russh::client;
-    use russh::keys::PrivateKeyWithHashAlg;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     struct Client;
@@ -193,11 +175,10 @@ mod tests {
         }
     }
 
-    async fn connect(t: &Tunnel, key: &str) -> Option<client::Handle<Client>> {
+    async fn connect(t: &Tunnel) -> Option<client::Handle<Client>> {
         let stream = tokio::net::TcpStream::connect(("127.0.0.1", t.port)).await.unwrap();
         let mut h = client::connect_stream(Arc::new(client::Config::default()), stream, Client).await.unwrap();
-        let key = PrivateKey::from_openssh(key).unwrap();
-        let ok = h.authenticate_publickey(USER, PrivateKeyWithHashAlg::new(Arc::new(key), None)).await.unwrap().success();
+        let ok = h.authenticate_none(USER).await.unwrap().success();
         ok.then_some(h)
     }
 
@@ -208,7 +189,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn carries_only_proxy_channels_for_its_own_key() {
+    async fn carries_only_proxy_channels() {
         // a local "internet" that answers with a greeting
         let site = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let site_port = site.local_addr().unwrap().port();
@@ -226,13 +207,8 @@ mod tests {
         let log_lines = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
         let l = log_lines.clone();
         let tunnel = Tunnel::start(proxy, Arc::new(move |s| l.lock().unwrap().push(s))).await.unwrap();
-        assert!(tunnel.host_key.starts_with("ssh-ed25519 "));
 
-        // another key is refused
-        let other = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).unwrap().to_openssh(LineEnding::LF).unwrap();
-        assert!(connect(&tunnel, &other).await.is_none());
-
-        let h = connect(&tunnel, &tunnel.client_key).await.expect("the run's own key logs in");
+        let h = connect(&tunnel).await.expect("the none login is accepted");
 
         // not the proxy: refused
         assert!(h.channel_open_direct_tcpip("example.com", 443, "127.0.0.1", 1).await.is_err());
