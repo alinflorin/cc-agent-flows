@@ -7,7 +7,7 @@ import { useNotify } from "../notifications";
 import { call } from "../tauri";
 import { useProjectId } from "../project";
 import { fmtTime } from "../text";
-import { withoutAnswer, type NetSpeed, type NetTotals, type Traffic, type VmState, type VmStats } from "../sessionLog";
+import { clip, describeTool, toolResults, withoutAnswer, type NetSpeed, type NetTotals, type Traffic, type VmState, type VmStats } from "../sessionLog";
 import { NetStats, TrafficLines } from "./session/Calls";
 import { Meters, VmPill } from "./session/Graph";
 import { fmtBytes, fmtTokens } from "./session/types";
@@ -27,6 +27,9 @@ interface Line {
   kind: "user" | "text" | "tool" | "final";
   text: string;
   status?: string;
+  id?: string;
+  result?: string;
+  error?: boolean;
 }
 
 const VM_STATES: VmState[] = ["queued", "preparing", "starting", "booting", "running", "off"];
@@ -76,6 +79,8 @@ const useStyles = makeStyles({
   bar: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: tokens.spacingHorizontalM, marginBottom: tokens.spacingVerticalM },
   panel: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, maxWidth: "720px", marginTop: tokens.spacingVerticalM },
   user: { backgroundColor: tokens.colorBrandBackground2 },
+  result: { cursor: "pointer", color: tokens.colorNeutralForeground3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  resultBody: { whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: tokens.spacingVerticalXS },
   tool: { fontFamily: tokens.fontFamilyMonospace, color: tokens.colorNeutralForeground3 },
 });
 
@@ -92,7 +97,7 @@ function linesOf(run: string, msg: Msg): Line[] {
   (ev.message?.content ?? []).forEach((c: any, i: number) => {
     const key = `${run}-${msg.body.seq}-${i}`;
     if (c.type === "text" && withoutAnswer(c.text ?? "").trim()) out.push({ key, kind: "text", text: withoutAnswer(c.text) });
-    if (c.type === "tool_use") out.push({ key, kind: "tool", text: `${c.name} ${JSON.stringify(c.input).slice(0, 200)}` });
+    if (c.type === "tool_use") out.push({ key, kind: "tool", id: c.id, text: describeTool(c.name, c.input) });
   });
   return out;
 }
@@ -126,6 +131,11 @@ export function Runs() {
         if (e.payload.run !== current.current) return;
         setInfo((i) => fold(i, e.payload.msg));
         setLines((l) => {
+          const m = e.payload.msg;
+          if (m.kind === "event") {
+            const res = toolResults(m.body.event);
+            if (res.length) return l.map((x) => { const r = res.find(([id]) => id === x.id); return r ? { ...x, result: r[1], error: r[2] } : x; });
+          }
           const add = linesOf(e.payload.run, e.payload.msg);
           // The final repeats the agent's last words: show them once.
           const last = l[l.length - 1];
@@ -232,6 +242,12 @@ export function Runs() {
                     </Badge>
                   )}{" "}
                   {l.text}
+                  {l.result && (
+                    <details>
+                      <summary className={styles.result}>{l.error ? "✗ " : "→ "}{clip(l.result.replace(/\s+/g, " "), 100)}</summary>
+                      <div className={styles.resultBody}>{l.result}</div>
+                    </details>
+                  )}
                 </div>
               ))}
             </div>

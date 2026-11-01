@@ -204,7 +204,15 @@ export function CallCard({ c, d, names }: { c: CallInfo; d: Digest; names: Recor
                 <summary className={styles.summaryRow}>{t("session.activity", { count: r.pieces.length })}</summary>
                 <div className={styles.steps}>
                   {r.pieces.slice(-30).map((p, i) => (
-                    <div key={i} className={mergeClasses(styles.step, p.kind === "tool" && styles.mono)}>{clip(p.text, 600)}</div>
+                    <div key={i} className={mergeClasses(styles.step, p.kind === "tool" && styles.mono)}>
+                      {clip(p.text, 600)}
+                      {p.result && (
+                        <details>
+                          <summary className={styles.muted}>{p.error ? "✗ " : "→ "}{clip(p.result.replace(/\s+/g, " "), 100)}</summary>
+                          <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{p.result}</div>
+                        </details>
+                      )}
+                    </div>
                   ))}
                 </div>
               </details>

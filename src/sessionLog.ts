@@ -10,6 +10,11 @@ export interface Entry {
 interface Piece {
   kind: "text" | "tool";
   text: string;
+  /** tool_use id, so the result can be attached to the call */
+  id?: string;
+  /** what the tool returned (short, one line per row) */
+  result?: string;
+  error?: boolean;
 }
 
 /** One line of an agent's network traffic, as the egress proxy logged it. */
@@ -132,6 +137,31 @@ export function withoutAnswer(text: string): string {
 
 export const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
+/** The tool results of a `user` stream-json event, as short text: `[tool_use id, text, is_error]`. */
+export function toolResults(event: Record<string, any>): [string, string, boolean][] {
+  if (event.type !== "user" || !Array.isArray(event.message?.content)) return [];
+  return event.message.content
+    .filter((c: any) => c.type === "tool_result")
+    .map((c: any) => {
+      const raw = Array.isArray(c.content) ? c.content.map((x: any) => (x.type === "text" ? x.text : `[${x.type}]`)).join("\n") : String(c.content ?? "");
+      return [String(c.tool_use_id), clip(raw.trim(), 1500), c.is_error === true] as [string, string, boolean];
+    });
+}
+
+/** One readable line for a tool call of the agent (`$ command`, `Read path`...), not the raw JSON. */
+export function describeTool(name: string, input: any, n = 200): string {
+  const i = input ?? {};
+  const one = (v: unknown) => clip(String(v ?? "").replace(/\s+/g, " ").trim(), n);
+  switch (name) {
+    case "Bash": return `$ ${one(i.command)}`;
+    case "Read": case "Write": case "Edit": return `${name} ${one(i.file_path)}`;
+    case "WebFetch": return `${name} ${one(i.url)}`;
+    case "WebSearch": return `${name} ${one(i.query)}`;
+  }
+  const first = Object.values(i).find((v) => typeof v === "string" || typeof v === "number");
+  return first === undefined ? name : `${name} ${one(first)}`;
+}
+
 /** The call a run key belongs to: `r:2:1` and `r~1` both belong to `r`. */
 const pathOf = (key: string) => key.split(":")[0].split("~")[0];
 
@@ -215,10 +245,17 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
           r.traffic.push({ t: e.t, kind, text });
           break;
         }
+        if (r && b.event?.type === "user") {
+          for (const [id, text, error] of toolResults(b.event)) {
+            const p = r.pieces.find((x) => x.id === id);
+            if (p) { p.result = text; p.error = error; }
+          }
+          break;
+        }
         if (!r || b.event?.type !== "assistant") break;
         for (const c of b.event.message?.content ?? []) {
           if (c.type === "text" && withoutAnswer(c.text ?? "").trim()) r.pieces.push({ kind: "text", text: withoutAnswer(c.text) });
-          else if (c.type === "tool_use") r.pieces.push({ kind: "tool", text: `${c.name} ${clip(JSON.stringify(c.input), 160)}` });
+          else if (c.type === "tool_use") r.pieces.push({ kind: "tool", id: c.id, text: describeTool(c.name, c.input) });
         }
         break;
       }
