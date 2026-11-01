@@ -108,11 +108,18 @@ impl Tunnel {
             auth_rejection_time: Duration::from_millis(200),
             auth_rejection_time_initial: Some(Duration::ZERO),
             max_auth_attempts: 3,
+            // A bigger receive window than the 2 MiB default (and the buffer to match, in messages
+            // of up to 32 KiB) keeps uploads from the guest (git push) from stalling on window updates.
+            window_size: 4 * 1024 * 1024,
+            channel_buffer_size: 160,
             ..Config::default()
         });
         let task = tokio::spawn(async move {
             // QEMU may connect again (its forward is re-made when the guest restarts the tunnel).
             while let Ok((stream, _)) = listener.accept().await {
+                // russh sets this only in its own accept loop; this is one TCP stream for all of the
+                // guest's connections, so its small packets must not wait for Nagle's timer
+                let _ = stream.set_nodelay(true);
                 let gate = Gate { client: client_pub.clone(), proxy: proxy.clone(), log: log.clone() };
                 let config = config.clone();
                 let log = log.clone();

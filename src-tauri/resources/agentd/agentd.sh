@@ -121,10 +121,15 @@ if [ -n "$TUNNEL_KEY" ]; then
 		printf '10.0.2.100 %s\n' "$TUNNEL_HOST" >"$T/tunnel.hosts"
 	) || fail "tunnel: cannot write the key"
 	(
+		# Pinned to what the app's server offers and what is cheapest to set up under software
+		# emulation: no compression, one cipher, plain curve25519 (not the post-quantum hybrid
+		# OpenSSH proposes first), ed25519 only.
 		# -f returns once the tunnel is up (or ssh failed), in the background it keeps running
 		timeout 90 "$SSH" -F /dev/null -f -N -T -i "$T/tunnel.key" -o IdentitiesOnly=yes -o BatchMode=yes \
 			-o UserKnownHostsFile="$T/tunnel.hosts" -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes \
 			-o ConnectTimeout=30 -o ServerAliveInterval=30 -o ServerAliveCountMax=4 \
+			-o Compression=no -o IPQoS=none -o Ciphers=chacha20-poly1305@openssh.com,aes128-gcm@openssh.com \
+			-o KexAlgorithms=curve25519-sha256 -o HostKeyAlgorithms=ssh-ed25519 -o PubkeyAcceptedAlgorithms=ssh-ed25519 \
 			-L 127.0.0.1:3128:egress:3128 -p 22 agent@10.0.2.100 2>"$T/ssh.err"
 		_rc=$?
 		rm -f "$T/tunnel.key"

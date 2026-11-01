@@ -12,6 +12,9 @@ mount -t devpts -o gid=5,mode=620,nosuid,noexec devpts /dev/pts
 mount -t tmpfs -o nosuid,nodev,mode=1777 tmpfs /dev/shm
 mount -t tmpfs -o nosuid,nodev,mode=755 tmpfs /run
 mount -t tmpfs -o nosuid,nodev,mode=1777 tmpfs /tmp
+# no access-time writes on the root disk (the kernel cannot take noatime as a root mount option;
+# the disk has no journal, so there is no data= mode or barrier to tune)
+mount -o remount,noatime / 2>/dev/null
 # the agent must not read or trace agentd's process
 echo 2 >/proc/sys/kernel/yama/ptrace_scope 2>/dev/null
 
