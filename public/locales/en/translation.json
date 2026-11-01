@@ -579,7 +579,7 @@
     "node": {
       "idle": "not started",
       "running": "working",
-      "busy": "waiting for the agents it called",
+      "busy": "waiting for agents",
       "waiting": "waiting for you",
       "done": "done",
       "failed": "failed"

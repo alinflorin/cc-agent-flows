@@ -120,7 +120,8 @@ export interface Digest {
 export function withoutAnswer(text: string): string {
   const end = text.lastIndexOf("}");
   if (end < 0) return text;
-  for (let i = text.lastIndexOf("{", end); i >= 0; i = text.lastIndexOf("{", i - 1)) {
+  // lastIndexOf with a negative start counts it as 0, so the walk must stop at the first character itself
+  for (let i = text.lastIndexOf("{", end); i >= 0; i = i === 0 ? -1 : text.lastIndexOf("{", i - 1)) {
     try {
       const o = JSON.parse(text.slice(i, end + 1));
       if (o && typeof o === "object" && "status" in o) return (text.slice(0, i) + text.slice(end + 1)).replace(/```(?:json)?\s*```/g, "").trim();

@@ -579,7 +579,7 @@
     "node": {
       "idle": "nepornit",
       "running": "lucrează",
-      "busy": "așteaptă agenții chemați",
+      "busy": "așteaptă agenți",
       "waiting": "te așteaptă",
       "done": "gata",
       "failed": "eșuat"
