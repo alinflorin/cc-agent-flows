@@ -173,6 +173,14 @@ impl Inspector {
         Ok(config)
     }
 
+    /// Makes the certificates of the stockable hosts now (while the VM boots), so the guest's first
+    /// TLS handshake to them does not wait for a key pair and a signature.
+    pub fn pregenerate(&self) {
+        for host in self.stockable() {
+            let _ = self.server_config(&host);
+        }
+    }
+
     /// The exact hosts of the injections' rules (not the `*.host` ones): where a connection can be
     /// made ahead of time.
     pub fn stockable(&self) -> Vec<String> {

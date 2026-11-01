@@ -23,6 +23,9 @@ use tokio::sync::Semaphore;
 /// Largest request head (`CONNECT host:port HTTP/1.1` and headers) we read.
 const MAX_HEAD: usize = 8 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Buffer of each direction of a tunnelled connection (tokio's default is 8 KiB): bulk transfers
+/// (git, npm) take fewer reads and writes through the SSH channel.
+const COPY_BUF: usize = 64 * 1024;
 /// A client that has not sent its request after this long is dropped.
 const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
 /// Open tunnels per proxy (one proxy per agent run) unless the settings say otherwise.
@@ -356,7 +359,7 @@ impl Proxy {
         if !extra.is_empty() && upstream.write_all(&extra).await.is_err() {
             return;
         }
-        let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
+        let _ = tokio::io::copy_bidirectional_with_sizes(&mut client, &mut upstream, COPY_BUF, COPY_BUF).await;
     }
 
     /// Resolves `host` and connects to the first address the guard accepts. A name often has an
@@ -365,7 +368,11 @@ impl Proxy {
         let mut failure = String::new();
         for addr in self.resolve(host, port).await? {
             match tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect(addr)).await {
-                Ok(Ok(s)) => return Ok(s),
+                Ok(Ok(s)) => {
+                    // small writes (TLS flights, request heads) must not wait for Nagle's timer
+                    let _ = s.set_nodelay(true);
+                    return Ok(s);
+                }
                 Ok(Err(e)) => failure = format!("cannot connect: {e}"),
                 Err(_) => failure = "connect timed out".into(),
             }
@@ -383,6 +390,13 @@ impl Proxy {
         let Some(inspector) = self.inspector.as_ref() else { return };
         let signal = inspector.refill_signal();
         let proxy = Arc::downgrade(self);
+        // certificates for the guest's TLS handshakes, ready before its first connection
+        let ahead = self.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Some(i) = ahead.inspector.as_ref() {
+                i.pregenerate();
+            }
+        });
         tokio::spawn(async move {
             loop {
                 let Some(p) = proxy.upgrade() else { return };

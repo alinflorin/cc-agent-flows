@@ -201,7 +201,13 @@ async fn make_overlay(app: &AppHandle, disk: &Path, overlay: &Path) -> Result<()
         crate::vm::machine::qemu_img(app, &["create", "-q", "-f", "qcow2", "-b", &base, "-F", "qcow2", &top]).await?;
         std::fs::rename(&tmp, &template).map_err(|e| e.to_string())?;
     }
-    std::fs::copy(&template, overlay).map(|_| ()).map_err(|e| format!("overlay: {e}"))
+    // std's copy clones the file where the file system can (reflink, copy_file_range, clonefile);
+    // either way it blocks, so it runs off the async executor
+    let (from, to) = (template, overlay.to_path_buf());
+    tokio::task::spawn_blocking(move || std::fs::copy(from, to).map(|_| ()))
+        .await
+        .map_err(|e| format!("overlay: {e}"))?
+        .map_err(|e| format!("overlay: {e}"))
 }
 
 /// Reads the files a boot needs (disk, kernel) once per process in the background, so
@@ -261,24 +267,34 @@ async fn boot_and_drive(
     // The Claude token never enters the VM: the proxy sets it on the requests to the API. Last, so
     // no user injection can override it.
     injections.push(crate::config::injections::claude(token)?);
-    let inspector = crate::net::inspect::Inspector::new(injections)?.watching(leaks);
-    let ca = Some(inspector.ca_pem().to_string());
-    let proxy = crate::net::egress::Proxy::with_limits(rules, Some(inspector), limits);
-    let meter = proxy.meter();
-    // Connect to the Claude API while the VM boots, so its first requests find a connection ready.
-    proxy.warm();
-    // Never boot the image itself: a throwaway overlay on top of it (made while the tunnel starts).
-    let (overlay_made, tunnel) = tokio::join!(
-        make_overlay(app, disk, &overlay),
-        crate::net::tunnel::Tunnel::start(
+    // Everything the VM does not need to wait for runs together: the overlay is copied while the
+    // run's CA is made (off the executor), then the proxy starts warming its connections and
+    // certificates and the tunnel server starts listening, all before QEMU is spawned.
+    let overlay_job = make_overlay(app, disk, &overlay);
+    let net_job = async {
+        let inspector = tokio::task::spawn_blocking(move || crate::net::inspect::Inspector::new(injections))
+            .await
+            .map_err(|e| e.to_string())??
+            .watching(leaks);
+        let ca = inspector.ca_pem().to_string();
+        let proxy = crate::net::egress::Proxy::with_limits(rules, Some(inspector), limits);
+        let meter = proxy.meter();
+        // Connect to the Claude API while the VM boots, so its first requests find a connection ready.
+        proxy.warm();
+        // Never boot the image itself: a throwaway overlay on top of it (made meanwhile).
+        let tunnel = crate::net::tunnel::Tunnel::start(
             proxy,
             std::sync::Arc::new(move |line| {
                 let _ = egress_tx.send(line);
             }),
         )
-    );
+        .await?;
+        Ok::<_, String>((tunnel, meter, ca))
+    };
+    let (overlay_made, net) = tokio::join!(overlay_job, net_job);
     overlay_made?;
-    let tunnel = tunnel?;
+    let (tunnel, meter, ca) = net?;
+    let ca = Some(ca);
 
     let channel = Serial::named(work, "agent");
     let errlog = work.join("qemu.err");

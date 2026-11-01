@@ -50,7 +50,7 @@ fn hw_accel() -> bool {
 pub fn boot_args(dir: &Path, arch: &str, agent: bool) -> Vec<std::ffi::OsString> {
     let tty = if arch == "aarch64" { "ttyAMA0" } else { "ttyS0" };
     let mut cmdline = if agent {
-        "quiet loglevel=0 8250.nr_uarts=0 random.trust_cpu=on mitigations=off noresume raid=noautodetect root=/dev/vda rootfstype=ext4 rw init=/sbin/ccaf-init".to_string()
+        "quiet loglevel=0 8250.nr_uarts=0 random.trust_cpu=on mitigations=off noresume raid=noautodetect rcupdate.rcu_expedited=1 root=/dev/vda rootfstype=ext4 rw init=/sbin/ccaf-init".to_string()
     } else {
         format!("console={tty} root=/dev/vda rootfstype=ext4 rw")
     };
