@@ -118,8 +118,9 @@ pub fn machine(app: &AppHandle, mem_mb: u32, cpus: Option<u32>, agent: bool) -> 
 }
 
 /// Boxes in the QEMU process that `cmd` will start (see `confine`), unless the setting is off.
-/// `disks` are the disks it opens (their backing chains are found), `write` the VM's own folder.
-pub fn confine(app: &AppHandle, cmd: &mut std::process::Command, disks: &[&Path], write: &[&Path]) {
+/// `disks` are the disks it opens (their backing chains are found), `write` the VM's own folder,
+/// `limits` the network and resources it may use.
+pub fn confine(app: &AppHandle, cmd: &mut std::process::Command, disks: &[&Path], write: &[&Path], limits: super::confine::Limits) {
     if !crate::config::vm_settings::current(app).confine {
         return;
     }
@@ -129,6 +130,7 @@ pub fn confine(app: &AppHandle, cmd: &mut std::process::Command, disks: &[&Path]
         read: resources(app).map(|r| vec![r.join("images")]).unwrap_or_default(),
         write: write.iter().map(|p| p.to_path_buf()).collect(),
         exec: Vec::new(),
+        limits,
     };
     super::confine::apply(cmd, &plan);
 }

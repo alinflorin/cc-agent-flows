@@ -182,7 +182,10 @@ if [ -n "$RUN_AS" ]; then
 	chown -R "$RUN_AS:$RUN_AS" "$WS" || fail "workspace: chown"
 fi
 
-set -- -p "$PROMPT" --output-format stream-json --verbose --include-partial-messages \
+# No `--include-partial-messages`: the token-by-token stream is a flood of events (each one parsed
+# and wrapped by jq in the guest, sent over the channel, passed to the UI and written to the run
+# log) that nothing shows; the session log has always dropped it and the views read whole messages.
+set -- -p "$PROMPT" --output-format stream-json --verbose \
 	--dangerously-skip-permissions --tools "$CLAUDE_TOOLS" --disable-slash-commands --strict-mcp-config
 if [ "$RESUME" = true ]; then set -- "$@" --resume "$SID"; else set -- "$@" --session-id "$SID" --no-session-persistence; fi
 [ -z "$MODEL" ] || set -- "$@" --model "$MODEL"
