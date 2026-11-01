@@ -37,7 +37,33 @@ pub struct Plan {
     /// More places programs may be run from (QEMU's own tree and the library folders are always
     /// allowed). Used by tests.
     pub exec: Vec<PathBuf>,
+    /// Network and resource limits.
+    pub limits: Limits,
 }
+
+/// What the VM process may use besides its files. `None` leaves a thing unlimited (builders need
+/// the internet, for one).
+#[derive(Debug, Default, Clone)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub struct Limits {
+    /// The only TCP ports it may connect to (an agent VM's QEMU connects to its tunnel on loopback
+    /// and to nothing else, so an escape cannot reach the LAN or the app's other local ports).
+    /// Linux with Landlock ABI 4 (kernel 6.7); older kernels skip it with a log line.
+    pub connect_ports: Option<Vec<u16>>,
+    /// The guest's memory in MiB: the process may hold that plus `MEM_HEADROOM_MB` (the translation
+    /// buffer of software emulation and QEMU's own memory), so a leak or an escape cannot eat the
+    /// host's RAM without bound.
+    pub mem_mb: Option<u64>,
+    /// CPU seconds the process may use in all (it is killed after that): the backstop for a VM that
+    /// outlives the app, since the run's own deadline is kept by the app.
+    pub cpu_secs: Option<u64>,
+}
+
+/// Memory a QEMU process needs on top of the guest's RAM. Measured with the bundled QEMU under
+/// software emulation, the worst case (1 GiB translation buffer): 1 GiB of guest needs about 2.2
+/// GiB, 2 GiB with 4 vCPUs about 3.3 GiB, 3 GiB with 8 vCPUs under 5 GiB. Twice the 1 GiB buffer.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub const MEM_HEADROOM_MB: u64 = 2048;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 /// `disk` and the files it is backed by, found in the qcow2 headers, nearest first. Stops at a
@@ -119,6 +145,9 @@ mod linux {
     const SYS_RESTRICT_SELF: libc::c_long = 446;
     const CREATE_RULESET_VERSION: u32 = 1;
     const RULE_PATH_BENEATH: libc::c_int = 1;
+    const RULE_NET_PORT: libc::c_int = 2;
+    const NET_BIND_TCP: u64 = 1 << 0;
+    const NET_CONNECT_TCP: u64 = 1 << 1;
 
     const EXECUTE: u64 = 1 << 0;
     const WRITE_FILE: u64 = 1 << 1;
@@ -171,21 +200,41 @@ mod linux {
         handled: u64,
     }
 
+    #[repr(C)]
+    struct NetPort {
+        allowed: u64,
+        port: u64,
+    }
+
     impl Ruleset {
-        fn new(abi: u32) -> Result<Ruleset, std::io::Error> {
+        /// `net` also handles TCP bind and connect (the ports to allow are added with `allow_port`);
+        /// needs ABI 4.
+        fn new(abi: u32, net: bool) -> Result<Ruleset, std::io::Error> {
             let mut handled = EXECUTE | WRITE_FILE | READ_FILE | READ_DIR | REMOVE_DIR | REMOVE_FILE | MAKE_CHAR | MAKE_DIR | MAKE_REG | MAKE_SOCK | MAKE_FIFO | MAKE_BLOCK | MAKE_SYM;
             if abi >= 3 {
                 handled |= TRUNCATE;
             }
-            // The first field of the attribute is all the oldest kernels know, and all that is needed.
-            let attr = handled;
-            // SAFETY: `attr` is a valid 8-byte attribute for the duration of the call.
-            let fd = unsafe { libc::syscall(SYS_CREATE_RULESET, &attr as *const u64, 8usize, 0u32) };
+            // {handled_access_fs, handled_access_net}: 8 bytes are all the oldest kernels know, the
+            // second field is for ABI 4.
+            let attr: [u64; 2] = [handled, if net { NET_BIND_TCP | NET_CONNECT_TCP } else { 0 }];
+            let size = if net { 16usize } else { 8usize };
+            // SAFETY: `attr` is a valid attribute of at least `size` bytes for the duration of the call.
+            let fd = unsafe { libc::syscall(SYS_CREATE_RULESET, attr.as_ptr(), size, 0u32) };
             if fd < 0 {
                 return Err(std::io::Error::last_os_error());
             }
             // SAFETY: the kernel returned a new descriptor that nothing else owns.
             Ok(Ruleset { fd: unsafe { OwnedFd::from_raw_fd(fd as i32) }, handled })
+        }
+
+        /// Allows connecting to TCP `port` (on any address).
+        fn allow_port(&self, port: u16) {
+            let rule = NetPort { allowed: NET_CONNECT_TCP, port: port as u64 };
+            // SAFETY: `rule` is a valid, live rule attribute and the ruleset fd is open.
+            let r = unsafe { libc::syscall(SYS_ADD_RULE, self.fd.as_raw_fd(), RULE_NET_PORT, &rule as *const NetPort, 0u32) };
+            if r != 0 {
+                log::warn!("confine: cannot allow TCP port {port}: {}", std::io::Error::last_os_error());
+            }
         }
 
         /// Allows `rights` below `path`. A path that does not exist is skipped.
@@ -239,7 +288,7 @@ mod linux {
                 log::warn!("confine: this kernel has no Landlock; the QEMU process can read what the user can");
                 None
             }
-            Some(abi) => match Ruleset::new(abi) {
+            Some(abi) => match Ruleset::new(abi, plan.limits.connect_ports.is_some() && abi >= 4) {
                 Ok(rs) => {
                     let mut run_from: Vec<PathBuf> = LIB_DIRS.iter().map(PathBuf::from).collect();
                     run_from.extend(qemu_root(&program));
@@ -265,6 +314,11 @@ mod linux {
                     for p in &plan.write {
                         rs.allow(p, READ | WRITE);
                     }
+                    match &plan.limits.connect_ports {
+                        Some(ports) if abi >= 4 => ports.iter().for_each(|p| rs.allow_port(*p)),
+                        Some(_) => log::warn!("confine: this kernel's Landlock cannot limit TCP (needs 6.7); the QEMU process can connect anywhere"),
+                        None => {}
+                    }
                     Some(rs)
                 }
                 Err(e) => {
@@ -275,6 +329,8 @@ mod linux {
         };
 
         let fd = ruleset.as_ref().map(|r| r.fd.as_raw_fd());
+        let data_limit = plan.limits.mem_mb.map(|m| (m + MEM_HEADROOM_MB) << 20);
+        let cpu_limit = plan.limits.cpu_secs;
         // After `fork`, before `exec`: only system calls (no allocation, no locks).
         // SAFETY: the closure calls only async-signal-safe functions; `ruleset` is moved into it, so
         // the descriptor stays open until the command is dropped.
@@ -289,6 +345,14 @@ mod linux {
                 lim(libc::RLIMIT_CORE, 0);
                 // no runaway file (a disk image is at most some GB); signal on excess
                 lim(libc::RLIMIT_FSIZE, 64 << 30);
+                // private writable memory: the guest's RAM, the translation buffer, QEMU's heap
+                if let Some(v) = data_limit {
+                    lim(libc::RLIMIT_DATA, v);
+                }
+                // killed (SIGXCPU) when all its threads together used this much CPU time
+                if let Some(v) = cpu_limit {
+                    lim(libc::RLIMIT_CPU, v);
+                }
                 if let Some(fd) = fd {
                     if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
                         return Err(std::io::Error::last_os_error());
@@ -503,6 +567,41 @@ mod tests {
         let status = cmd.status().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
         assert!(status.success(), "the confined child misbehaved: {status:?}");
+    }
+
+    /// TCP connections are limited to the planned ports (Landlock ABI 4, kernel 6.7 and later).
+    #[test]
+    fn landlock_limits_tcp_connect_to_the_planned_ports() {
+        if !linux::abi_for_tests().is_some_and(|a| a >= 4) || !Path::new("/bin/bash").exists() {
+            eprintln!("no TCP rules in Landlock on this kernel (or no bash), skipping");
+            return;
+        }
+        let (a, b) = (std::net::TcpListener::bind("127.0.0.1:0").unwrap(), std::net::TcpListener::bind("127.0.0.1:0").unwrap());
+        let (pa, pb) = (a.local_addr().unwrap().port(), b.local_addr().unwrap().port());
+        let script = format!("( exec 3<>/dev/tcp/127.0.0.1/{pa} ) 2>/dev/null || exit 10; ( exec 3<>/dev/tcp/127.0.0.1/{pb} ) 2>/dev/null && exit 11; exit 0");
+        // the same script, unconfined: both ports can be reached
+        let open = Command::new("/bin/bash").arg("-c").arg(format!("( exec 3<>/dev/tcp/127.0.0.1/{pa} ) && ( exec 3<>/dev/tcp/127.0.0.1/{pb} )")).status().unwrap();
+        assert!(open.success(), "unconfined bash cannot connect: {open:?}");
+        let mut cmd = Command::new("/bin/bash");
+        cmd.arg("-c").arg(script);
+        let plan = Plan { exec: vec!["/bin".into(), "/usr/bin".into()], limits: Limits { connect_ports: Some(vec![pa]), ..Default::default() }, ..Default::default() };
+        apply(&mut cmd, &plan);
+        let status = cmd.status().unwrap();
+        assert!(status.success(), "the planned port must open and the other must not (exit {:?})", status.code());
+    }
+
+    /// Memory and CPU time limits are on the process (also without Landlock).
+    #[test]
+    fn memory_and_cpu_limits_are_set() {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c").arg("grep -E '^Max (data size|cpu time) ' /proc/self/limits");
+        let plan = Plan { exec: vec!["/bin".into(), "/usr/bin".into()], limits: Limits { mem_mb: Some(1000), cpu_secs: Some(777), ..Default::default() }, ..Default::default() };
+        apply(&mut cmd, &plan);
+        let out = cmd.output().unwrap();
+        let text = String::from_utf8_lossy(&out.stdout).into_owned();
+        let data = ((1000 + MEM_HEADROOM_MB) << 20).to_string();
+        assert!(text.contains(&data), "no data limit of {data} in:\n{text}");
+        assert!(text.contains("777"), "no cpu limit in:\n{text}");
     }
 
     /// A program outside the allowed folders cannot be run, even when it is executable.

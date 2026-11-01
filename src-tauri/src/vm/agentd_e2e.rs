@@ -40,6 +40,7 @@ mod e2e {
 case "$*" in *--dangerously-skip-permissions*--session-id*|*--session-id*--dangerously-skip-permissions*) ;; *) echo "bad args: $*" >&2; exit 2;; esac
 [ "$CLAUDE_CODE_OAUTH_TOKEN" = "sk-test-token" ] || { echo "no token" >&2; exit 3; }
 case "$*" in *"--tools Bash,Read,Write,Edit,WebFetch,WebSearch"*) ;; *) echo "bad tools: $*" >&2; exit 9;; esac
+case "$*" in *--include-partial-messages*) echo "token stream asked for: $*" >&2; exit 11;; esac
 case "$*" in *--no-session-persistence*) ;; *) echo "sessions would be saved: $*" >&2; exit 10;; esac
 case "$*" in *"--append-system-prompt be brief"*) ;; *) echo "no system prompt: $*" >&2; exit 4;; esac
 [ "$TEAM" = 'it'"'"'s "red" $HOME' ] || { echo "bad env: $TEAM" >&2; exit 5; }

@@ -293,7 +293,16 @@ async fn boot_and_drive(
         .arg("-chardev")
         .arg(format!("{},id=agent", channel.chardev))
         .args(["-device", "virtserialport,chardev=agent,name=agent"]);
-    crate::vm::machine::confine(app, &mut cmd, &[overlay.as_path()], &[work]);
+    // An agent VM's QEMU connects to its tunnel on loopback and to nothing else; it needs the
+    // guest's memory and some headroom, and, as a backstop for a VM that outlives the app, no more
+    // CPU time than every core for the whole deadline.
+    let cores = size.0.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get() as u32)) as u64;
+    let vm_limits = crate::vm::confine::Limits {
+        connect_ports: Some(vec![tunnel.port]),
+        mem_mb: Some(size.1 as u64),
+        cpu_secs: Some(timeout_secs.saturating_add(grace_secs).saturating_mul(cores + 1).saturating_add(120)),
+    };
+    crate::vm::machine::confine(app, &mut cmd, &[overlay.as_path()], &[work], vm_limits);
     let mut cmd = Command::from(cmd);
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).kill_on_drop(true);
     cmd.stderr(std::fs::File::create(&errlog).map(Stdio::from).unwrap_or_else(|_| Stdio::null()));
