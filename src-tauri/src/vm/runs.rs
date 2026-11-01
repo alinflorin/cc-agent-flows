@@ -259,9 +259,8 @@ async fn boot_and_drive(
     vm_state(on_msg, "preparing");
     let overlay = work.join("disk.qcow2");
     warm_cache(app, disk);
-    // The VM's only way out: its NIC is sealed and QEMU forwards one connection to this SSH server,
-    // which hands the agent's traffic to the egress proxy. The server must listen before QEMU
-    // starts, which connects to it at once.
+    // The VM's only way out: it has no network card, just a virtio-serial port whose far end is a
+    // yamux session (`tunnel.rs`) that hands the agent's connections to the egress proxy.
     let (egress_tx, mut egress_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let Egress { rules, mut injections, leaks, limits } = egress;
     // The Claude token never enters the VM: the proxy sets it on the requests to the API. Last, so
@@ -269,7 +268,7 @@ async fn boot_and_drive(
     injections.push(crate::config::injections::claude(token)?);
     // Everything the VM does not need to wait for runs together: the overlay is copied while the
     // run's CA is made (off the executor), then the proxy starts warming its connections and
-    // certificates and the tunnel server starts listening, all before QEMU is spawned.
+    // certificates, all before QEMU is spawned.
     let overlay_job = make_overlay(app, disk, &overlay);
     let net_job = async {
         let inspector = tokio::task::spawn_blocking(move || crate::net::inspect::Inspector::new(injections))
@@ -281,40 +280,36 @@ async fn boot_and_drive(
         let meter = proxy.meter();
         // Connect to the Claude API while the VM boots, so its first requests find a connection ready.
         proxy.warm();
-        // Never boot the image itself: a throwaway overlay on top of it (made meanwhile).
-        let tunnel = crate::net::tunnel::Tunnel::start(
-            proxy,
-            std::sync::Arc::new(move |line| {
-                let _ = egress_tx.send(line);
-            }),
-        )
-        .await?;
-        Ok::<_, String>((tunnel, meter, ca))
+        Ok::<_, String>((proxy, meter, ca))
     };
     let (overlay_made, net) = tokio::join!(overlay_job, net_job);
     overlay_made?;
-    let (tunnel, meter, ca) = net?;
+    let (proxy, meter, ca) = net?;
     let ca = Some(ca);
 
     let channel = Serial::named(work, "agent");
+    let net_port = Serial::named(work, "net");
     let errlog = work.join("qemu.err");
     let timeout_secs = task.timeout_secs;
     let grace_secs = crate::config::vm_settings::current(app).run_grace_secs;
     let mut cmd = crate::vm::machine::machine(app, size.1, size.0, true)?;
-    cmd.args(["-nic", &sealed_nic(tunnel.port)])
+    cmd.args(AGENT_NIC)
         .args(["-action", "panic=exit-failure", "-serial", "null"])
         .arg("-drive")
         .arg(crate::vm::machine::drive_arg(&overlay))
         .args(["-device", "virtio-serial-pci"])
         .arg("-chardev")
         .arg(format!("{},id=agent", channel.chardev))
-        .args(["-device", "virtserialport,chardev=agent,name=agent"]);
-    // An agent VM's QEMU connects to its tunnel on loopback and to nothing else; it needs the
-    // guest's memory and some headroom, and, as a backstop for a VM that outlives the app, no more
-    // CPU time than every core for the whole deadline.
+        .args(["-device", "virtserialport,chardev=agent,name=agent"])
+        .arg("-chardev")
+        .arg(format!("{},id=net", net_port.chardev))
+        .args(["-device", "virtserialport,chardev=net,name=net"]);
+    // An agent VM's QEMU connects to nothing over TCP (it has no network card; both ports are
+    // sockets it serves); it needs the guest's memory and some headroom, and, as a backstop for a
+    // VM that outlives the app, no more CPU time than every core for the whole deadline.
     let cores = size.0.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get() as u32)) as u64;
     let vm_limits = crate::vm::confine::Limits {
-        connect_ports: Some(vec![tunnel.port]),
+        connect_ports: Some(vec![]),
         mem_mb: Some(size.1 as u64),
         cpu_secs: Some(timeout_secs.saturating_add(grace_secs).saturating_mul(cores + 1).saturating_add(120)),
     };
@@ -328,6 +323,22 @@ async fn boot_and_drive(
 
     let stream = match crate::vm::builder::within(30, "the agent channel", channel.connect()).await {
         Ok(s) => s,
+        Err(e) => {
+            let _ = child.kill().await;
+            vm_state(on_msg, "off");
+            return Ok(failed(format!("{e}: {}", tail(&errlog))));
+        }
+    };
+    // The network port: the session lives as long as this value does. The agent channel is up
+    // first, so a failure here ends the run like a failure of the channel does.
+    let tunnel = match crate::vm::builder::within(30, "the network port", net_port.connect()).await {
+        Ok(s) => crate::net::tunnel::Tunnel::start(
+            s,
+            proxy,
+            std::sync::Arc::new(move |line| {
+                let _ = egress_tx.send(line);
+            }),
+        ),
         Err(e) => {
             let _ = child.kill().await;
             vm_state(on_msg, "off");
@@ -417,6 +428,7 @@ async fn boot_and_drive(
         }
     };
     let _ = child.kill().await;
+    drop(tunnel);
     // the last numbers, so the log holds the run's totals
     let now = meter.totals();
     if now != last_net {
@@ -426,13 +438,9 @@ async fn boot_and_drive(
     Ok(fin)
 }
 
-/// The agent VM's network card: user-mode networking with everything cut off (`restrict=on`)
-/// except the guest's connections to 10.0.2.100:22, which QEMU forwards to the tunnel server on
-/// the host's loopback `port`. `guestfwd=tcp:` shares one host connection among all guest
-/// connections, which is why the guest runs one ssh over it (see `tunnel.rs`).
-fn sealed_nic(port: u16) -> String {
-    format!("user,model=virtio-net-pci,restrict=on,guestfwd=tcp:10.0.2.100:22-tcp:127.0.0.1:{port}")
-}
+/// The agent VM has no network card at all: what it reaches goes through the `net` port (see
+/// `tunnel.rs`).
+const AGENT_NIC: [&str; 2] = ["-nic", "none"];
 
 fn runs_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(crate::util::data_dir(app)?.join("runs"))
@@ -580,12 +588,13 @@ mod tests {
                 .unwrap()
                 .success()
         );
-        // the sealed NIC and the tunnel the app uses, with the global default allowlist
+        // no NIC, the `net` port and the tunnel the app uses, with the global default allowlist
         let seen = std::sync::Arc::new(Mutex::new(Vec::<String>::new()));
         let sink = seen.clone();
         let rules = crate::net::egress::Rules::new([crate::config::network::Network::default().allow_hosts]);
-        let tunnel = crate::net::tunnel::Tunnel::start(crate::net::egress::Proxy::new(rules, None), std::sync::Arc::new(move |l| sink.lock().unwrap().push(l))).await.unwrap();
+        let proxy = crate::net::egress::Proxy::new(rules, None);
         let channel = Serial::named(&work, "agent");
+        let net_port = Serial::named(&work, "net");
         let t0 = std::time::Instant::now();
         let mut vm = Command::new(q.join("bin/qemu-system-x86_64"))
             .arg("-L")
@@ -593,12 +602,15 @@ mod tests {
             .args(["-accel", if Path::new("/dev/kvm").exists() { "kvm" } else { "tcg" }, "-cpu", "max", "-m", "2048", "-smp", "2", "-M", "pc,usb=off,vmport=off", "-nodefaults", "-no-user-config", "-display", "none", "-monitor", "none"])
             .args(crate::vm::machine::boot_args(&res.join("images"), "x86_64", true))
             .args(["-no-reboot", "-action", "panic=exit-failure", "-serial", "null"])
-            .args(["-nic", &sealed_nic(tunnel.port)])
+            .args(AGENT_NIC)
             .arg("-drive")
             .arg(crate::vm::machine::drive_arg(&overlay))
             .args(["-device", "virtio-serial-pci", "-chardev"])
             .arg(format!("{},id=agent", channel.chardev))
             .args(["-device", "virtserialport,chardev=agent,name=agent"])
+            .arg("-chardev")
+            .arg(format!("{},id=net", net_port.chardev))
+            .args(["-device", "virtserialport,chardev=net,name=net"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
@@ -606,6 +618,7 @@ mod tests {
             .spawn()
             .unwrap();
         let stream = channel.connect().await.unwrap();
+        let _tunnel = crate::net::tunnel::Tunnel::start(net_port.connect().await.unwrap(), proxy, std::sync::Arc::new(move |l| sink.lock().unwrap().push(l)));
         let task = Task {
             prompt: "say hi".into(),
             model: None,

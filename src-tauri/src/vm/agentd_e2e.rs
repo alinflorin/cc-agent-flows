@@ -295,7 +295,7 @@ echo '{"type":"result","is_error":false,"result":"ok","session_id":"s"}'
         let mut run = start_with("agentd-notunnel", FAKE_CLAUDE, task(40), b, Some("99 1.0"));
         let (_, fin) = run.finish(30).await;
         assert_eq!(fin.status, Status::Failed);
-        assert!(fin.result.starts_with("tunnel: cannot reach the network proxy (ssh exit 99)"), "{}", fin.result);
+        assert!(fin.result.starts_with("tunnel: cannot reach the network proxy (relay exit 99)"), "{}", fin.result);
         let _ = std::fs::remove_dir_all(run.dir);
     }
 

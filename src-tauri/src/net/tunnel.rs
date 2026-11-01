@@ -1,39 +1,26 @@
-//! The SSH server in the app that carries an agent VM's traffic to the egress proxy. QEMU's
-//! `guestfwd=tcp:` gives the guest exactly one connection to the host, so the guest runs
-//! `ssh -N -L 3128:egress:3128 ...` through it and SSH multiplexes the guest's connections as
-//! channels. This server accepts one thing: a `direct-tcpip` channel to `egress:3128`, which is
-//! handed to the proxy (`egress.rs`). No shell, exec, subsystem, agent, X11 or remote forwarding:
-//! those channel kinds and requests are all refused (the defaults of `russh` drop them).
+//! The app's end of an agent VM's network path. The VM has no network card: its only link is a
+//! virtio-serial port (`net`), and `ccaf-relay` in the guest carries each connection of `claude`
+//! to its local proxy port as one stream of a yamux session over that port (see `relay/`). This
+//! end accepts those streams and hands each to the egress proxy (`egress.rs`), which is the only
+//! thing a stream can reach: there is no channel kind that names a destination, and the app never
+//! opens a stream towards the guest.
 //!
-//! One `Tunnel` per agent run. There is no key: the client logs in with the `none` method, because
-//! the connection is the run's and nothing else's (QEMU's forward leads only to this listener, and
-//! the only thing the server will open is the proxy channel). That lets the guest open the tunnel at
-//! boot, before it has read anything from the app.
-
+//! One `Tunnel` per agent run, on the run's port connection. There is no authentication: the port
+//! belongs to this VM alone, like the agent channel.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use russh::keys::{Algorithm, PrivateKey};
-use russh::server::{Auth, Config, Handler, Msg, Session, run_stream};
-use russh::{Channel, ChannelOpenFailure};
-use tokio::net::TcpListener;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::task::JoinHandle;
+use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
 
 use crate::net::egress::Proxy;
 
-/// What the guest asks for with `-L`: the name is a label for the proxy, nothing resolves it.
-pub const PROXY_HOST: &str = "egress";
-pub const PROXY_PORT: u32 = 3128;
-/// The SSH user name the guest logs in as.
-pub const USER: &str = "agent";
-
 type Log = Arc<dyn Fn(String) + Send + Sync>;
 
-/// A running tunnel server. Dropping it stops it and closes its connections.
+/// A running session. Dropping it stops it and closes its streams.
 pub struct Tunnel {
-    /// The loopback port QEMU forwards the guest's connection to.
-    pub port: u16,
     task: JoinHandle<()>,
 }
 
@@ -43,120 +30,46 @@ impl Drop for Tunnel {
     }
 }
 
-struct Gate {
-    proxy: Arc<Proxy>,
-    log: Log,
-}
-
-impl Handler for Gate {
-    type Error = russh::Error;
-
-    async fn auth_none(&mut self, _user: &str) -> Result<Auth, Self::Error> {
-        Ok(Auth::Accept)
-    }
-
-    async fn channel_open_direct_tcpip(
-        &mut self,
-        channel: Channel<Msg>,
-        host_to_connect: &str,
-        port_to_connect: u32,
-        _originator_address: &str,
-        _originator_port: u32,
-        reply: russh::server::ChannelOpenHandle,
-        _session: &mut Session,
-    ) -> Result<(), Self::Error> {
-        if host_to_connect != PROXY_HOST || port_to_connect != PROXY_PORT {
-            (self.log)(format!("tunnel: refused a channel to {host_to_connect}:{port_to_connect}"));
-            reply.reject(ChannelOpenFailure::AdministrativelyProhibited).await;
-            return Ok(());
-        }
-        reply.accept().await;
-        let (proxy, log) = (self.proxy.clone(), self.log.clone());
-        tokio::spawn(async move { proxy.serve(channel.into_stream(), |s| log(s)).await });
-        Ok(())
-    }
-}
-
 impl Tunnel {
-    /// Starts the server on a free loopback port. QEMU connects to it when it starts, so it must
-    /// be listening before the VM boots.
-    pub async fn start(proxy: Arc<Proxy>, log: Log) -> Result<Tunnel, String> {
-        // the generator is not Send: keep it out of the awaits below
-        let host = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519).map_err(|e| e.to_string())?;
-
-        let listener = TcpListener::bind(("127.0.0.1", 0)).await.map_err(|e| format!("cannot listen: {e}"))?;
-        let port = listener.local_addr().map_err(|e| e.to_string())?.port();
-        let config = Arc::new(Config {
-            keys: vec![host],
-            // The agent may be idle for long stretches; the run's own deadline ends the tunnel.
-            inactivity_timeout: None,
-            auth_rejection_time: Duration::from_millis(200),
-            auth_rejection_time_initial: Some(Duration::ZERO),
-            max_auth_attempts: 3,
-            // A bigger receive window than the 2 MiB default (and the buffer to match, in messages
-            // of up to 32 KiB) keeps uploads from the guest (git push) from stalling on window updates.
-            window_size: 4 * 1024 * 1024,
-            channel_buffer_size: 160,
-            ..Config::default()
-        });
+    /// Serves the guest's streams on `io` (the connection to the VM's `net` port) until the VM
+    /// closes it.
+    pub fn start<S>(io: S, proxy: Arc<Proxy>, log: Log) -> Tunnel
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
         let task = tokio::spawn(async move {
-            // QEMU may connect again (its forward is re-made when the guest restarts the tunnel).
-            while let Ok((stream, _)) = listener.accept().await {
-                // russh sets this only in its own accept loop; this is one TCP stream for all of the
-                // guest's connections, so its small packets must not wait for Nagle's timer
-                let _ = stream.set_nodelay(true);
-                let gate = Gate { proxy: proxy.clone(), log: log.clone() };
-                let config = config.clone();
-                let log = log.clone();
-                tokio::spawn(async move {
-                    match run_stream(config, stream, gate).await {
-                        Ok(session) => {
-                            if let Err(e) = session.await {
-                                log(format!("tunnel: session ended: {e}"));
-                            }
-                        }
-                        Err(e) => log(format!("tunnel: handshake failed: {e}")),
-                    }
-                });
-            }
+            let l = log.clone();
+            ccaf_relay::serve(io.compat(), move |stream| {
+                let (proxy, log) = (proxy.clone(), l.clone());
+                tokio::spawn(async move { proxy.serve(stream.compat(), |s| log(s)).await });
+            })
+            .await;
+            log("tunnel: the guest closed the network port".into());
         });
-        Ok(Tunnel { port, task })
+        Tunnel { task }
     }
 }
 
-/// Readiness check (About page): starts a tunnel the way a run does, logs in with its key like the
-/// guest's `ssh` would, opens the proxy channel and sends a `CONNECT` that must be denied (no host
-/// is allowed). Returns what it listened on.
+/// Readiness check (About page): runs a session over an in-memory pipe the way a run does, opens a
+/// stream like the guest's relay and sends a `CONNECT` that must be denied (no host is allowed).
 pub async fn self_check() -> Result<String, String> {
-    use russh::client;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    struct Client;
-    impl client::Handler for Client {
-        type Error = russh::Error;
-        async fn check_server_key(&mut self, _: &russh::keys::PublicKeyOrCertificate) -> Result<bool, Self::Error> {
-            Ok(true)
-        }
-    }
-
-    let proxy = Proxy::new(crate::net::egress::Rules::default(), None);
-    let tunnel = Tunnel::start(proxy, Arc::new(|_| {})).await?;
+    let (guest, app) = tokio::io::duplex(64 * 1024);
+    let _tunnel = Tunnel::start(app, Proxy::new(crate::net::egress::Rules::default(), None), Arc::new(|_| {}));
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    tokio::spawn(ccaf_relay::dial(guest.compat(), rx));
     let probe = async {
-        let stream = tokio::net::TcpStream::connect(("127.0.0.1", tunnel.port)).await.map_err(|e| e.to_string())?;
-        let mut h = client::connect_stream(Arc::new(client::Config::default()), stream, Client).await.map_err(|e| format!("handshake: {e}"))?;
-        let auth = h.authenticate_none(USER).await.map_err(|e| e.to_string())?;
-        if !auth.success() {
-            return Err("the login was refused".to_string());
-        }
-        let ch = h.channel_open_direct_tcpip(PROXY_HOST, PROXY_PORT, "127.0.0.1", 1).await.map_err(|e| format!("proxy channel: {e}"))?;
-        let mut s = ch.into_stream();
+        let (otx, orx) = tokio::sync::oneshot::channel();
+        tx.send(otx).await.map_err(|e| e.to_string())?;
+        let mut s = orx.await.map_err(|e| e.to_string())?.map_err(|e| format!("stream: {e}"))?.compat();
         s.write_all(b"CONNECT example.com:443 HTTP/1.1\r\n\r\n").await.map_err(|e| e.to_string())?;
         let mut buf = [0u8; 64];
         let n = s.read(&mut buf).await.map_err(|e| e.to_string())?;
         if !buf[..n].starts_with(b"HTTP/1.1 403") {
             return Err("the proxy did not deny an unlisted host".to_string());
         }
-        Ok(format!("127.0.0.1:{}", tunnel.port))
+        Ok("virtio-serial + yamux".to_string())
     };
     tokio::time::timeout(Duration::from_secs(5), probe).await.map_err(|_| "timed out".to_string())?
 }
@@ -164,32 +77,16 @@ pub async fn self_check() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use russh::client;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    struct Client;
-    impl client::Handler for Client {
-        type Error = russh::Error;
-        async fn check_server_key(&mut self, _: &russh::keys::PublicKeyOrCertificate) -> Result<bool, Self::Error> {
-            Ok(true)
-        }
-    }
-
-    async fn connect(t: &Tunnel) -> Option<client::Handle<Client>> {
-        let stream = tokio::net::TcpStream::connect(("127.0.0.1", t.port)).await.unwrap();
-        let mut h = client::connect_stream(Arc::new(client::Config::default()), stream, Client).await.unwrap();
-        let ok = h.authenticate_none(USER).await.unwrap().success();
-        ok.then_some(h)
-    }
+    use tokio::net::TcpListener;
 
     #[tokio::test]
     async fn the_readiness_check_passes() {
-        let addr = self_check().await.unwrap();
-        assert!(addr.starts_with("127.0.0.1:"));
+        self_check().await.unwrap();
     }
 
     #[tokio::test]
-    async fn carries_only_proxy_channels() {
+    async fn carries_proxy_connections() {
         // a local "internet" that answers with a greeting
         let site = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let site_port = site.local_addr().unwrap().port();
@@ -206,22 +103,22 @@ mod tests {
         p.guard = false;
         let log_lines = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
         let l = log_lines.clone();
-        let tunnel = Tunnel::start(proxy, Arc::new(move |s| l.lock().unwrap().push(s))).await.unwrap();
+        let (guest, app) = tokio::io::duplex(64 * 1024);
+        let _tunnel = Tunnel::start(app, proxy, Arc::new(move |s| l.lock().unwrap().push(s)));
+        let (tx, rx) = tokio::sync::mpsc::channel(8);
+        tokio::spawn(ccaf_relay::dial(guest.compat(), rx));
 
-        let h = connect(&tunnel).await.expect("the none login is accepted");
+        let open = || async {
+            let (otx, orx) = tokio::sync::oneshot::channel();
+            tx.send(otx).await.unwrap();
+            orx.await.unwrap().unwrap().compat()
+        };
 
-        // not the proxy: refused
-        assert!(h.channel_open_direct_tcpip("example.com", 443, "127.0.0.1", 1).await.is_err());
-        assert!(h.channel_open_direct_tcpip(PROXY_HOST, 22, "127.0.0.1", 1).await.is_err());
-        // not a forwarding channel: refused
-        assert!(h.channel_open_session().await.is_err());
-
-        // the proxy: a CONNECT to an allowed host goes through; several at once
+        // several at once: a CONNECT to an allowed host goes through
         let mut jobs = vec![];
         for _ in 0..4 {
-            let ch = h.channel_open_direct_tcpip(PROXY_HOST, PROXY_PORT, "127.0.0.1", 1).await.unwrap();
+            let mut s = open().await;
             jobs.push(tokio::spawn(async move {
-                let mut s = ch.into_stream();
                 s.write_all(format!("CONNECT localhost:{site_port} HTTP/1.1\r\n\r\n").as_bytes()).await.unwrap();
                 let mut got = vec![];
                 let mut chunk = [0u8; 256];
@@ -238,8 +135,7 @@ mod tests {
         }
 
         // a denied host comes back as a 403 through the tunnel
-        let ch = h.channel_open_direct_tcpip(PROXY_HOST, PROXY_PORT, "127.0.0.1", 1).await.unwrap();
-        let mut s = ch.into_stream();
+        let mut s = open().await;
         s.write_all(b"CONNECT evil.com:443 HTTP/1.1\r\n\r\n").await.unwrap();
         let mut out = vec![0u8; 64];
         let n = tokio::time::timeout(Duration::from_secs(5), s.read(&mut out)).await.unwrap().unwrap();

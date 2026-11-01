@@ -218,7 +218,7 @@ run_claude() {
 # `ccaf-init` started the tunnel at boot; it has been coming up since. `claude` needs it.
 if [ "$TUNNEL" = true ]; then
 	read -r _rc _tu <"$TUNNEL_FIFO" 2>/dev/null
-	[ "${_rc:-1}" = 0 ] || fail "tunnel: cannot reach the network proxy (ssh exit ${_rc:-?}): $(tail -c 500 "$TUNNEL_FIFO.err" 2>/dev/null)"
+	[ "${_rc:-1}" = 0 ] || fail "tunnel: cannot reach the network proxy (relay exit ${_rc:-?}): $(tail -c 500 "$TUNNEL_FIFO.err" 2>/dev/null)"
 fi
 
 mark tunnel_up "${_tu:-}"

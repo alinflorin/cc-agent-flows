@@ -28,7 +28,15 @@ const source = join(here, "../../vendor/images", name);
 const file = join(dest, name);
 const marker = `${file}.version`;
 
+// The guest's network relay (relay/, built on CI for both arches and committed in vendor/relay): a
+// setup file of the base image, so it goes where the others are.
+const relayName = `ccaf-relay-${arch}`;
+const relaySource = join(here, "../../vendor/relay", relayName);
+const relayDest = join(here, "../../src-tauri/resources/agentd/ccaf-relay");
+
 try {
+  if (!existsSync(relaySource)) throw new Error(`vendor/relay has no ${relayName}`);
+  copyFileSync(relaySource, relayDest);
   for (const n of names) if (!existsSync(join(here, "../../vendor/images", n))) throw new Error(`vendor/images has no ${n}`);
   const stamp = names.map((n) => { const st = statSync(join(here, "../../vendor/images", n)); return `${st.size} ${st.mtimeMs}`; }).join(" ");
   if (existsSync(file) && existsSync(marker) && readFileSync(marker, "utf8") === stamp) {

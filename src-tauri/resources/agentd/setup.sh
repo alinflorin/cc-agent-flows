@@ -3,8 +3,7 @@
 # succeed or the build fails.
 set -eu
 
-# openssh-client carries the agent's traffic to the app's egress proxy (see tunnel.rs)
-apk add --no-cache --no-progress jq setpriv ripgrep curl bash libgcc libstdc++ ca-certificates openssh-client
+apk add --no-cache --no-progress jq setpriv ripgrep curl bash libgcc libstdc++ ca-certificates
 
 # The user `claude` runs as. No password, no sudo/doas.
 adduser -D -s /bin/sh agent
@@ -30,16 +29,18 @@ install -m 755 /tmp/setup/agentd.initd /etc/init.d/agentd
 rc-update add agentd default
 # the init agent VMs boot with (init=/sbin/ccaf-init): agentd without OpenRC
 install -m 755 /tmp/setup/ccaf-init.sh /sbin/ccaf-init
+# carries the agent's traffic to the app's egress proxy (static, see relay/)
+install -m 755 /tmp/setup/ccaf-relay /usr/local/bin/ccaf-relay
 
 # Checks: everything agentd needs is there, and nothing that would let an agent be reached or
 # escalate.
 claude --version
-for c in agentd jq setpriv setsid rg ssh timeout; do command -v "$c" >/dev/null || { echo "missing $c"; exit 1; }; done
+for c in agentd ccaf-relay jq setpriv setsid rg timeout; do command -v "$c" >/dev/null || { echo "missing $c"; exit 1; }; done
 # busybox also has a setpriv, but without --reuid: it must be the util-linux one
 setpriv --reuid agent --regid agent --init-groups --no-new-privs true
-# the ssh *client* is wanted; a server, dropbear and privilege tools are not
-if apk info -e openssh openssh-server dropbear sudo doas >/dev/null || [ -e /usr/sbin/sshd ]; then
-	echo "unexpected ssh server or sudo package"
+# no ssh at all, and no privilege tools
+if apk info -e openssh openssh-client openssh-server dropbear sudo doas >/dev/null || [ -e /usr/sbin/sshd ]; then
+	echo "unexpected ssh or sudo package"
 	exit 1
 fi
 
