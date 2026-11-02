@@ -15,10 +15,7 @@ su agent -c 'export PATH="$HOME/.local/bin:$PATH"; curl -fsSL https://claude.ai/
 ln -s /home/agent/.local/bin/claude /usr/local/bin/claude
 # What Claude Code writes on its first start, made now: onboarding done, no update or tips nags
 install -d -o agent -g agent /home/agent/.claude
-# A fixed userID (random per build): without one every VM makes its own and shows up in the account's
-# session list as a new device
-USER_ID=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
-printf '%s\n' '{"hasCompletedOnboarding":true,"numStartups":3,"autoUpdates":false,"hasSeenTasksHint":true,"tipsHistory":{},"userID":"'"$USER_ID"'"}' >/home/agent/.claude.json
+printf '%s\n' '{"hasCompletedOnboarding":true,"numStartups":3,"autoUpdates":false,"hasSeenTasksHint":true,"tipsHistory":{}}' >/home/agent/.claude.json
 printf '%s\n' '{"autoUpdates":false,"includeCoAuthoredBy":false}' >/home/agent/.claude/settings.json
 chown agent:agent /home/agent/.claude.json /home/agent/.claude/settings.json
 # Claude Code's own bin directory on PATH (for logins; the symlink above covers the service)

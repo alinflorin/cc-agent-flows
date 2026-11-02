@@ -486,6 +486,7 @@ pub fn agent_run(app: AppHandle, project: Option<String>, profile: String, promp
             None => crate::config::system_prompt::current(&app),
         }, &resolved.system_prompt),
         env,
+        device_id: Some(crate::config::profiles::device_id(&app, scope.id(), &entry.id)),
         timeout_secs: 30 * 60,
     };
 
@@ -634,6 +635,7 @@ mod tests {
             schema: crate::vm::protocol::RESULT_SCHEMA.into(),
             system_prompt: Some("be brief".into()),
             env: vec![TaskEnv { name: "TEAM".into(), value: "red".into() }],
+            device_id: None,
             timeout_secs: 120,
         };
         let who = identity(&[("test", "boot")], "r-test");

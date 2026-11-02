@@ -31,6 +31,7 @@ mod e2e {
                 TaskEnv { name: "PATH".into(), value: "/nowhere".into() },
                 TaskEnv { name: "BAD NAME".into(), value: "x".into() },
             ],
+            device_id: Some("ab".repeat(32)),
             timeout_secs,
         }
     }

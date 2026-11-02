@@ -24,6 +24,12 @@ system_prompt: string | null,
  */
 env: Array<TaskEnv>, 
 /**
+ * The device id Claude Code reports (`userID` in its `~/.claude.json`), 64 hex characters.
+ * Stable per agent profile on this machine, so the runs are one device in the account's
+ * session list instead of a new one per VM.
+ */
+device_id: string | null, 
+/**
  * Hard limit for the `claude` run.
  */
 timeout_secs: number, };

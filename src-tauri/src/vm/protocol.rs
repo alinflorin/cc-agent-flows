@@ -73,6 +73,11 @@ pub struct Task {
     /// Exported for `claude` only (not for `agentd`), from the agent profile.
     #[serde(default)]
     pub env: Vec<TaskEnv>,
+    /// The device id Claude Code reports (`userID` in its `~/.claude.json`), 64 hex characters.
+    /// Stable per agent profile on this machine, so the runs are one device in the account's
+    /// session list instead of a new one per VM.
+    #[serde(default)]
+    pub device_id: Option<String>,
     /// Hard limit for the `claude` run.
     #[serde(default = "default_timeout")]
     #[cfg_attr(test, ts(type = "number"))]

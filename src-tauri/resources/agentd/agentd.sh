@@ -131,6 +131,7 @@ _t=$(printf '%s' "$TASK" | jq -r '
 	"SCHEMA=\($schema | @sh)",
 	"TIMEOUT=\($b.timeout_secs // "" | tostring | @sh)",
 	"SYSTEM=\($b.system_prompt // "" | tostring | @sh)",
+	"DEVICE=\($b.device_id // "" | tostring | @sh)",
 	"ENVSET=\($env | @sh)",
 	"KEYS=\(try ($schema | fromjson | (.properties // {}) | keys | join(", ")) catch "" | @sh)"') || fail "bad task"
 eval "$_t"
@@ -155,6 +156,18 @@ if [ -n "$RUN_AS" ]; then
 	[ -n "$HOME_DIR" ] || fail "no user $RUN_AS"
 	chown -R "$RUN_AS:$RUN_AS" "$WS" || fail "workspace: chown"
 fi
+
+# The device id Claude Code reports (`userID`), stable across runs: without one each VM makes its own
+# and shows up in the account's session list as a new device. Only 64 hex characters are taken.
+case $DEVICE in
+	*[!0-9a-f]*) ;;
+	????????????????????????????????????????????????????????????????)
+		_cj=$HOME_DIR/.claude.json
+		[ -f "$_cj" ] || echo '{}' >"$_cj"
+		jq --arg u "$DEVICE" '.userID = $u' "$_cj" >"$_cj.new" && mv "$_cj.new" "$_cj"
+		[ -z "$RUN_AS" ] || chown "$RUN_AS:$RUN_AS" "$_cj"
+		;;
+esac
 
 # No `--include-partial-messages`: the token-by-token stream is a flood of events (each one parsed
 # and wrapped by jq in the guest, sent over the channel, passed to the UI and written to the run

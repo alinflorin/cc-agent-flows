@@ -82,6 +82,7 @@ impl Host for RealHost {
             schema: req.schema,
             system_prompt: crate::workflow::combine_system_prompts(&self.instructions, &profile.system_prompt),
             env,
+            device_id: Some(crate::config::profiles::device_id(&self.app, Some(&self.project), &req.profile)),
             timeout_secs: u64::from(req.timeout_mins) * 60,
         };
         let scope = Scope::project(&self.project);

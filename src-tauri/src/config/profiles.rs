@@ -75,6 +75,35 @@ pub struct Profile {
     pub extends: Option<String>,
 }
 
+/// The id Claude Code reports as this machine's (`userID` in `~/.claude.json`) for runs of one
+/// profile: 64 hex characters from a secret seed kept in the app data dir (made on first use), the
+/// project and the profile id. It stays the same across runs and image rebuilds, so the runs show
+/// up as one device in the account's session list; each profile is its own device.
+pub fn device_id(app: &tauri::AppHandle, project: Option<&str>, profile: &str) -> String {
+    use sha2::{Digest, Sha256};
+    static SEED: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let seed = SEED.get_or_init(|| {
+        let path = crate::util::data_dir(app).map(|d| d.join("device_seed.json"));
+        if let Ok(path) = &path
+            && let Some(s) = crate::util::read_json::<String>(path).filter(|s| s.len() >= 32)
+        {
+            return s;
+        }
+        let bytes: [u8; 32] = rand::random();
+        let s: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        if let Ok(path) = &path {
+            let _ = crate::util::write_json(path, &s);
+        }
+        s
+    });
+    let mut h = Sha256::new();
+    h.update(seed.as_bytes());
+    h.update(project.unwrap_or("").as_bytes());
+    h.update([0]);
+    h.update(profile.as_bytes());
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Most entries in a profile's host allowlist.
 const MAX_ALLOW_HOSTS: usize = 100;
 
