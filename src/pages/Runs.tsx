@@ -30,6 +30,7 @@ interface Line {
   id?: string;
   result?: string;
   error?: boolean;
+  images?: string[];
 }
 
 const VM_STATES: VmState[] = ["queued", "preparing", "starting", "booting", "running", "off"];
@@ -80,6 +81,7 @@ const useStyles = makeStyles({
   panel: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalM, maxWidth: "720px", marginTop: tokens.spacingVerticalM },
   user: { backgroundColor: tokens.colorBrandBackground2 },
   result: { cursor: "pointer", color: tokens.colorNeutralForeground3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  shot: { display: "block", maxWidth: "100%", marginTop: tokens.spacingVerticalXS, borderRadius: tokens.borderRadiusMedium },
   resultBody: { whiteSpace: "pre-wrap", wordBreak: "break-word", marginTop: tokens.spacingVerticalXS },
   tool: { fontFamily: tokens.fontFamilyMonospace, color: tokens.colorNeutralForeground3 },
 });
@@ -134,7 +136,7 @@ export function Runs() {
           const m = e.payload.msg;
           if (m.kind === "event") {
             const res = toolResults(m.body.event);
-            if (res.length) return l.map((x) => { const r = res.find(([id]) => id === x.id); return r ? { ...x, result: r[1], error: r[2] } : x; });
+            if (res.length) return l.map((x) => { const r = res.find(([id]) => id === x.id); return r ? { ...x, result: r[1], error: r[2], images: r[3].length ? r[3] : undefined } : x; });
           }
           const add = linesOf(e.payload.run, e.payload.msg);
           // The final repeats the agent's last words: show them once.
@@ -246,6 +248,7 @@ export function Runs() {
                     <details>
                       <summary className={styles.result}>{l.error ? "✗ " : "→ "}{clip(l.result.replace(/\s+/g, " "), 100)}</summary>
                       <div className={styles.resultBody}>{l.result}</div>
+                      {l.images?.map((src, k) => <img key={k} src={src} alt="" className={styles.shot} />)}
                     </details>
                   )}
                 </div>

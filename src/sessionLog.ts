@@ -15,6 +15,8 @@ interface Piece {
   /** what the tool returned (short, one line per row) */
   result?: string;
   error?: boolean;
+  /** images the tool returned (a screenshot...), as data URIs */
+  images?: string[];
 }
 
 /** One line of an agent's network traffic, as the egress proxy logged it. */
@@ -137,14 +139,21 @@ export function withoutAnswer(text: string): string {
 
 export const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
-/** The tool results of a `user` stream-json event, as short text: `[tool_use id, text, is_error]`. */
-export function toolResults(event: Record<string, any>): [string, string, boolean][] {
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+/** The tool results of a `user` stream-json event, as short text: `[tool_use id, text, is_error, images as data URIs]`. */
+export function toolResults(event: Record<string, any>): [string, string, boolean, string[]][] {
   if (event.type !== "user" || !Array.isArray(event.message?.content)) return [];
   return event.message.content
     .filter((c: any) => c.type === "tool_result")
     .map((c: any) => {
       const raw = Array.isArray(c.content) ? c.content.map((x: any) => (x.type === "text" ? x.text : `[${x.type}]`)).join("\n") : String(c.content ?? "");
-      return [String(c.tool_use_id), clip(raw.trim(), 1500), c.is_error === true] as [string, string, boolean];
+      const images = Array.isArray(c.content)
+        ? c.content
+            .filter((x: any) => x.type === "image" && x.source?.type === "base64" && IMAGE_TYPES.includes(x.source.media_type) && /^[A-Za-z0-9+/=]+$/.test(x.source.data ?? ""))
+            .map((x: any) => `data:${x.source.media_type};base64,${x.source.data}`)
+        : [];
+      return [String(c.tool_use_id), clip(raw.trim(), 1500), c.is_error === true, images] as [string, string, boolean, string[]];
     });
 }
 
@@ -246,9 +255,9 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
           break;
         }
         if (r && b.event?.type === "user") {
-          for (const [id, text, error] of toolResults(b.event)) {
+          for (const [id, text, error, images] of toolResults(b.event)) {
             const p = r.pieces.find((x) => x.id === id);
-            if (p) { p.result = text; p.error = error; }
+            if (p) { p.result = text; p.error = error; if (images.length) p.images = images; }
           }
           break;
         }

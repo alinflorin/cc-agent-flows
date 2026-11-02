@@ -43,7 +43,7 @@ done
 [ -n "$OUT" ] || OUT=$IN
 
 # Events above this many bytes are replaced by a stub (messages are capped at 1 MiB).
-MAX_EVENT=400000
+MAX_EVENT=900000
 
 # The device is opened once, read-write: a virtio port cannot be opened twice.
 exec 3<>"$IN"

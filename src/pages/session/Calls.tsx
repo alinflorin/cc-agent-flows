@@ -210,6 +210,7 @@ export function CallCard({ c, d, names }: { c: CallInfo; d: Digest; names: Recor
                         <details>
                           <summary className={styles.muted}>{p.error ? "✗ " : "→ "}{clip(p.result.replace(/\s+/g, " "), 100)}</summary>
                           <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{p.result}</div>
+                          {p.images?.map((src, k) => <img key={k} src={src} alt="" style={{ display: "block", maxWidth: "100%", marginTop: 4, borderRadius: 4 }} />)}
                         </details>
                       )}
                     </div>
