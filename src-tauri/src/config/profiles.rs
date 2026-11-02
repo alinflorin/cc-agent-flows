@@ -475,11 +475,12 @@ pub fn profiles_list(app: tauri::AppHandle, project: Option<String>) -> Result<V
     Ok(list(&dir_of(&app, &scope)?).into_iter().map(|e| Entry { global, ..e }).collect())
 }
 
-/// The profiles a project can use: its own and the global ones.
+/// The profiles a project can use: its own and the global ones (null project: the global ones).
 #[tauri::command]
-pub fn profiles_available(app: tauri::AppHandle, project: String) -> Result<Vec<Entry>, String> {
-    Scope::of(Some(project.clone()))?.dir(&app)?;
-    Ok(available(&app, Some(&project)))
+pub fn profiles_available(app: tauri::AppHandle, project: Option<String>) -> Result<Vec<Entry>, String> {
+    let scope = Scope::of(project)?;
+    scope.dir(&app)?;
+    Ok(available(&app, scope.id()))
 }
 
 /// Creates (`id` null) or updates a profile; returns its id.

@@ -449,12 +449,12 @@ fn runs_dir(app: &AppHandle) -> Result<PathBuf, String> {
 /// Starts an agent of a profile on a prompt; returns the run id at once. Progress arrives as
 /// `agent-run` events `{run, msg}`; the `final` message is the last one.
 #[tauri::command]
-pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: String) -> Result<String, String> {
+pub fn agent_run(app: AppHandle, project: Option<String>, profile: String, prompt: String) -> Result<String, String> {
     if prompt.trim().is_empty() || prompt.len() > 100_000 {
         return Err("the prompt must be 1 to 100000 bytes".into());
     }
-    let scope = Scope::project(&project);
-    let all = crate::config::profiles::available(&app, Some(&project));
+    let scope = Scope::of(project)?;
+    let all = crate::config::profiles::available(&app, scope.id());
     let entry = all.iter().find(|e| e.id == profile).ok_or("no such profile")?;
     // the profile with what it extends
     let resolved = crate::config::profiles::resolve(&entry.profile, &all)?;
@@ -467,7 +467,10 @@ pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: Strin
     }
 
     let run_id = new_run_id();
-    let who = identity(&[("project", &project), ("profile", &entry.id)], &run_id);
+    let who = match scope.id() {
+        Some(p) => identity(&[("project", p), ("profile", &entry.id)], &run_id),
+        None => identity(&[("profile", &entry.id)], &run_id),
+    };
     let (profile_env, profile_hosts) = crate::config::integrations::expand(&app, &scope, &resolved)?;
     let (env, injections) = crate::config::injections::prepare(&app, &scope, &profile_env)?;
     let task = Task {
@@ -478,7 +481,10 @@ pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: Strin
         resume: false,
         schema: crate::vm::protocol::RESULT_SCHEMA.into(),
         // the global and the project's prompt first, then the profile's (with its parents')
-        system_prompt: crate::workflow::combine_system_prompts(&crate::config::system_prompt::with_project(&app, &project), &resolved.system_prompt),
+        system_prompt: crate::workflow::combine_system_prompts(&match scope.id() {
+            Some(p) => crate::config::system_prompt::with_project(&app, p),
+            None => crate::config::system_prompt::current(&app),
+        }, &resolved.system_prompt),
         env,
         timeout_secs: 30 * 60,
     };
@@ -490,7 +496,7 @@ pub fn agent_run(app: AppHandle, project: String, profile: String, prompt: Strin
     let _ = std::fs::create_dir_all(log_path.parent().unwrap());
     let mut log = std::fs::File::create(&log_path).ok();
     if let Some(f) = log.as_mut() {
-        let head = serde_json::json!({"kind": "start", "body": {"run": run_id, "identity": who, "project": project, "profile": entry.id, "image": resolved.image_id(), "prompt": task.prompt}});
+        let head = serde_json::json!({"kind": "start", "body": {"run": run_id, "identity": who, "project": scope.id(), "profile": entry.id, "image": resolved.image_id(), "prompt": task.prompt}});
         let _ = writeln!(f, "{head}");
     }
 

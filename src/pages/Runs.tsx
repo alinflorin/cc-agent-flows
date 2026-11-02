@@ -5,7 +5,7 @@ import { Badge, Body1, Button, Caption1, Field, Select, Tab, TabList, Textarea, 
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 import { call } from "../tauri";
-import { useProjectId } from "../project";
+import { useProject } from "../project";
 import { fmtTime } from "../text";
 import { clip, describeTool, toolResults, withoutAnswer, type NetSpeed, type NetTotals, type Traffic, type VmState, type VmStats } from "../sessionLog";
 import { NetStats, TrafficLines } from "./session/Calls";
@@ -108,7 +108,7 @@ export function Runs() {
   const ss = useSessionStyles();
   const notify = useNotify();
   const desktop = inTauri();
-  const project = useProjectId();
+  const project = useProject();
   const [profiles, setProfiles] = useState<ProfileInfo[]>([]);
   const [profile, setProfile] = useState("");
   const [prompt, setPrompt] = useState("");

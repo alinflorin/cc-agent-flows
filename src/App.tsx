@@ -51,6 +51,7 @@ const router = createHashRouter([
           { path: "network", element: <ProjectNetwork /> },
         ],
       },
+      { path: "/runs", element: <Runs /> },
       { path: "/analytics", element: <Analytics /> },
       { path: "/about", element: <About /> },
       { path: "/settings", element: <Navigate to="general" replace /> },
