@@ -72,3 +72,19 @@ jobs:
           prerelease: false
           uploadUpdaterJson: true
           args: ${{ matrix.args }}
+
+  # The matrix jobs each rewrite latest.json and race, losing platforms; rebuild it from the assets.
+  updater-json:
+    needs: release
+    if: always() && needs.release.result != 'skipped'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.version && format('v{0}', inputs.version) || github.ref_name }}
+        run: |
+          python3 scripts/fix-latest-json.py "$GITHUB_REPOSITORY" "$TAG"
+          gh release upload "$TAG" latest.json --clobber
