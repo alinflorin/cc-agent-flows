@@ -93,8 +93,21 @@ const useStyles = makeStyles({
     "& .fui-NavItem:hover": {
       backgroundColor: tokens.colorNeutralBackground2Hover,
     },
+    // no purple bar on the selected item: the selected background already marks it
+    "& .fui-NavItem::after": {
+      display: "none",
+    },
     "& .fui-NavItem[aria-current=page]": {
       backgroundColor: tokens.colorNeutralBackground2Selected,
+      // Fluent makes the selected label semibold, which is wider: long labels (Global agent
+      // profiles) then wrapped. Keep the weight, the background marks the selection.
+      fontWeight: tokens.fontWeightRegular,
+    },
+    // never wrap a label; cut it instead
+    "& .fui-NavItem": {
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
     },
   },
   body: {

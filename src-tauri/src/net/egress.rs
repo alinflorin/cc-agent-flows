@@ -1,5 +1,5 @@
 //! The egress proxy: the only way out of an agent VM. It speaks HTTP `CONNECT` on any async
-//! stream (the SSH tunnel in `tunnel.rs` hands it one per guest connection) and tunnels the bytes
+//! stream (the yamux tunnel in `tunnel.rs` hands it one per guest connection) and tunnels the bytes
 //! untouched, deny by default: the host must be on the allowlist, the port must be 443 and the
 //! address the name resolves to must be public. The proxy resolves the name itself and connects
 //! to that address, so the guest's own DNS plays no part.
@@ -24,7 +24,7 @@ use tokio::sync::Semaphore;
 const MAX_HEAD: usize = 8 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Buffer of each direction of a tunnelled connection (tokio's default is 8 KiB): bulk transfers
-/// (git, npm) take fewer reads and writes through the SSH channel.
+/// (git, npm) take fewer reads and writes through the tunnel.
 const COPY_BUF: usize = 64 * 1024;
 /// A client that has not sent its request after this long is dropped.
 const HEAD_TIMEOUT: Duration = Duration::from_secs(30);

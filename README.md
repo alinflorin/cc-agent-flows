@@ -71,7 +71,7 @@ Security is the point of this project, not an add-on. The design is **defence in
 |---|---|
 | **Full virtual machine** | Each agent is inside its own hardware-virtualised VM, not a container sharing your kernel. It starts from a throwaway copy of the disk and is deleted afterwards. |
 | **No shared folders, no code transfer** | The VM has no access to your files. Its only link to the outside is one private channel to the app. |
-| **Sealed network** | The VM's network card can reach exactly one thing: a tunnel to the app's own proxy. It cannot see your LAN, your computer or the open internet. |
+| **Sealed network** | The VM has no network card. Its only way out is a tunnel to the app's own proxy. It cannot see your LAN, your computer or the open internet. |
 | **Deny-by-default internet** | The proxy only lets through HTTPS to hosts on your allowlist, per project and per agent. IP addresses, private ranges and everything else are refused. |
 | **Your credentials never enter the VM** | The app adds your Claude token, and tokens for services like GitHub or Jira, to matching requests *as they leave your computer*. The agent only sees a placeholder, so it cannot read, print or leak the real thing. |
 | **Hardened guest** | No SSH server, no sudo, no setuid programs. The agent runs as an unprivileged user, hidden from the process that supervises it. |
@@ -95,7 +95,7 @@ The result is a setup where giving an agent real autonomy is a reasonable decisi
 - **App:** [Tauri 2](https://tauri.app) (Rust backend) with a React 19 + TypeScript frontend.
 - **Virtualisation:** QEMU, bundled per platform, hardware-accelerated (KVM, Hypervisor.framework, WHPX) with a software fallback.
 - **Guest:** a minimal Alpine Linux image, plus a tiny supervisor script that runs Claude Code and reports back over a virtio-serial channel.
-- **Network:** an SSH tunnel into an egress proxy in the app, with per-run TLS inspection used solely to inject credentials.
+- **Network:** a yamux tunnel over a virtio-serial port into an egress proxy in the app, with per-run TLS inspection used solely to inject credentials.
 
 ## Development
 

@@ -41,7 +41,7 @@
       "qemu": "QEMU",
       "accel": "Hardware acceleration",
       "image": "Base image",
-      "tunnel": "SSH tunnel server",
+      "tunnel": "Network tunnel",
       "token": "Claude token",
       "network": "Network allowlist"
     },
@@ -61,7 +61,7 @@
         "error": "Failed: {{detail}}"
       },
       "tunnel": {
-        "ok": "Accepts the run's key and denies unlisted hosts ({{detail}})",
+        "ok": "Carries allowed connections and denies unlisted hosts ({{detail}})",
         "error": "Failed: {{detail}}"
       },
       "token": {
@@ -737,6 +737,11 @@
     "sessions_other": "{{count}} sessions",
     "demo": "Create the demo project",
     "demoHint": "The demo project is a ready-made delivery pipeline: images, agent profiles, secrets, injections and a workflow.",
+    "notReady": "This computer is not ready to run agents yet: {{items}}.",
+    "notReadyLink": "See details",
+    "active": "Active sessions",
+    "activeWaiting": "Waiting for you",
+    "activeRunning": "Running",
     "missing": "This project does not exist.",
     "settings": "Project settings",
     "systemPrompt": "System prompt for all the project's agents",

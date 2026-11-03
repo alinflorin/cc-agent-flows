@@ -41,7 +41,7 @@
       "qemu": "QEMU",
       "accel": "Accelerare hardware",
       "image": "Imaginea de bază",
-      "tunnel": "Server de tunel SSH",
+      "tunnel": "Tunel de rețea",
       "token": "Token Claude",
       "network": "Lista de hosturi permise"
     },
@@ -61,7 +61,7 @@
         "error": "Eșuat: {{detail}}"
       },
       "tunnel": {
-        "ok": "Acceptă cheia rulării și refuză hosturile nelistate ({{detail}})",
+        "ok": "Transportă conexiunile permise și refuză hosturile nelistate ({{detail}})",
         "error": "Eșuat: {{detail}}"
       },
       "token": {
@@ -742,6 +742,11 @@
     "sessions_other": "{{count}} de sesiuni",
     "demo": "Creează proiectul demo",
     "demoHint": "Proiectul demo este o linie de livrare gata făcută: imagini, profiluri de agent, secrete, injecții și un flux.",
+    "notReady": "Acest calculator nu e încă pregătit să ruleze agenți: {{items}}.",
+    "notReadyLink": "Vezi detalii",
+    "active": "Sesiuni active",
+    "activeWaiting": "Așteaptă răspunsul tău",
+    "activeRunning": "Rulează",
     "missing": "Acest proiect nu există.",
     "settings": "Setările proiectului",
     "systemPrompt": "Prompt de sistem pentru toți agenții proiectului",

@@ -93,12 +93,12 @@ echo '{"type":"result","is_error":false,"result":"free text\\n{\"status\":\"need
     }
 
     /// `tunnel` is what `ccaf-init` would have left in the tunnel fifo (a plain file here).
-    fn start_with(tag: &str, claude: &str, task: Task, boot: Bootstrap, ssh: Option<&str>) -> Run {
-        start_full(tag, claude, task, boot, ssh, &[])
+    fn start_with(tag: &str, claude: &str, task: Task, boot: Bootstrap, tunnel: Option<&str>) -> Run {
+        start_full(tag, claude, task, boot, tunnel, &[])
     }
 
     /// `tools` are files of the image's tools directory.
-    fn start_full(tag: &str, claude: &str, task: Task, boot: Bootstrap, ssh: Option<&str>, tools: &[(&str, &str)]) -> Run {
+    fn start_full(tag: &str, claude: &str, task: Task, boot: Bootstrap, tunnel: Option<&str>, tools: &[(&str, &str)]) -> Run {
         let dir = temp(tag);
         std::fs::create_dir_all(dir.join("tools")).unwrap();
         for (name, text) in tools {
@@ -107,7 +107,7 @@ echo '{"type":"result","is_error":false,"result":"free text\\n{\"status\":\"need
         let fake = dir.join("claude");
         executable(&fake, claude);
         let tunnel_file = dir.join("tunnel");
-        std::fs::write(&tunnel_file, ssh.map(|t| format!("{t}\n")).unwrap_or_default()).unwrap();
+        std::fs::write(&tunnel_file, tunnel.map(|t| format!("{t}\n")).unwrap_or_default()).unwrap();
         let (to_agent, from_agent) = (dir.join("to-agent"), dir.join("from-agent"));
         shell(&format!("mkfifo '{}' '{}'", to_agent.display(), from_agent.display()));
         // Read-write on both ends, so neither open waits for the other side.
