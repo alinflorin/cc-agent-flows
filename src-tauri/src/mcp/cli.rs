@@ -11,7 +11,7 @@ use tauri::AppHandle;
 use super::Config;
 use crate::config::scope::Scope;
 use crate::config::{injections, integrations, network, profiles, projects, secrets, system_prompt, variables};
-use crate::vm::{images, runs};
+use crate::vm::images;
 use crate::workflow::engine as eng;
 use crate::workflow::{commands as wf, model::Workflow};
 
@@ -35,8 +35,6 @@ workflows list --project P | get <id> --project P | standard --project P | save 
 sessions list --project P | get <id> --project P | log <id> --project P [--last N]
 sessions start --project P [--workflow W] [--autonomy ask|never] --task T|stdin | continue <id> --project P | message <id> --project P (text in --text or stdin)
 sessions reply <id> --project P [--approve|--reject] (text in --text or stdin) | cancel <id> --project P
-runs list | get <run> | cancel <run>                      single runs (one agent, one prompt), project or global
-runs start <scope> --profile ID --prompt T|stdin          starts one agent; returns the run id
 
 Bodies: see read_instructions.";
 
@@ -213,7 +211,6 @@ pub fn run(app: &AppHandle, cfg: &Config, command: &str, stdin: Option<&str>) ->
         "network" => network_cmd(app, cfg, verb, &a),
         "workflows" => workflows_cmd(app, cfg, verb, &a, stdin),
         "sessions" => sessions_cmd(app, cfg, verb, &a, stdin),
-        "runs" => runs_cmd(app, cfg, verb, &a, stdin),
         other => Err(format!("unknown resource {other:?}; run `ccaf help`")),
     };
     out.map(cut)
@@ -529,7 +526,7 @@ fn workflows_cmd(app: &AppHandle, cfg: &Config, verb: &str, a: &Args, stdin: Opt
 
 /// Starting work spends the user's subscription and boots VMs.
 fn can_run(cfg: &Config) -> Result<(), String> {
-    if cfg.runs { Ok(()) } else { Err("the user switched off starting sessions and runs (Settings > MCP)".into()) }
+    if cfg.runs { Ok(()) } else { Err("the user switched off starting sessions (Settings > MCP)".into()) }
 }
 
 /// A text given as `--<flag>` or in stdin.
@@ -585,23 +582,6 @@ fn sessions_cmd(app: &AppHandle, cfg: &Config, verb: &str, a: &Args, stdin: Opti
         }
         "cancel" => json(&serde_json::json!({ "cancelled": eng::session_cancel(app.clone(), project, id()?) })),
         _ => unknown("sessions", verb),
-    }
-}
-
-fn runs_cmd(app: &AppHandle, cfg: &Config, verb: &str, a: &Args, stdin: Option<&str>) -> Result<String, String> {
-    a.only(&["project", "global", "profile", "prompt"])?;
-    match verb {
-        "list" => json(&runs::runs_recent(app, 20)),
-        "get" => json(&runs::run_info(app, a.arg(2, "run")?)?),
-        "cancel" => json(&serde_json::json!({ "cancelled": runs::agent_run_cancel(app.clone(), a.arg(2, "run")?.into()) })),
-        "start" => {
-            can_run(cfg)?;
-            let scope = a.scope(app)?;
-            let profile = a.flag("profile").ok_or("--profile is required")?;
-            let prompt = text(a, "prompt", stdin).ok_or("the prompt goes in --prompt or stdin")?;
-            json(&serde_json::json!({ "run": runs::agent_run(app.clone(), proj(&scope), profile.into(), prompt)? }))
-        }
-        _ => unknown("runs", verb),
     }
 }
 

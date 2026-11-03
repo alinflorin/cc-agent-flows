@@ -119,6 +119,12 @@ pub fn run() {
             workflow::commands::sessions_autonomy,
             workflow::commands::sessions_workflow,
             workflow::commands::sessions_delete,
+            workflow::files::shared_list,
+            workflow::files::shared_mkdir,
+            workflow::files::shared_delete,
+            workflow::files::shared_upload,
+            workflow::files::shared_download,
+            workflow::files::shared_reveal,
             workflow::engine::session_start,
             workflow::engine::session_continue,
             workflow::engine::session_cancel,
@@ -138,8 +144,6 @@ pub fn run() {
             mcp::quick_add::mcp_quick_add,
             workflow::engine::session_get,
             workflow::engine::session_log,
-            vm::runs::agent_run,
-            vm::runs::agent_run_cancel,
             config::accounts::accounts_list,
             config::accounts::accounts_add,
             config::accounts::accounts_set_token,
@@ -167,7 +171,6 @@ pub fn run() {
         .setup(|app| {
             use tauri::Manager;
             app.manage(vm::images::Images::default());
-            app.manage(vm::runs::Runs::default());
             app.manage(workflow::engine::Sessions::default());
             app.manage(workflow::engine::VmSlots::new(app.handle()));
             workflow::engine::recover(app.handle());

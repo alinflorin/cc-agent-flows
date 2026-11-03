@@ -24,6 +24,8 @@ export const useStyles = makeStyles({
   mono: { fontFamily: tokens.fontFamilyMonospace, color: tokens.colorNeutralForeground3 },
   back: { color: tokens.colorBrandForegroundLink, textDecorationLine: "none", ":hover": { textDecorationLine: "underline" } },
   muted: { color: tokens.colorNeutralForeground3 },
+  fileRow: { display: "grid", gridTemplateColumns: "20px minmax(0, 1fr) auto auto auto auto", columnGap: tokens.spacingHorizontalS, alignItems: "center", padding: `${tokens.spacingVerticalXXS} 0`, borderBottom: `1px solid ${tokens.colorNeutralStroke2}` },
+  fileName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" },
   ask: { display: "flex", flexDirection: "column", gap: tokens.spacingVerticalS, padding: tokens.spacingHorizontalM, border: `1px solid ${tokens.colorBrandStroke1}`, borderRadius: tokens.borderRadiusMedium },
   actions: { display: "flex", gap: tokens.spacingHorizontalS },
   composer: { display: "flex", gap: tokens.spacingHorizontalS, alignItems: "stretch", padding: tokens.spacingHorizontalM, borderTop: `1px solid ${tokens.colorNeutralStroke2}` },

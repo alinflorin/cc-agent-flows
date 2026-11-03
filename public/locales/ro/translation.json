@@ -15,7 +15,6 @@
     "about": "Despre",
     "settings": "Setări globale",
     "profiles": "Profiluri de agent",
-    "runs": "Rulări individuale",
     "workflow": "Flux",
     "sessions": "Sesiuni",
     "analytics": "Statistici",
@@ -372,7 +371,7 @@
       "tokenChanged": "Token nou făcut. Actualizează configurația agentului.",
       "claudeCode": "Claude Code",
       "otherClients": "Alți clienți MCP (JSON)",
-      "runs": "Permite pornirea de sesiuni și rulări",
+      "runs": "Permite pornirea de sesiuni",
       "runsHint": "Pornirea muncii consumă abonamentul tău Claude și pornește VM-uri. Oprit: agentul poate totuși citi și opri. Secrete: agentul creează doar valori placeholder; valorile reale le scrii tu în aplicație.",
       "quickAdd": "Adăugare rapidă",
       "quickAddHint": "Scrie adresa și tokenul în configurația clientului. Apasă din nou după ce schimbi portul sau tokenul. Claude Desktop cere Node.js (npx) și repornire; fișierul lui și cel al Codex sunt copiate întâi în *.ccaf-backup.",
@@ -570,17 +569,7 @@
     "lastRun": "Ultima pornire: {{when}}"
   },
   "runs": {
-    "title": "Rulări individuale",
-    "hint": "Vorbești cu un singur agent al unui profil, în propriul VM, cu token-ul tău Claude (Setări > LLM).",
-    "placeholder": "Ce să facă agentul? Enter trimite, Shift+Enter adaugă o linie.",
-    "tabs": {
-      "output": "Rezultat",
-      "network": "Rețea"
-    },
-    "prompt": "Sarcină",
-    "start": "Pornește",
     "cancel": "Anulează",
-    "booting": "Pornește VM-ul…",
     "status": {
       "done": "Gata",
       "needs_input": "Cere informații",
@@ -615,7 +604,8 @@
       "chat": "Conversație",
       "timeline": "Cronologie",
       "agent": "Agent",
-      "traffic": "Trafic"
+      "traffic": "Trafic",
+      "files": "Fișiere"
     },
     "node": {
       "idle": "nepornit",
@@ -624,6 +614,18 @@
       "waiting": "te așteaptă",
       "done": "gata",
       "failed": "eșuat"
+    },
+    "files": {
+      "upload": "Încarcă",
+      "uploaded": "{{count}} fișier(e) încărcat(e).",
+      "newFolder": "Folder nou",
+      "folderName": "Numele folderului",
+      "create": "Creează",
+      "reveal": "Arată în managerul de fișiere",
+      "root": "shared",
+      "download": "Salvează în…",
+      "empty": "Nimic aici încă. Agenții pun aici fișierele pentru tine în /home/agent/shared; ce adaugi tu, ei văd imediat.",
+      "hint": "Acesta este /home/agent/shared, folderul pe care îl citesc și îl scriu toți agenții acestei sesiuni. Fișierele scrise de agenți nu sunt verificate: salvează-le și privește-le cu grijă, nu le rula."
     },
     "callsCount_one": "{{count}} apel",
     "callsCount_few": "{{count}} apeluri",

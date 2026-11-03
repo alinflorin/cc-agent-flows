@@ -10,6 +10,7 @@
 
 pub mod analytics;
 pub mod commands;
+pub mod files;
 pub mod cron;
 pub mod engine;
 pub mod model;

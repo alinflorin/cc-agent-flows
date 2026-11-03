@@ -15,7 +15,6 @@
     "about": "About",
     "settings": "Global settings",
     "profiles": "Agent profiles",
-    "runs": "Single runs",
     "workflow": "Workflow",
     "sessions": "Sessions",
     "analytics": "Analytics",
@@ -372,7 +371,7 @@
       "tokenChanged": "New token made. Update your agent's configuration.",
       "claudeCode": "Claude Code",
       "otherClients": "Other MCP clients (JSON)",
-      "runs": "Allow starting sessions and runs",
+      "runs": "Allow starting sessions",
       "runsHint": "Starting work spends your Claude subscription and boots VMs. Off: the agent can still read and cancel. Secrets: the agent only creates placeholders; you type the real values in the app.",
       "quickAdd": "Quick add",
       "quickAddHint": "Writes the address and token into the client's configuration. Click again after changing the port or the token. Claude Desktop needs Node.js (npx) and a restart; its file and Codex's are copied to *.ccaf-backup first.",
@@ -570,17 +569,7 @@
     "lastRun": "Last start: {{when}}"
   },
   "runs": {
-    "title": "Single runs",
-    "hint": "Talk to one agent of a profile in its own VM, with your Claude token (Settings > LLM).",
-    "placeholder": "What should the agent do? Enter sends, Shift+Enter adds a line.",
-    "tabs": {
-      "output": "Output",
-      "network": "Network"
-    },
-    "prompt": "Task",
-    "start": "Start",
     "cancel": "Cancel",
-    "booting": "Booting the VM…",
     "status": {
       "done": "Done",
       "needs_input": "Needs input",
@@ -615,7 +604,8 @@
       "chat": "Conversation",
       "timeline": "Timeline",
       "agent": "Agent",
-      "traffic": "Traffic"
+      "traffic": "Traffic",
+      "files": "Files"
     },
     "node": {
       "idle": "not started",
@@ -624,6 +614,18 @@
       "waiting": "waiting for you",
       "done": "done",
       "failed": "failed"
+    },
+    "files": {
+      "upload": "Upload",
+      "uploaded": "{{count}} file(s) uploaded.",
+      "newFolder": "New folder",
+      "folderName": "Folder name",
+      "create": "Create",
+      "reveal": "Show in file manager",
+      "root": "shared",
+      "download": "Save to…",
+      "empty": "Nothing here yet. Agents put files for you in /home/agent/shared; what you add here, they see right away.",
+      "hint": "This is /home/agent/shared, the folder every agent of this session reads and writes. Files written by agents are not checked: save them and look at them with care, do not run them."
     },
     "callsCount_one": "{{count}} call",
     "callsCount_other": "{{count}} calls",

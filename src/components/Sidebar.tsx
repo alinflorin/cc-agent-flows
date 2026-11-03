@@ -30,8 +30,6 @@ import {
   Info24Regular,
   Key24Filled,
   Key24Regular,
-  Play24Filled,
-  Play24Regular,
   Box24Filled,
   Box24Regular,
   Braces24Filled,
@@ -71,7 +69,6 @@ const AnalyticsIcon = bundleIcon(
   DataBarVertical24Filled,
   DataBarVertical24Regular,
 );
-const RunsIcon = bundleIcon(Play24Filled, Play24Regular);
 const ProfilesIcon = bundleIcon(Bot24Filled, Bot24Regular);
 const AboutIcon = bundleIcon(Info24Filled, Info24Regular);
 const LlmIcon = bundleIcon(Brain24Filled, Brain24Regular);
@@ -234,7 +231,6 @@ export function Sidebar({
             {item("workflow", t("nav.workflow"), <WorkflowIcon />)}
             {item("sessions", t("nav.sessions"), <SessionsIcon />)}
             {item("profiles", t("nav.profiles"), <ProfilesIcon />)}
-            {item("runs", t("nav.runs"), <RunsIcon />)}
             {item("analytics", t("nav.analytics"), <AnalyticsIcon />)}
             {item("images", t("settings.tabs.images"), <ImagesIcon />)}
             {item("variables", t("settings.tabs.variables"), <VariablesIcon />)}
@@ -297,9 +293,6 @@ export function Sidebar({
             </NavItem>
             <NavItem value="/settings/general" icon={<SettingsIcon />}>
               {t("nav.settings")}
-            </NavItem>
-            <NavItem value="/runs" icon={<RunsIcon />}>
-              {t("nav.runs")}
             </NavItem>
             <NavItem value="/analytics" icon={<AnalyticsIcon />}>
               {t("nav.analytics")}

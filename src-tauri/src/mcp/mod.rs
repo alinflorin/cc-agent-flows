@@ -43,7 +43,7 @@ pub struct Config {
     pub write: bool,
     /// Changes to the global settings (needs `write`).
     pub write_global: bool,
-    /// Starting sessions and single runs (they spend the subscription and boot VMs); cancelling is always allowed.
+    /// Starting sessions (they spend the subscription and boot VMs); cancelling is always allowed.
     pub runs: bool,
 }
 
@@ -170,7 +170,7 @@ async fn rpc(app: &AppHandle, msg: &Value) -> Option<Value> {
                 "protocolVersion": version,
                 "capabilities": { "tools": {} },
                 "serverInfo": { "name": "ccaf", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "CC Agent Flows: configure projects, agents, images, secrets, workflows and runs. Call read_instructions first."
+                "instructions": "CC Agent Flows: configure projects, agents, images, secrets, workflows and sessions. Call read_instructions first."
             }))
         }
         "ping" => Ok(json!({})),

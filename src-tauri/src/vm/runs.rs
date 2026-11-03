@@ -8,24 +8,19 @@
 //! at `<app data>/runs/logs/<run id>.jsonl` (the token is never in it).
 
 use std::collections::HashMap;
-use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::AppHandle;
 use tokio::process::Command;
 use tokio::sync::oneshot;
 
 use crate::config::scope::Scope;
 use crate::vm::builder::Serial;
 use crate::vm::protocol::{Bootstrap, Event, Final, Outbound, Status, Task};
-
-/// The runs in flight, to cancel them.
-#[derive(Default)]
-pub struct Runs(Mutex<HashMap<String, oneshot::Sender<()>>>);
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -530,145 +525,6 @@ const AGENT_NIC: [&str; 2] = ["-nic", "none"];
 
 fn runs_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(crate::util::data_dir(app)?.join("runs"))
-}
-
-/// Starts an agent of a profile on a prompt; returns the run id at once. Progress arrives as
-/// `agent-run` events `{run, msg}`; the `final` message is the last one.
-#[tauri::command]
-pub fn agent_run(app: AppHandle, project: Option<String>, profile: String, prompt: String) -> Result<String, String> {
-    if prompt.trim().is_empty() || prompt.len() > 100_000 {
-        return Err("the prompt must be 1 to 100000 bytes".into());
-    }
-    let scope = Scope::of(project)?;
-    let all = crate::config::profiles::available(&app, scope.id());
-    let entry = all.iter().find(|e| e.id == profile).ok_or("no such profile")?;
-    // the profile with what it extends
-    let resolved = crate::config::profiles::resolve(&entry.profile, &all)?;
-    // Fail fast with a clear message instead of an event later.
-    if !crate::config::accounts::usable(&app) {
-        return Err("no Claude account is ready: add a setup token in Settings > LLM".into());
-    }
-    if crate::vm::images::path(&app, &scope, resolved.image_id()).is_none() {
-        return Err(format!("the image {} is not built yet", resolved.image_id()));
-    }
-
-    let run_id = new_run_id();
-    let who = match scope.id() {
-        Some(p) => identity(&[("project", p), ("profile", &entry.id)], &run_id),
-        None => identity(&[("profile", &entry.id)], &run_id),
-    };
-    let (profile_env, profile_hosts) = crate::config::integrations::expand(&app, &scope, &resolved)?;
-    let (env, injections) = crate::config::injections::prepare(&app, &scope, &profile_env)?;
-    let task = Task {
-        prompt,
-        model: resolved.model.clone(),
-        effort: Some(resolved.effort_or_default()),
-        session_id: uuid_v4(),
-        resume: false,
-        schema: crate::vm::protocol::RESULT_SCHEMA.into(),
-        // the global and the project's prompt first, then the profile's (with its parents')
-        system_prompt: crate::workflow::combine_system_prompts(&match scope.id() {
-            Some(p) => crate::config::system_prompt::with_project(&app, p),
-            None => crate::config::system_prompt::current(&app),
-        }, &resolved.system_prompt),
-        env,
-        device_id: Some(crate::config::profiles::device_id(&app, scope.id(), &entry.id)),
-        timeout_secs: 30 * 60,
-    };
-
-    let (cancel_tx, cancel_rx) = oneshot::channel();
-    app.state::<Runs>().0.lock().unwrap().insert(run_id.clone(), cancel_tx);
-
-    let log_path = runs_dir(&app)?.join("logs").join(format!("{run_id}.jsonl"));
-    let _ = std::fs::create_dir_all(log_path.parent().unwrap());
-    let mut log = std::fs::File::create(&log_path).ok();
-    if let Some(f) = log.as_mut() {
-        let head = serde_json::json!({"kind": "start", "body": {"run": run_id, "identity": who, "project": scope.id(), "profile": entry.id, "image": resolved.image_id(), "prompt": task.prompt}});
-        let _ = writeln!(f, "{head}");
-    }
-
-    let id = run_id.clone();
-    tauri::async_runtime::spawn(async move {
-        let emit = |msg: &Outbound| {
-            if let Some(f) = log.as_mut() {
-                let _ = writeln!(f, "{}", serde_json::to_string(msg).unwrap_or_default());
-            }
-            let _ = app.emit("agent-run", serde_json::json!({"run": id, "msg": msg}));
-        };
-        let mut emit = emit;
-        let watch = crate::net::leaks::watched(&profile_env, &|n| crate::config::secrets::secret_value(&scope, n));
-        let spec = Spec { run_id: id.clone(), project: scope, image: resolved.image_id().to_string(), identity: who, cpus: resolved.cpus, memory_mb: resolved.memory(), work_disk: None, shared: None, allow_hosts: profile_hosts, injections, max_connections: resolved.max_connections, max_upload_mb: resolved.max_upload_mb, max_download_mb: resolved.max_download_mb, watch, task };
-        if let Err(e) = run_vm(&app, spec, cancel_rx, &mut emit).await {
-            emit(&Outbound::Final(failed(e)));
-        }
-        app.state::<Runs>().0.lock().unwrap().remove(&id);
-    });
-    Ok(run_id)
-}
-
-/// Cancels a run in flight; it ends as failed.
-#[tauri::command]
-pub fn agent_run_cancel(app: AppHandle, run: String) -> bool {
-    app.state::<Runs>().0.lock().unwrap().remove(&run).is_some_and(|tx| tx.send(()).is_ok())
-}
-
-fn valid_run(id: &str) -> bool {
-    id.starts_with("r-") && id.len() <= 48 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-}
-
-fn log_head(path: &Path) -> Option<serde_json::Value> {
-    use std::io::BufRead;
-    let mut line = String::new();
-    std::io::BufReader::new(std::fs::File::open(path).ok()?).read_line(&mut line).ok()?;
-    serde_json::from_str(&line).ok()
-}
-
-/// Where a single run stands, read from its log: what it was asked, whether it still runs and,
-/// once it ended, its final report (the agent's events, most of the log, are not returned).
-pub fn run_info(app: &AppHandle, run: &str) -> Result<serde_json::Value, String> {
-    use std::io::BufRead;
-    if !valid_run(run) {
-        return Err("bad run id".into());
-    }
-    let path = runs_dir(app)?.join("logs").join(format!("{run}.jsonl"));
-    let head = log_head(&path).ok_or("no such run")?;
-    let mut fin = None;
-    for line in std::io::BufReader::new(std::fs::File::open(&path).map_err(|e| e.to_string())?).lines().map_while(Result::ok) {
-        // events can be huge (screenshots): only the line that ends the run is parsed
-        if line.contains(r#""kind":"final""#)
-            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&line)
-            && v["kind"] == "final"
-        {
-            fin = Some(v["body"].clone());
-        }
-    }
-    let body = &head["body"];
-    let cut = |v: &serde_json::Value| v.as_str().map(|t| t.chars().take(500).collect::<String>());
-    Ok(serde_json::json!({
-        "run": run,
-        "running": app.state::<Runs>().0.lock().unwrap().contains_key(run),
-        "project": body["project"], "profile": body["profile"], "image": body["image"], "prompt": cut(&body["prompt"]),
-        "final": fin.map(|f| serde_json::json!({"status": f["status"], "result": f["result"], "questions": f["questions"], "tokens": f["tokens"]})),
-    }))
-}
-
-/// The latest single runs, newest first.
-pub fn runs_recent(app: &AppHandle, limit: usize) -> Vec<serde_json::Value> {
-    let Ok(dir) = runs_dir(app).map(|d| d.join("logs")) else { return vec![] };
-    let Ok(rd) = std::fs::read_dir(dir) else { return vec![] };
-    let mut files: Vec<_> = rd.filter_map(Result::ok).filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path()))).collect();
-    files.sort_by_key(|f| std::cmp::Reverse(f.0));
-    let live = app.state::<Runs>();
-    let live = live.0.lock().unwrap();
-    files
-        .into_iter()
-        .take(limit)
-        .filter_map(|(_, p)| {
-            let run = p.file_stem()?.to_str()?.to_string();
-            let body = log_head(&p)?["body"].clone();
-            Some(serde_json::json!({"run": run, "running": live.contains_key(&run), "project": body["project"], "profile": body["profile"]}))
-        })
-        .collect()
 }
 
 #[cfg(test)]

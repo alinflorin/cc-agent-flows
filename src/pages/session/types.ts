@@ -35,7 +35,7 @@ export interface WEdge {
   kind: "delegate" | "before";
 }
 
-export type Tab_ = "chat" | "timeline" | "agent";
+export type Tab_ = "chat" | "timeline" | "agent" | "files";
 
 export const fmtTokens = (n: number) => new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(n);
 

@@ -92,7 +92,7 @@ pub struct Quota {
 }
 
 impl Quota {
-    fn reserve(&self, extra: u64) -> Result<(), u32> {
+    pub fn reserve(&self, extra: u64) -> Result<(), u32> {
         if extra == 0 {
             return Ok(());
         }
@@ -108,7 +108,7 @@ impl Quota {
         }
     }
 
-    fn release(&self, bytes: u64) {
+    pub fn release(&self, bytes: u64) {
         let _ = self.used.try_update(Ordering::Relaxed, Ordering::Relaxed, |u| Some(u.saturating_sub(bytes)));
     }
 
@@ -324,6 +324,133 @@ fn write_at(f: &File, buf: &[u8], off: u64) -> io::Result<usize> {
 
 fn secs(t: io::Result<std::time::SystemTime>) -> u64 {
     t.ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs())
+}
+
+// ---- what the user does with the folder (the session's Files tab)
+
+/// An entry of the folder as the Files tab lists it.
+#[derive(serde::Serialize)]
+pub struct FileEntry {
+    pub name: String,
+    pub dir: bool,
+    pub size: u64,
+    /// Seconds since the Unix epoch.
+    pub modified: u64,
+}
+
+fn name_error(code: u32) -> String {
+    match code {
+        EEXIST => "a file with this name in other letters already exists".into(),
+        ENAMETOOLONG => "the name is too long (255 bytes at most)".into(),
+        _ => "this name cannot be used: it has a character that some system does not allow (<>:\"/\\|?*), a control character, a reserved name (CON, NUL, COM1...) or ends with a dot or space".into(),
+    }
+}
+
+/// `rel` ("a/b", "" for the root) below `root`: every part must be a plain name and none of the
+/// folders on the way may be a symlink, so the answer is always inside `root`.
+fn resolve(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let mut p = root.to_path_buf();
+    for part in rel.split('/').filter(|s| !s.is_empty()) {
+        if part == "." || part == ".." || part.contains(['\\', '\0']) {
+            return Err("bad path".into());
+        }
+        p.push(part);
+        if let Ok(m) = p.symlink_metadata()
+            && m.file_type().is_symlink()
+        {
+            return Err("bad path".into());
+        }
+    }
+    Ok(p)
+}
+
+pub fn list(root: &Path, rel: &str) -> Result<Vec<FileEntry>, String> {
+    let dir = resolve(root, rel)?;
+    let Ok(rd) = std::fs::read_dir(&dir) else { return Ok(vec![]) };
+    let mut out: Vec<FileEntry> = rd
+        .flatten()
+        .filter_map(|e| {
+            let m = e.path().symlink_metadata().ok().filter(|m| !m.file_type().is_symlink())?;
+            Some(FileEntry { name: e.file_name().into_string().ok()?, dir: m.is_dir(), size: if m.is_dir() { 0 } else { m.len() }, modified: secs(m.modified()) })
+        })
+        .collect();
+    out.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+    Ok(out)
+}
+
+pub fn make_dir(root: &Path, rel: &str, name: &str) -> Result<(), String> {
+    let dir = resolve(root, rel)?;
+    new_name_ok(&dir, name).map_err(name_error)?;
+    std::fs::create_dir(dir.join(name)).map_err(|e| e.to_string())
+}
+
+/// Deletes a file or a folder with everything in it and gives its bytes back to the quota.
+pub fn remove(root: &Path, rel: &str, quota: &Quota) -> Result<(), String> {
+    let p = resolve(root, rel)?;
+    if p == root {
+        return Err("the folder itself cannot be deleted".into());
+    }
+    let m = p.symlink_metadata().map_err(|e| e.to_string())?;
+    if m.is_dir() {
+        let bytes = dir_size(&p);
+        std::fs::remove_dir_all(&p).map_err(|e| e.to_string())?;
+        quota.release(bytes);
+    } else {
+        std::fs::remove_file(&p).map_err(|e| e.to_string())?;
+        quota.release(m.len());
+    }
+    Ok(())
+}
+
+/// Copies the file `src` into the folder `rel`, under its own name, if the name is acceptable, no
+/// file of that name is there and the quota allows it.
+pub fn import_file(root: &Path, rel: &str, src: &Path, quota: &Quota) -> Result<(), String> {
+    let dir = resolve(root, rel)?;
+    let name = src.file_name().and_then(|n| n.to_str()).ok_or("the file name is not valid text")?;
+    new_name_ok(&dir, name).map_err(name_error)?;
+    let target = dir.join(name);
+    if target.symlink_metadata().is_ok() {
+        return Err(format!("{name} already exists"));
+    }
+    let meta = std::fs::metadata(src).map_err(|e| e.to_string())?;
+    if !meta.is_file() {
+        return Err(format!("{name} is not a file"));
+    }
+    quota.reserve(meta.len()).map_err(|_| format!("{name} does not fit in the folder's quota"))?;
+    if let Err(e) = std::fs::copy(src, &target) {
+        let _ = std::fs::remove_file(&target);
+        quota.release(meta.len());
+        return Err(e.to_string());
+    }
+    Ok(())
+}
+
+fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
+    for e in std::fs::read_dir(from).map_err(|e| e.to_string())?.flatten() {
+        let m = e.path().symlink_metadata().map_err(|e| e.to_string())?;
+        let target = to.join(e.file_name());
+        if m.file_type().is_symlink() {
+            continue;
+        } else if m.is_dir() {
+            copy_tree(&e.path(), &target)?;
+        } else {
+            std::fs::copy(e.path(), &target).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+/// Copies a file to the path `dest`, or a folder to `dest/<its name>`.
+pub fn export(root: &Path, rel: &str, dest: &Path) -> Result<(), String> {
+    let p = resolve(root, rel)?;
+    let m = p.symlink_metadata().map_err(|e| e.to_string())?;
+    if m.is_dir() {
+        let name = p.file_name().map_or_else(|| "shared".to_string(), |n| n.to_string_lossy().into_owned());
+        copy_tree(&p, &dest.join(name))
+    } else {
+        std::fs::copy(&p, dest).map(|_| ()).map_err(|e| e.to_string())
+    }
 }
 
 // ---- the server
@@ -923,6 +1050,40 @@ mod tests {
         let mut s = Wr::default();
         s.u32(0).str("l2").str("/etc").u32(0);
         assert_eq!(c.call(TSYMLINK, &s.0).await, Err(EPERM));
+        std::fs::remove_dir_all(&root).unwrap();
+        std::fs::remove_dir_all(&outside).unwrap();
+    }
+
+    #[test]
+    fn the_user_side_stays_inside_the_folder_and_keeps_the_quota() {
+        let root = tmp("user");
+        let outside = tmp("user-out");
+        let q = quota_for(&root, 100);
+        let src = outside.join("up.txt");
+        std::fs::write(&src, [7u8; 60]).unwrap();
+        make_dir(&root, "", "docs").unwrap();
+        import_file(&root, "docs", &src, &q).unwrap();
+        assert_eq!(std::fs::read(root.join("docs/up.txt")).unwrap().len(), 60);
+        assert!(import_file(&root, "docs", &src, &q).is_err(), "no overwrite");
+        std::fs::write(outside.join("big.bin"), [1u8; 60]).unwrap();
+        assert!(import_file(&root, "", &outside.join("big.bin"), &q).unwrap_err().contains("quota"));
+        let l = list(&root, "").unwrap();
+        assert_eq!(l.len(), 1);
+        assert!(l[0].dir && l[0].name == "docs");
+        assert_eq!(list(&root, "docs").unwrap()[0].size, 60);
+        for bad in ["..", "../x", "docs/../..", "a\\b"] {
+            assert!(list(&root, bad).is_err(), "{bad}");
+            assert!(remove(&root, bad, &q).is_err(), "{bad}");
+        }
+        assert!(make_dir(&root, "", "a:b").is_err() && make_dir(&root, "", "DOCS").is_err());
+        let dest = outside.join("saved.txt");
+        export(&root, "docs/up.txt", &dest).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap().len(), 60);
+        export(&root, "docs", &outside).unwrap();
+        assert!(outside.join("docs/up.txt").is_file());
+        remove(&root, "docs", &q).unwrap();
+        assert_eq!(q.used(), 0, "deleting gives the bytes back");
+        assert!(remove(&root, "", &q).is_err());
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::remove_dir_all(&outside).unwrap();
     }

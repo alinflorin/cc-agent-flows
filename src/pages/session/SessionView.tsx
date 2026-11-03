@@ -14,6 +14,7 @@ import { useStyles } from "./styles";
 import { Tab_, View, WEdge, WNode, fmtBytes, fmtTokens, statusColor } from "./types";
 import { AgentPill, Graph } from "./Graph";
 import { CallCard, Timeline, TrafficView } from "./Calls";
+import { Files } from "./Files";
 
 export function SessionView() {
   const { sid = "" } = useParams();
@@ -259,6 +260,7 @@ export function SessionView() {
             <Tab value="chat">{t("session.tabs.chat")}{pending && live ? " ●" : ""}</Tab>
             <Tab value="timeline">{t("session.tabs.timeline")}</Tab>
             <Tab value="agent">{picked ? clip(names[picked] ?? "", 18) : t("session.tabs.agent")}</Tab>
+            <Tab value="files">{t("session.tabs.files")}</Tab>
           </TabList>
 
           <Follow key={tab} deps={follows} className={mergeClasses(styles.scroll, split && styles.split)}>
@@ -325,6 +327,8 @@ export function SessionView() {
                 )}
               </>
             )}
+
+            {tab === "files" && <Files project={project} sid={sid} />}
 
             {tab === "timeline" &&
               (d.timeline.length === 0 ? <Caption1 className={styles.muted}>{t("session.noEvents")}</Caption1> : <Timeline items={d.timeline} onPick={pick} />)}

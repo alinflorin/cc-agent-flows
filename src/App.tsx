@@ -9,7 +9,6 @@ import { ProjectImages, ProjectInjections, ProjectIntegrations, ProjectSecrets, 
 import { ProjectNetwork, ProjectSettings } from "./pages/project/ProjectSettings";
 import { Projects } from "./pages/Projects";
 import { Profiles } from "./pages/Profiles";
-import { Runs } from "./pages/Runs";
 import { SessionView } from "./pages/session/SessionView";
 import { Sessions } from "./pages/Sessions";
 import { Settings } from "./pages/Settings";
@@ -40,7 +39,6 @@ const router = createHashRouter([
           { path: "sessions", element: <Sessions /> },
           { path: "sessions/:sid", element: <SessionView /> },
           { path: "profiles", element: <Profiles /> },
-          { path: "runs", element: <Runs /> },
           { path: "analytics", element: <Analytics /> },
           { path: "images", element: <ProjectImages /> },
           { path: "variables", element: <ProjectVariables /> },
@@ -51,7 +49,6 @@ const router = createHashRouter([
           { path: "network", element: <ProjectNetwork /> },
         ],
       },
-      { path: "/runs", element: <Runs /> },
       { path: "/analytics", element: <Analytics /> },
       { path: "/about", element: <About /> },
       { path: "/settings", element: <Navigate to="general" replace /> },

@@ -44,7 +44,7 @@ network except an egress proxy that allows only listed hosts. You configure the 
 3. Never ask the user to paste a secret into the chat. Create placeholders and tell them which to fill in.
 4. Deleting needs `--yes`. Only delete what the user asked to delete.
 5. Errors are plain text and say what is wrong; fix the input and retry. The user can switch off writing,
-   writing to the global settings, and starting runs; then say so and stop.
+   writing to the global settings, and starting sessions; then say so and stop.
 6. Starting a session or a run spends the user's subscription and boots VMs: do it only when asked, and a
    session needs built images and a ready profile set (check `images list`, `workflows get` problems).
 
@@ -103,10 +103,6 @@ result lists `problems` (codes, with the node): fix them. Webhook tokens are gen
   waiting session with `sessions reply` (`--approve` / `--reject` for gates, text for questions) only if the
   user told you how; otherwise ask the user. `message` starts a new turn of a finished session,
   `continue` resumes an interrupted or failed one, `cancel` stops it.
-- **Single run** (`runs`, project or global): one agent of one profile on one prompt, no workflow.
-  `runs start --global --profile ID --prompt "..."` returns a run id; poll `runs get <run>` until `final`
-  is set (status done | needs_input | failed, result, questions, tokens). Global runs can only use global
-  profiles, variables, secrets, hosts and images. `runs cancel` stops it.
 
 ## Not available here
 
