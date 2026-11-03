@@ -87,7 +87,11 @@ impl Host for RealHost {
         };
         let scope = Scope::project(&self.project);
         let watch = crate::net::leaks::watched(&profile_env, &|n| crate::config::secrets::secret_value(&scope, n));
-        let spec = Spec { run_id, project: scope, image: profile.image_id().to_string(), identity, cpus: profile.cpus, memory_mb: profile.memory(), allow_hosts: profile_hosts, injections, max_connections: profile.max_connections, max_upload_mb: profile.max_upload_mb, max_download_mb: profile.max_download_mb, watch, task };
+        let work_disk = match crate::workflow::store::work_disk_path(&self.root, &self.sid, &req.node) {
+            Ok(path) => Some(crate::vm::runs::WorkDisk { path, size_mb: profile.work_disk_mb.unwrap_or_else(|| crate::config::vm_settings::current(&self.app).default_work_disk_mb) }),
+            Err(e) => return failed(format!("the work disk: {e}")),
+        };
+        let spec = Spec { run_id, project: scope, image: profile.image_id().to_string(), identity, cpus: profile.cpus, memory_mb: profile.memory(), work_disk, allow_hosts: profile_hosts, injections, max_connections: profile.max_connections, max_upload_mb: profile.max_upload_mb, max_download_mb: profile.max_download_mb, watch, task };
         // Cancelling the session cancels this VM.
         let (tx, rx) = oneshot::channel();
         let mut c = self.cancel.clone();

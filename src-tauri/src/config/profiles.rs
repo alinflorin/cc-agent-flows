@@ -49,6 +49,11 @@ pub struct Profile {
     /// RAM of the VM in MB; `None`: the parent's, else [`DEFAULT_MEMORY_MB`].
     #[serde(default)]
     pub memory_mb: Option<u32>,
+    /// Size in MB of the disk at `/home/agent/work` that an agent of a session keeps across its
+    /// runs; `None`: the parent's, else Settings > General > Virtual machines. Used when the
+    /// session first makes the disk.
+    #[serde(default)]
+    pub work_disk_mb: Option<u32>,
     /// The image the agent runs on; `None`: the parent's, else `base`.
     #[serde(default)]
     pub image: Option<String>,
@@ -211,6 +216,12 @@ impl Profile {
         }
         if self.memory_mb.is_some_and(|m| !(1024..=262_144).contains(&m)) {
             return Err("memory must be between 1024 and 262144 MB".into());
+        }
+        {
+            use crate::config::vm_settings::{MAX_WORK_DISK_MB, MIN_WORK_DISK_MB};
+            if self.work_disk_mb.is_some_and(|m| !(MIN_WORK_DISK_MB..=MAX_WORK_DISK_MB).contains(&m)) {
+                return Err(format!("the work disk must be between {MIN_WORK_DISK_MB} and {MAX_WORK_DISK_MB} MB"));
+            }
         }
         if self.image.as_deref().is_some_and(str::is_empty) {
             return Err("pick an image".into());
@@ -393,6 +404,7 @@ fn inherit(parent: Profile, child: Profile) -> Profile {
         effort: child.effort.or(parent.effort),
         cpus: child.cpus.or(parent.cpus),
         memory_mb: child.memory_mb.or(parent.memory_mb),
+        work_disk_mb: child.work_disk_mb.or(parent.work_disk_mb),
         image: child.image.or(parent.image),
         allow_hosts: union(parent.allow_hosts, child.allow_hosts),
         integrations: union(parent.integrations, child.integrations),
@@ -554,7 +566,7 @@ mod tests {
     use super::*;
 
     fn p(name: &str) -> Profile {
-        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: Some(DEFAULT_MEMORY_MB), image: Some("base".into()), allow_hosts: vec![], integrations: vec![], max_connections: None, max_upload_mb: None, max_download_mb: None, extends: None }
+        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: Some(DEFAULT_MEMORY_MB), work_disk_mb: None, image: Some("base".into()), allow_hosts: vec![], integrations: vec![], max_connections: None, max_upload_mb: None, max_download_mb: None, extends: None }
     }
 
     #[test]
@@ -625,6 +637,7 @@ mod tests {
         base.model = Some("opus".into());
         base.cpus = Some(2);
         base.memory_mb = Some(4096);
+        base.work_disk_mb = Some(8192);
         base.image = Some("developer".into());
         let mut mid = p("Mid");
         mid.extends = Some("base".into());
@@ -643,6 +656,7 @@ mod tests {
         leaf.image = None;
         let all = vec![entry("base", base), entry("mid", mid)];
         let r = resolve(&leaf, &all).unwrap();
+        assert_eq!(r.work_disk_mb, Some(8192), "the work disk size comes from the parent");
         assert_eq!(r.name, "Leaf");
         assert_eq!(r.system_prompt, "base rules\n\nmid rules");
         let env: Vec<(&str, &str)> = r.env.iter().map(|v| (v.name.as_str(), v.value.as_str())).collect();
@@ -738,6 +752,11 @@ mod tests {
         assert!(x.validate().is_err());
         x.cpus = None;
         x.memory_mb = Some(256);
+        assert!(x.validate().is_err());
+        x.memory_mb = None;
+        x.work_disk_mb = Some(8192);
+        assert!(x.validate().is_ok());
+        x.work_disk_mb = Some(10);
         assert!(x.validate().is_err());
     }
 

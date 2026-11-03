@@ -147,6 +147,11 @@ pub fn drive_arg(overlay: &Path) -> String {
     format!("file={},if=virtio,discard=unmap,cache=unsafe", overlay.display())
 }
 
+/// A disk whose contents outlive the VM (an agent's work disk): flushes reach the file.
+pub fn persistent_drive_arg(path: &Path) -> String {
+    format!("file={},if=virtio,discard=unmap,cache=writeback", path.display())
+}
+
 pub async fn qemu_img(app: &AppHandle, args: &[&str]) -> Result<(), String> {
     let mut cmd = Command::from(super::qemu::command(app, "qemu-img"));
     let out = tokio::time::timeout(Duration::from_secs(600), cmd.args(args).output())

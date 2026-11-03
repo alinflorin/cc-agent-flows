@@ -75,6 +75,23 @@ fn tail(path: &Path) -> String {
     text[start..].to_string()
 }
 
+/// The disk an agent of a session keeps across its runs (`/home/agent/work` in the VM): a sparse
+/// qcow2 that lives with the session and is deleted with it.
+#[derive(Clone)]
+pub struct WorkDisk {
+    pub path: PathBuf,
+    /// Size when the disk is made; a disk that exists keeps its own.
+    pub size_mb: u32,
+}
+
+/// One lock per work disk: an agent whose runs overlap (the same node called twice at once) must
+/// not have two VMs on one ext4.
+fn disk_lock(path: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    static LOCKS: Mutex<Option<HashMap<PathBuf, std::sync::Arc<tokio::sync::Mutex<()>>>>> = Mutex::new(None);
+    let mut map = LOCKS.lock().unwrap();
+    map.get_or_insert_with(HashMap::new).entry(path.to_path_buf()).or_default().clone()
+}
+
 /// What to run: the VM (image, size), who it is and what it does.
 pub struct Spec {
     pub run_id: String,
@@ -85,6 +102,8 @@ pub struct Spec {
     pub identity: String,
     pub cpus: Option<u32>,
     pub memory_mb: u32,
+    /// The agent's disk for the whole session; `None` (single runs): `work` is a scratch folder.
+    pub work_disk: Option<WorkDisk>,
     /// Hosts the agent may reach besides the global list (Settings > Network) and the project's: the profile's.
     pub allow_hosts: Vec<String>,
     /// The credential injections the profile switched on, applied by the egress proxy.
@@ -126,7 +145,7 @@ fn net_event(t: &crate::net::egress::Totals) -> Outbound {
 /// the final (also a synthesized one), in order. `Err` only for what stops the VM from starting
 /// (no token, image not built, QEMU missing). `cancel` firing ends the run as failed.
 pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<()>, mut on_msg: impl FnMut(&Outbound)) -> Result<Final, String> {
-    let Spec { run_id, project, image, identity, cpus, memory_mb, allow_hosts, injections, max_connections, max_upload_mb, max_download_mb, watch, task } = spec;
+    let Spec { run_id, project, image, identity, cpus, memory_mb, work_disk, allow_hosts, injections, max_connections, max_upload_mb, max_download_mb, watch, task } = spec;
     let disk = crate::vm::images::path(app, &project, &image).ok_or_else(|| format!("the image {image} is not built"))?;
     let vars = crate::config::variables::all(app, &project);
     let lookup = |n: &str| vars.get(n).cloned();
@@ -150,13 +169,23 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
     // Each attempt uses the next Claude account. When Claude refuses the account (limit, rejected
     // token) before any billed work was done, the run starts again on another one.
     let mut tried: Vec<String> = vec![];
+    let _disk_guard = match &work_disk {
+        Some(d) => {
+            let lock = disk_lock(&d.path);
+            tokio::select! {
+                g = lock.lock_owned() => Some(g),
+                _ = &mut cancel => return Ok(failed("cancelled while waiting for the agent's work disk")),
+            }
+        }
+        None => None,
+    };
     loop {
         let (account, account_name, token) = crate::config::accounts::pick(app, &tried)?;
         tried.push(account.clone());
         on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "account", "account": account_name}) }));
         let work = crate::util::data_dir(app)?.join("runs").join("tmp").join(format!("{run_id}-{}", tried.len()));
         std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
-        let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), &identity, &token, egress.clone(), task.clone(), &mut cancel, &mut on_msg).await;
+        let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), work_disk.as_ref(), &identity, &token, egress.clone(), task.clone(), &mut cancel, &mut on_msg).await;
         crate::util::remove_dir_retry(&work).await;
         let fin = result?;
         if let Some(why) = crate::config::accounts::classify(&fin) {
@@ -249,6 +278,7 @@ async fn boot_and_drive(
     work: &Path,
     disk: &Path,
     size: (Option<u32>, u32),
+    work_disk: Option<&WorkDisk>,
     identity: &str,
     token: &str,
     egress: Egress,
@@ -282,8 +312,20 @@ async fn boot_and_drive(
         proxy.warm();
         Ok::<_, String>((proxy, meter, ca))
     };
-    let (overlay_made, net) = tokio::join!(overlay_job, net_job);
+    // the agent's own disk, made empty the first time (the guest formats a blank one)
+    let disk_job = async {
+        let Some(d) = work_disk else { return Ok(()) };
+        if d.path.exists() {
+            return Ok(());
+        }
+        if let Some(dir) = d.path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("work disk: {e}"))?;
+        }
+        crate::vm::machine::qemu_img(app, &["create", "-q", "-f", "qcow2", &d.path.to_string_lossy(), &format!("{}M", d.size_mb)]).await
+    };
+    let (overlay_made, net, disk_made) = tokio::join!(overlay_job, net_job, disk_job);
     overlay_made?;
+    disk_made?;
     let (proxy, meter, ca) = net?;
     let ca = Some(ca);
 
@@ -296,8 +338,12 @@ async fn boot_and_drive(
     cmd.args(AGENT_NIC)
         .args(["-action", "panic=exit-failure", "-serial", "null"])
         .arg("-drive")
-        .arg(crate::vm::machine::drive_arg(&overlay))
-        .args(["-device", "virtio-serial-pci"])
+        .arg(crate::vm::machine::drive_arg(&overlay));
+    if let Some(d) = work_disk {
+        // second virtio disk = /dev/vdb; it must survive the VM, so QEMU flushes when the guest asks
+        cmd.arg("-drive").arg(crate::vm::machine::persistent_drive_arg(&d.path));
+    }
+    cmd.args(["-device", "virtio-serial-pci"])
         .arg("-chardev")
         .arg(format!("{},id=agent", channel.chardev))
         .args(["-device", "virtserialport,chardev=agent,name=agent"])
@@ -313,7 +359,14 @@ async fn boot_and_drive(
         mem_mb: Some(size.1 as u64),
         cpu_secs: Some(timeout_secs.saturating_add(grace_secs).saturating_mul(cores + 1).saturating_add(120)),
     };
-    crate::vm::machine::confine(app, &mut cmd, &[overlay.as_path()], &[work], vm_limits);
+    // the work disk is written, so its folder is writable (the plan's `disks` are read only)
+    let mut disks = vec![overlay.as_path()];
+    let mut writable = vec![work];
+    if let Some(d) = work_disk {
+        disks.push(d.path.as_path());
+        writable.extend(d.path.parent());
+    }
+    crate::vm::machine::confine(app, &mut cmd, &disks, &writable, vm_limits);
     let mut cmd = Command::from(cmd);
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).kill_on_drop(true);
     cmd.stderr(std::fs::File::create(&errlog).map(Stdio::from).unwrap_or_else(|_| Stdio::null()));
@@ -511,7 +564,7 @@ pub fn agent_run(app: AppHandle, project: Option<String>, profile: String, promp
         };
         let mut emit = emit;
         let watch = crate::net::leaks::watched(&profile_env, &|n| crate::config::secrets::secret_value(&scope, n));
-        let spec = Spec { run_id: id.clone(), project: scope, image: resolved.image_id().to_string(), identity: who, cpus: resolved.cpus, memory_mb: resolved.memory(), allow_hosts: profile_hosts, injections, max_connections: resolved.max_connections, max_upload_mb: resolved.max_upload_mb, max_download_mb: resolved.max_download_mb, watch, task };
+        let spec = Spec { run_id: id.clone(), project: scope, image: resolved.image_id().to_string(), identity: who, cpus: resolved.cpus, memory_mb: resolved.memory(), work_disk: None, allow_hosts: profile_hosts, injections, max_connections: resolved.max_connections, max_upload_mb: resolved.max_upload_mb, max_download_mb: resolved.max_download_mb, watch, task };
         if let Err(e) = run_vm(&app, spec, cancel_rx, &mut emit).await {
             emit(&Outbound::Final(failed(e)));
         }

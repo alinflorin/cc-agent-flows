@@ -72,6 +72,8 @@ export interface Run {
   /** the last samples, oldest first */
   stats: VmStats[];
   net: NetTotals;
+  /** the agent's work disk as the VM last reported it (MB); null without one */
+  disk: { used: number; size: number } | null;
   /** the speed between the last reports, and the last ones (oldest first) */
   speed: NetSpeed;
   speeds: NetSpeed[];
@@ -209,7 +211,7 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
         const path = pathOf(b.call);
         const c = callOf(path, b.node, e.t);
         if (!c.runs.includes(b.call)) c.runs.push(b.call);
-        runs.set(b.call, { key: b.call, call: path, node: b.node, status: "running", tokens: 0, summary: "", questions: [], assumptions: [], pieces: [], traffic: [], vm: "queued", vmLog: [{ state: "queued", t: e.t }], stats: [], net: { up: 0, down: 0, open: 0, connections: 0 }, speed: { up: 0, down: 0 }, speeds: [], netT: e.t, t: e.t });
+        runs.set(b.call, { key: b.call, call: path, node: b.node, status: "running", tokens: 0, summary: "", questions: [], assumptions: [], pieces: [], traffic: [], vm: "queued", vmLog: [{ state: "queued", t: e.t }], stats: [], disk: null, net: { up: 0, down: 0, open: 0, connections: 0 }, speed: { up: 0, down: 0 }, speeds: [], netT: e.t, t: e.t });
         break;
       }
       case "run_end": {
@@ -235,6 +237,10 @@ export function digest(log: Entry[], names: Record<string, string>): Digest {
         if (r && b.event?.type === "vm_stats") {
           r.stats.push({ cpu: Number(b.event.cpu) || 0, mem: Number(b.event.mem_mb) || 0, memLimit: Number(b.event.mem_limit_mb) || 0, cpus: Number(b.event.cpus) || 1 });
           if (r.stats.length > STATS_KEPT) r.stats.shift();
+          break;
+        }
+        if (r && b.event?.type === "disk") {
+          r.disk = { used: Number(b.event.used_mb) || 0, size: Number(b.event.size_mb) || 0 };
           break;
         }
         if (r && b.event?.type === "net") {

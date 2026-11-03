@@ -6,7 +6,7 @@ import { capitalize, fmtTime } from "../../text";
 import { clip, type CallInfo, type Digest, type NetSpeed, type Run, type Traffic } from "../../sessionLog";
 import { useStyles } from "./styles";
 import { fmtBytes, fmtRate, fmtTokens } from "./types";
-import { Meters, Spark, VmPill } from "./Graph";
+import { DiskMeter, Meters, Spark, VmPill } from "./Graph";
 
 export function Clamp({ text, className }: { text: string; className?: string }) {
   const { t } = useTranslation();
@@ -194,6 +194,7 @@ export function CallCard({ c, d, names }: { c: CallInfo; d: Digest; names: Recor
                 <Spark samples={r.stats} />
               </>
             )}
+            {r.disk && r.disk.size > 0 && <DiskMeter disk={r.disk} />}
             {r.vmLog.length > 1 && (
               <Caption1 block className={styles.muted}>
                 {r.vmLog.map((x, i) => `${t(`session.vm.${x.state}`)}${i > 0 ? ` +${Math.max(0, x.t - r.vmLog[i - 1].t)}s` : ""}`).join(" → ")}

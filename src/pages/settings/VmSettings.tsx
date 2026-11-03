@@ -10,6 +10,7 @@ type Accel = "auto" | "hardware" | "software";
 export interface VmSettings {
   default_cpus: number | null;
   default_memory_mb: number;
+  default_work_disk_mb: number;
   max_vms: number;
   max_vms_per_session: number;
   accel: Accel;
@@ -97,6 +98,9 @@ export function VmSettingsSection() {
         </Field>
         <Field label={t("settings.vm.defaultMemory")} hint={t("settings.vm.defaultMemoryHint")}>
           <Input {...num("default_memory_mb", 1024, 65536)} step={512} />
+        </Field>
+        <Field label={t("settings.vm.defaultWorkDisk")} hint={t("settings.vm.defaultWorkDiskHint")}>
+          <Input {...num("default_work_disk_mb", 256, 1048576)} step={1024} />
         </Field>
       </div>
       <div className={styles.pair}>

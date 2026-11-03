@@ -24,6 +24,8 @@ TOOLS_DIR=/usr/share/ccaf/tools
 CLAUDE_TOOLS="Bash,Read,Write,Edit,WebFetch,WebSearch"
 RUN_AS=
 POWEROFF=0
+WORK_DEV=
+WORK_MOUNTED=0
 while [ $# -gt 0 ]; do
 	case $1 in
 	--channel) IN=$2; shift ;;
@@ -36,6 +38,7 @@ while [ $# -gt 0 ]; do
 	--tools-dir) TOOLS_DIR=$2; shift ;;
 	--run-as) RUN_AS=$2; shift ;;
 	--poweroff) POWEROFF=1 ;;
+	--work-dev) WORK_DEV=$2; shift ;;
 	*) echo "agentd: unknown argument $1" >&2; exit 2 ;;
 	esac
 	shift
@@ -62,6 +65,16 @@ mark() {
 	send "{\"kind\":\"event\",\"body\":{\"seq\":0,\"event\":{\"type\":\"timing\",\"what\":\"$1\",\"uptime\":${_up:-0}}}}"
 }
 
+# How full the work disk is: an event (seq 0, not Claude's) with the file system's size and use in
+# MB, for the session view. Nothing without a work disk.
+disk_report() {
+	[ "$WORK_MOUNTED" = 1 ] || return 0
+	_d=$(df -k "$WS" 2>/dev/null | awk 'NR == 2 { printf "%d %d", $2 / 1024, $3 / 1024 }')
+	[ -n "$_d" ] || return 0
+	set -- $_d
+	send "{\"kind\":\"event\",\"body\":{\"seq\":0,\"event\":{\"type\":\"disk\",\"size_mb\":$1,\"used_mb\":$2}}}"
+}
+
 # Waits up to $1 seconds for a line from the app into $line. Before the app connects the port reads
 # as end of file, so that is retried.
 readline() {
@@ -76,6 +89,11 @@ readline() {
 finish() {
 	FINISHED=1
 	rm -rf "$T"
+	if [ "$WORK_MOUNTED" = 1 ]; then
+		# the work disk outlives this VM: write everything out, then let go of it
+		sync
+		umount "$WS" 2>/dev/null || umount -l "$WS" 2>/dev/null
+	fi
 	if [ "$POWEROFF" = 1 ]; then
 		sleep 1 # let the last message leave
 		# the disk is a throwaway overlay: no orderly shutdown, power off at once
@@ -150,11 +168,26 @@ fi
 
 # The task brings no code and none is collected afterwards: the workspace is a scratch folder.
 mkdir -p "$WS" || fail "workspace: cannot create $WS"
+# With a work disk (an agent of a session) the workspace is that disk: it keeps the agent's files
+# from one run of the session to the next. A blank disk (nothing but zeros in its first 64 KiB) is
+# formatted; one that has data is only mounted, never reformatted.
+if [ -n "$WORK_DEV" ]; then
+	if [ -z "$(head -c 65536 "$WORK_DEV" 2>/dev/null | tr -d '\0' | head -c 1)" ]; then
+		mkfs.ext4 -q -F -L work "$WORK_DEV" >"$T/mkfs" 2>&1 || fail "work disk: mkfs failed: $(tail -c 500 "$T/mkfs")"
+	fi
+	mount -t ext4 -o noatime,nosuid,nodev,discard "$WORK_DEV" "$WS" >"$T/mount" 2>&1 || fail "work disk: mount failed: $(tail -c 500 "$T/mount")"
+	WORK_MOUNTED=1
+	disk_report
+fi
 HOME_DIR=${HOME:-/root}
 if [ -n "$RUN_AS" ]; then
 	HOME_DIR=$(awk -F: -v u="$RUN_AS" '$1 == u { print $6 }' /etc/passwd)
 	[ -n "$HOME_DIR" ] || fail "no user $RUN_AS"
-	chown -R "$RUN_AS:$RUN_AS" "$WS" || fail "workspace: chown"
+	if [ "$WORK_MOUNTED" = 1 ]; then
+		chown "$RUN_AS:$RUN_AS" "$WS" || fail "workspace: chown"
+	else
+		chown -R "$RUN_AS:$RUN_AS" "$WS" || fail "workspace: chown"
+	fi
 fi
 
 # The device id Claude Code reports (`userID`), stable across runs: without one each VM makes its own
@@ -302,5 +335,6 @@ else
 			exit_code: $code}}')
 fi
 [ -n "$FINAL" ] || fail "could not build the final message"
+disk_report
 send "$FINAL"
 finish

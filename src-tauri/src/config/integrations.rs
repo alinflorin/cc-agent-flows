@@ -339,6 +339,7 @@ mod tests {
             effort: None,
             cpus: None,
             memory_mb: Some(2048),
+            work_disk_mb: None,
             image: Some("base".into()),
             allow_hosts: vec!["github.com".into(), "api.media.atlassian.com".into()],
             integrations: integrations.iter().map(|s| s.to_string()).collect(),

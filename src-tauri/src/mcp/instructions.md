@@ -55,7 +55,7 @@ Commands that save structured data read a JSON object from `stdin`. Omitted opti
 **Profile** (`profiles save`; id is a slug of the name for a new one, or `--id` to update):
 ```json
 {"name":"Reviewer","description":"","system_prompt":"You review code.","env":[{"name":"GH_TOKEN","value":"${injection:GITHUB}"}],
- "model":"sonnet","effort":"medium","cpus":null,"memory_mb":2048,"image":"base",
+ "model":"sonnet","effort":"medium","cpus":null,"memory_mb":2048,"work_disk_mb":null,"image":"base",
  "allow_hosts":["github.com","*.githubusercontent.com"],"integrations":[],
  "max_connections":null,"max_upload_mb":null,"max_download_mb":null,"extends":null}
 ```

@@ -268,9 +268,32 @@ pub fn set_session_workflow(root: &Path, sid: &str, workflow: &str) -> Result<()
     write_json(&session_path(root, sid)?, &session)
 }
 
+/// The disk an agent (a node of the workflow) keeps across its runs in a session, mounted at
+/// `/home/agent/work`: `sessions/<sid>.work/<node>.qcow2`. The node id is any text, so it is
+/// written with only `[a-z0-9-]`, every other byte as `_xx`.
+pub fn work_disk_path(root: &Path, sid: &str, node: &str) -> Result<PathBuf, String> {
+    let mut name = String::new();
+    for b in node.bytes() {
+        if b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' {
+            name.push(b as char);
+        } else {
+            name.push_str(&format!("_{b:02x}"));
+        }
+    }
+    if name.is_empty() || name.len() > 200 {
+        return Err("bad agent id".into());
+    }
+    Ok(session_file(root, sid, "work")?.join(format!("{name}.qcow2")))
+}
+
 pub fn delete_session(root: &Path, sid: &str) -> Result<(), String> {
     for ext in ["state.json", "log.jsonl"] {
         let _ = std::fs::remove_file(session_file(root, sid, ext)?);
+    }
+    // the agents' work disks go with the session
+    let disks = session_file(root, sid, "work")?;
+    if disks.exists() {
+        std::fs::remove_dir_all(&disks).map_err(|e| format!("the work disks: {e}"))?;
     }
     std::fs::remove_file(session_path(root, sid)?).map_err(|e| e.to_string())
 }
@@ -285,6 +308,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn work_disks_are_named_safely_and_go_with_the_session() {
+        let root = tmp("work");
+        let a = work_disk_path(&root, "s1", "Dev/../x").unwrap();
+        assert_eq!(a, root.join("sessions").join("s1.work").join("_44ev_2f_2e_2e_2fx.qcow2"));
+        assert!(work_disk_path(&root, "S1", "a").is_err());
+        assert!(work_disk_path(&root, "s1", "").is_err());
+        std::fs::create_dir_all(a.parent().unwrap()).unwrap();
+        std::fs::write(&a, "x").unwrap();
+        std::fs::write(session_path(&root, "s1").unwrap(), "{}").unwrap();
+        delete_session(&root, "s1").unwrap();
+        assert!(!a.exists() && !a.parent().unwrap().exists());
     }
 
     #[test]

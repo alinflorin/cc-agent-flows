@@ -52,6 +52,7 @@ interface Profile {
   effort: string | null;
   cpus: number | null;
   memory_mb: number | null;
+  work_disk_mb: number | null;
   image: string | null;
   allow_hosts: string[];
   integrations: string[];
@@ -72,7 +73,7 @@ interface Entry extends Profile {
   global: boolean;
 }
 
-const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: "low", cpus: null, memory_mb: 2048, image: "base", allow_hosts: [], integrations: [], max_connections: null, max_upload_mb: null, max_download_mb: null, extends: null };
+const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: "low", cpus: null, memory_mb: 2048, work_disk_mb: null, image: "base", allow_hosts: [], integrations: [], max_connections: null, max_upload_mb: null, max_download_mb: null, extends: null };
 
 const useStyles = makeStyles({
   list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM },
@@ -387,6 +388,16 @@ export function Profiles() {
                       onChange={(_, d) => set({ memory_mb: d.value === "" ? null : Math.floor(Number(d.value)) || 0 })}
                     />
                   </Field>
+                  <Field label={t("profiles.workDisk")} hint={t("profiles.workDiskHint")}>
+                    <Input
+                      type="number"
+                      min={256}
+                      step={1024}
+                      placeholder={t("profiles.inherited")}
+                      value={editing.profile.work_disk_mb === null ? "" : String(editing.profile.work_disk_mb)}
+                      onChange={(_, d) => set({ work_disk_mb: d.value === "" ? null : Math.floor(Number(d.value)) || 0 })}
+                    />
+                  </Field>
                   <Field label={t("profiles.image")} hint={t("profiles.imageHint")}>
                     <Select value={editing.profile.image ?? ""} onChange={(_, d) => set({ image: d.value || null })}>
                       <option value="">{t("profiles.imageInherited")}</option>
@@ -404,7 +415,7 @@ export function Profiles() {
               <Button appearance="secondary" onClick={() => setOpen(false)}>
                 {t("common.cancel")}
               </Button>
-              <Button appearance="primary" disabled={saving || !editing?.profile.name.trim() || (editing?.profile.memory_mb !== null && (editing?.profile.memory_mb ?? 0) < 1024)} onClick={save}>
+              <Button appearance="primary" disabled={saving || !editing?.profile.name.trim() || ((editing?.profile.memory_mb !== null && (editing?.profile.memory_mb ?? 0) < 1024) || (editing?.profile.work_disk_mb !== null && (editing?.profile.work_disk_mb ?? 0) < 256))} onClick={save}>
                 {t("common.save")}
               </Button>
             </DialogActions>

@@ -3,7 +3,7 @@
 # succeed or the build fails.
 set -eu
 
-apk add --no-cache --no-progress jq setpriv ripgrep curl bash libgcc libstdc++ ca-certificates
+apk add --no-cache --no-progress jq setpriv ripgrep curl bash libgcc libstdc++ ca-certificates e2fsprogs
 
 # The user `claude` runs as. No password, no sudo/doas.
 adduser -D -s /bin/sh agent

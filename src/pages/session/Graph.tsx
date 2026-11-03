@@ -62,6 +62,24 @@ export function Meters({ use }: { use: VmStats }) {
   );
 }
 
+/** How full the agent's work disk (`/home/agent/work`) was at the last report; it outlives the VM, so it shows after the run too. */
+export function DiskMeter({ disk }: { disk: { used: number; size: number } }) {
+  const { t } = useTranslation();
+  const styles = useStyles();
+  const value = pct(disk.used, disk.size);
+  return (
+    <div className={styles.meters} title={t("session.vm.diskTitle")}>
+      <div className={styles.meter}>
+        <span>{t("session.vm.disk")}</span>
+        <div className={styles.track}>
+          <div className={mergeClasses(styles.fill, value > 90 && styles.fillHot)} style={{ width: `${value}%` }} />
+        </div>
+        <span>{gb(disk.used)} / {gb(disk.size)}</span>
+      </div>
+    </div>
+  );
+}
+
 /** The last samples of one VM's CPU as a line. */
 export function Spark({ samples }: { samples: VmStats[] }) {
   const styles = useStyles();

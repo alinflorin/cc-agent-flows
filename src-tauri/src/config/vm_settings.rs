@@ -28,6 +28,9 @@ pub struct VmSettings {
     pub default_cpus: Option<u32>,
     /// Memory a new agent profile starts with (MB). Existing profiles keep theirs.
     pub default_memory_mb: u32,
+    /// Size (MB) of the disk mounted at `/home/agent/work` for an agent of a session whose profile
+    /// gives none. A sparse file: it takes only what is written. Fixed when the disk is made.
+    pub default_work_disk_mb: u32,
     /// VMs running at once in the whole app (applied when the app starts).
     pub max_vms: u32,
     /// VMs running at once for one session.
@@ -49,6 +52,7 @@ impl Default for VmSettings {
         VmSettings {
             default_cpus: None,
             default_memory_mb: 2048,
+            default_work_disk_mb: 5120,
             max_vms: 8,
             max_vms_per_session: 4,
             accel: Accel::Auto,
@@ -63,7 +67,11 @@ impl Default for VmSettings {
 
 /// The fields that mean the same on another computer, so the only ones the export carries (the
 /// others depend on this machine's cores, memory and hypervisor).
-pub const PORTABLE: [&str; 3] = ["default_memory_mb", "run_grace_secs", "image_script_mins"];
+pub const PORTABLE: [&str; 4] = ["default_memory_mb", "default_work_disk_mb", "run_grace_secs", "image_script_mins"];
+
+/// Bounds of a work disk (MB), for the global default and a profile's own.
+pub const MIN_WORK_DISK_MB: u32 = 256;
+pub const MAX_WORK_DISK_MB: u32 = 1_048_576;
 
 impl VmSettings {
     pub fn validate(&self) -> Result<(), String> {
@@ -74,6 +82,7 @@ impl VmSettings {
             range("the default CPU count", c.into(), 1, 64)?;
         }
         range("the default memory", self.default_memory_mb.into(), 1024, 65536)?;
+        range("the default work disk", self.default_work_disk_mb.into(), MIN_WORK_DISK_MB.into(), MAX_WORK_DISK_MB.into())?;
         range("the VM limit", self.max_vms.into(), 1, 32)?;
         range("the VM limit per session", self.max_vms_per_session.into(), 1, 16)?;
         range("the run grace time", self.run_grace_secs, 60, 3600)?;
@@ -115,6 +124,7 @@ mod tests {
         assert!(VmSettings { max_vms: 0, ..Default::default() }.validate().is_err());
         assert!(VmSettings { default_memory_mb: 512, ..Default::default() }.validate().is_err());
         assert!(VmSettings { default_cpus: Some(0), ..Default::default() }.validate().is_err());
+        assert!(VmSettings { default_work_disk_mb: 100, ..Default::default() }.validate().is_err());
     }
 
     #[test]
