@@ -526,6 +526,65 @@ pub fn agent_run_cancel(app: AppHandle, run: String) -> bool {
     app.state::<Runs>().0.lock().unwrap().remove(&run).is_some_and(|tx| tx.send(()).is_ok())
 }
 
+fn valid_run(id: &str) -> bool {
+    id.starts_with("r-") && id.len() <= 48 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+fn log_head(path: &Path) -> Option<serde_json::Value> {
+    use std::io::BufRead;
+    let mut line = String::new();
+    std::io::BufReader::new(std::fs::File::open(path).ok()?).read_line(&mut line).ok()?;
+    serde_json::from_str(&line).ok()
+}
+
+/// Where a single run stands, read from its log: what it was asked, whether it still runs and,
+/// once it ended, its final report (the agent's events, most of the log, are not returned).
+pub fn run_info(app: &AppHandle, run: &str) -> Result<serde_json::Value, String> {
+    use std::io::BufRead;
+    if !valid_run(run) {
+        return Err("bad run id".into());
+    }
+    let path = runs_dir(app)?.join("logs").join(format!("{run}.jsonl"));
+    let head = log_head(&path).ok_or("no such run")?;
+    let mut fin = None;
+    for line in std::io::BufReader::new(std::fs::File::open(&path).map_err(|e| e.to_string())?).lines().map_while(Result::ok) {
+        // events can be huge (screenshots): only the line that ends the run is parsed
+        if line.contains(r#""kind":"final""#)
+            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&line)
+            && v["kind"] == "final"
+        {
+            fin = Some(v["body"].clone());
+        }
+    }
+    let body = &head["body"];
+    let cut = |v: &serde_json::Value| v.as_str().map(|t| t.chars().take(500).collect::<String>());
+    Ok(serde_json::json!({
+        "run": run,
+        "running": app.state::<Runs>().0.lock().unwrap().contains_key(run),
+        "project": body["project"], "profile": body["profile"], "image": body["image"], "prompt": cut(&body["prompt"]),
+        "final": fin.map(|f| serde_json::json!({"status": f["status"], "result": f["result"], "questions": f["questions"], "tokens": f["tokens"]})),
+    }))
+}
+
+/// The latest single runs, newest first.
+pub fn runs_recent(app: &AppHandle, limit: usize) -> Vec<serde_json::Value> {
+    let Ok(dir) = runs_dir(app).map(|d| d.join("logs")) else { return vec![] };
+    let Ok(rd) = std::fs::read_dir(dir) else { return vec![] };
+    let mut files: Vec<_> = rd.filter_map(Result::ok).filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path()))).collect();
+    files.sort_by_key(|f| std::cmp::Reverse(f.0));
+    let live = app.state::<Runs>();
+    let live = live.0.lock().unwrap();
+    files
+        .into_iter()
+        .take(limit)
+        .filter_map(|(_, p)| {
+            let run = p.file_stem()?.to_str()?.to_string();
+            let body = log_head(&p)?["body"].clone();
+            Some(serde_json::json!({"run": run, "running": live.contains_key(&run), "project": body["project"], "profile": body["profile"]}))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

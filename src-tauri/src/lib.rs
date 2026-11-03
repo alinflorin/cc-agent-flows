@@ -1,5 +1,6 @@
 mod config;
 mod demo;
+mod mcp;
 mod net;
 mod system;
 mod transfer;
@@ -75,7 +76,8 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init());
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None));
 
     builder
         .invoke_handler(tauri::generate_handler![
@@ -128,6 +130,12 @@ pub fn run() {
             workflow::triggers::cron_preview,
             workflow::webhook::webhook_get,
             workflow::webhook::webhook_set,
+            mcp::mcp_get,
+            mcp::mcp_set,
+            mcp::mcp_new_token,
+            system::autostart_get,
+            system::autostart_set,
+            mcp::quick_add::mcp_quick_add,
             workflow::engine::session_get,
             workflow::engine::session_log,
             vm::runs::agent_run,
@@ -167,6 +175,8 @@ pub fn run() {
             app.manage(workflow::webhook::Webhook::default());
             workflow::triggers::start(app.handle());
             workflow::webhook::start(app.handle());
+            app.manage(mcp::Mcp::default());
+            mcp::init(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

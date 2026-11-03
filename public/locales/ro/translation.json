@@ -88,7 +88,8 @@
       "injections": "Injecții",
       "integrations": "Integrări",
       "vm": "Mașini virtuale",
-      "transfer": "Import / Export"
+      "transfer": "Import / Export",
+      "mcp": "MCP (agentul tău)"
     },
     "llm": {
       "token": "Setup token Claude Code",
@@ -344,7 +345,38 @@
     },
     "profiles": {
       "intro": "Profiluri de agent pe care orice proiect le poate folosi și extinde. Un profil de proiect poate porni de la unul global (Extinde), iar un workflow poate folosi direct un profil global."
-    }
+    },
+    "mcp": {
+      "intro": "Lasă-ți propriul agent (Claude Code sau orice client MCP) să configureze aplicația: proiecte, profiluri de agenți, imagini, variabile, secrete, injecții, integrări, hosturi permise și workflowuri, într-un proiect sau în setările globale. Serverul oferă două unelte, `read_instructions` și `execute` (o mică linie de comandă `ccaf`). Ascultă doar pe acest calculator și fiecare apel cere tokenul.",
+      "enabled": "Pornește serverul MCP",
+      "port": "Port",
+      "portHint": "Serverul ascultă pe 127.0.0.1 la acest port, calea /mcp.",
+      "permissions": "Ce poate schimba agentul",
+      "write": "Permite modificări",
+      "writeHint": "Oprit: agentul poate doar să citească.",
+      "writeGlobal": "Permite modificări în setările globale",
+      "writeGlobalHint": "Setările globale afectează toate proiectele. Oprit: agentul poate schimba doar proiecte.",
+      "connect": "Conectează-ți agentul",
+      "token": "Token",
+      "tokenHint": "Trimis ca bearer token. Tratează-l ca pe o parolă; unul nou oprește toți clienții care îl au pe cel vechi.",
+      "noToken": "Se face când pornești serverul prima oară",
+      "show": "Arată",
+      "hide": "Ascunde",
+      "copy": "Copiază",
+      "newToken": "Token nou",
+      "copied": "Copiat",
+      "tokenChanged": "Token nou făcut. Actualizează configurația agentului.",
+      "claudeCode": "Claude Code",
+      "otherClients": "Alți clienți MCP (JSON)",
+      "runs": "Permite pornirea de sesiuni și rulări",
+      "runsHint": "Pornirea muncii consumă abonamentul tău Claude și pornește VM-uri. Oprit: agentul poate totuși citi și opri. Secrete: agentul creează doar valori placeholder; valorile reale le scrii tu în aplicație.",
+      "quickAdd": "Adăugare rapidă",
+      "quickAddHint": "Scrie adresa și tokenul în configurația clientului. Apasă din nou după ce schimbi portul sau tokenul. Claude Desktop cere Node.js (npx) și repornire; fișierul lui și cel al Codex sunt copiate întâi în *.ccaf-backup.",
+      "quickAddOff": "Pornește serverul și salvează setările mai întâi.",
+      "claudeDesktop": "Claude Desktop",
+      "codex": "Codex"
+    },
+    "autostart": "Pornește aplicația la autentificarea în sistem"
   },
   "updates": {
     "title": "Actualizări",

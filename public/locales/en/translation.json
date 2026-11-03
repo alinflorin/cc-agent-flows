@@ -88,7 +88,8 @@
       "injections": "Injections",
       "integrations": "Integrations",
       "vm": "Virtual machines",
-      "transfer": "Import / Export"
+      "transfer": "Import / Export",
+      "mcp": "MCP (your agent)"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -344,7 +345,38 @@
     },
     "profiles": {
       "intro": "Agent profiles every project can use and extend. A project's profile can build on a global one (Extends) and a workflow can use a global profile directly."
-    }
+    },
+    "mcp": {
+      "intro": "Let your own agent (Claude Code or any MCP client) set the app up: projects, agent profiles, images, variables, secrets, injections, integrations, allowed hosts and workflows, in a project or in the global settings. The server offers two tools, `read_instructions` and `execute` (a small `ccaf` command line). It listens on this computer only and every call needs the token.",
+      "enabled": "Run the MCP server",
+      "port": "Port",
+      "portHint": "The server listens on 127.0.0.1 at this port, path /mcp.",
+      "permissions": "What the agent may change",
+      "write": "Allow changes",
+      "writeHint": "Off: the agent can only read.",
+      "writeGlobal": "Allow changes to the global settings",
+      "writeGlobalHint": "Global settings affect every project. Off: the agent may change projects only.",
+      "connect": "Connect your agent",
+      "token": "Token",
+      "tokenHint": "Sent as a bearer token. Treat it like a password; a new one stops every client that has the old one.",
+      "noToken": "Made when you first turn the server on",
+      "show": "Show",
+      "hide": "Hide",
+      "copy": "Copy",
+      "newToken": "New token",
+      "copied": "Copied",
+      "tokenChanged": "New token made. Update your agent's configuration.",
+      "claudeCode": "Claude Code",
+      "otherClients": "Other MCP clients (JSON)",
+      "runs": "Allow starting sessions and runs",
+      "runsHint": "Starting work spends your Claude subscription and boots VMs. Off: the agent can still read and cancel. Secrets: the agent only creates placeholders; you type the real values in the app.",
+      "quickAdd": "Quick add",
+      "quickAddHint": "Writes the address and token into the client's configuration. Click again after changing the port or the token. Claude Desktop needs Node.js (npx) and a restart; its file and Codex's are copied to *.ccaf-backup first.",
+      "quickAddOff": "Turn the server on and save the settings first.",
+      "claudeDesktop": "Claude Desktop",
+      "codex": "Codex"
+    },
+    "autostart": "Start the app when I log in"
   },
   "updates": {
     "title": "Updates",

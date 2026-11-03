@@ -14,6 +14,8 @@ import {
   ArrowLeft24Regular,
   ArrowSwap24Filled,
   ArrowSwap24Regular,
+  Code24Filled,
+  Code24Regular,
   Bot24Filled,
   Bot24Regular,
   Chat24Filled,
@@ -61,6 +63,7 @@ const InjectionsIcon = bundleIcon(
 );
 const IntegrationsIcon = bundleIcon(Link24Filled, Link24Regular);
 const VmIcon = bundleIcon(Server24Filled, Server24Regular);
+const McpIcon = bundleIcon(Code24Filled, Code24Regular);
 const TransferIcon = bundleIcon(ArrowSwap24Filled, ArrowSwap24Regular);
 const WorkflowIcon = bundleIcon(Flowchart24Filled, Flowchart24Regular);
 const SessionsIcon = bundleIcon(Chat24Filled, Chat24Regular);
@@ -284,6 +287,7 @@ export function Sidebar({
               t("settings.globalTabs.integrations"),
               <IntegrationsIcon />,
             )}
+            {setting("mcp", t("settings.tabs.mcp"), <McpIcon />)}
             {setting("transfer", t("settings.tabs.transfer"), <TransferIcon />)}
           </>
         ) : (

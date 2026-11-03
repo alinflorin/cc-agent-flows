@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { useEffect, type ReactElement } from "react";
 import { useParams } from "react-router";
 import { Controller, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -7,12 +7,14 @@ import { PageHeader } from "../components/PageHeader";
 import { useTranslation } from "react-i18next";
 import { Button, Subtitle1, Switch, makeStyles, tokens } from "@fluentui/react-components";
 import { useNotify } from "../notifications";
-import { getPref, setPref } from "../prefs";
+import { getPref, inTauri, setPref } from "../prefs";
+import { call } from "../tauri";
 import { useUpdates } from "../updates";
 import { AppearanceFields } from "../components/AppearanceFields";
 import { Profiles } from "./Profiles";
 import { ImagesSettings } from "./settings/Images";
 import { LlmSettings } from "./settings/Llm";
+import { McpSettings } from "./settings/McpSettings";
 import { NetworkSettings } from "./settings/Network";
 import { SecretsSettings } from "./settings/Secrets";
 import { VariablesSettings } from "./settings/Variables";
@@ -33,7 +35,7 @@ function GeneralSettings() {
   const notify = useNotify();
   const updates = useUpdates();
 
-  const schema = z.object({ autoUpdate: z.boolean(), notifications: z.boolean() });
+  const schema = z.object({ autoUpdate: z.boolean(), notifications: z.boolean(), autostart: z.boolean() });
   type Values = z.infer<typeof schema>;
 
   const {
@@ -43,13 +45,32 @@ function GeneralSettings() {
     formState: { isDirty },
   } = useForm<Values>({
     resolver: zodResolver(schema),
-    defaultValues: { autoUpdate: updates.autoUpdate, notifications: getPref<boolean>("notifications") !== false },
+    defaultValues: { autoUpdate: updates.autoUpdate, notifications: getPref<boolean>("notifications") !== false, autostart: false },
   });
+  const desktop = inTauri();
 
-  const onSubmit = (v: Values) => {
+  // the OS knows whether the app starts at login: ask it (the switch is off until it answers)
+  useEffect(() => {
+    if (!desktop) return;
+    void call<boolean>("autostart_get").then(
+      (on) => reset((v) => ({ ...v, autostart: on })),
+      () => undefined,
+    );
+  }, [desktop, reset]);
+
+  const onSubmit = async (v: Values) => {
     updates.setAutoUpdate(v.autoUpdate);
     setPref("notifications", v.notifications);
-    reset(v);
+    let saved = v;
+    if (desktop) {
+      try {
+        saved = { ...v, autostart: await call<boolean>("autostart_set", { enabled: v.autostart }) };
+      } catch (e) {
+        notify(String(e), "error");
+        return;
+      }
+    }
+    reset(saved);
     notify(t("settings.saved"), "success");
   };
 
@@ -77,6 +98,13 @@ function GeneralSettings() {
             <Switch label={t("settings.notifications")} checked={field.value} onChange={(_, d) => field.onChange(d.checked)} />
           )}
         />
+        {desktop && (
+          <Controller
+            control={control}
+            name="autostart"
+            render={({ field }) => <Switch label={t("settings.autostart")} checked={field.value} onChange={(_, d) => field.onChange(d.checked)} />}
+          />
+        )}
         <div className={styles.actions}>
           <Button appearance="primary" type="submit" disabled={!isDirty}>
             {t("common.save")}
@@ -121,8 +149,9 @@ export function Settings() {
     injections: <InjectionsSettings />,
     integrations: <IntegrationsSettings />,
     transfer: <TransferSettings />,
+    mcp: <McpSettings />,
   };
-  const title = tab === "general" || tab === "llm" || tab === "vm" || tab === "transfer" ? t(`settings.tabs.${tab}`) : t(`settings.globalTabs.${tab}`);
+  const title = tab === "general" || tab === "llm" || tab === "vm" || tab === "transfer" || tab === "mcp" ? t(`settings.tabs.${tab}`) : t(`settings.globalTabs.${tab}`);
 
   return (
     <>
