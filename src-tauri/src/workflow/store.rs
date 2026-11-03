@@ -286,6 +286,11 @@ pub fn work_disk_path(root: &Path, sid: &str, node: &str) -> Result<PathBuf, Str
     Ok(session_file(root, sid, "work")?.join(format!("{name}.qcow2")))
 }
 
+/// The folder every agent of a session sees as `/home/agent/shared`: `sessions/<sid>.shared/`.
+pub fn shared_dir(root: &Path, sid: &str) -> Result<PathBuf, String> {
+    session_file(root, sid, "shared")
+}
+
 pub fn delete_session(root: &Path, sid: &str) -> Result<(), String> {
     for ext in ["state.json", "log.jsonl"] {
         let _ = std::fs::remove_file(session_file(root, sid, ext)?);
@@ -294,6 +299,10 @@ pub fn delete_session(root: &Path, sid: &str) -> Result<(), String> {
     let disks = session_file(root, sid, "work")?;
     if disks.exists() {
         std::fs::remove_dir_all(&disks).map_err(|e| format!("the work disks: {e}"))?;
+    }
+    let shared = shared_dir(root, sid)?;
+    if shared.exists() {
+        std::fs::remove_dir_all(&shared).map_err(|e| format!("the shared folder: {e}"))?;
     }
     std::fs::remove_file(session_path(root, sid)?).map_err(|e| e.to_string())
 }
@@ -320,8 +329,11 @@ mod tests {
         std::fs::create_dir_all(a.parent().unwrap()).unwrap();
         std::fs::write(&a, "x").unwrap();
         std::fs::write(session_path(&root, "s1").unwrap(), "{}").unwrap();
+        let shared = shared_dir(&root, "s1").unwrap();
+        std::fs::create_dir_all(shared.join("sub")).unwrap();
+        std::fs::write(shared.join("sub/x"), "x").unwrap();
         delete_session(&root, "s1").unwrap();
-        assert!(!a.exists() && !a.parent().unwrap().exists());
+        assert!(!a.exists() && !a.parent().unwrap().exists() && !shared.exists());
     }
 
     #[test]

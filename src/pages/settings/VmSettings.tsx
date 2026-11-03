@@ -11,6 +11,7 @@ export interface VmSettings {
   default_cpus: number | null;
   default_memory_mb: number;
   default_work_disk_mb: number;
+  shared_quota_mb: number;
   max_vms: number;
   max_vms_per_session: number;
   accel: Accel;
@@ -101,6 +102,9 @@ export function VmSettingsSection() {
         </Field>
         <Field label={t("settings.vm.defaultWorkDisk")} hint={t("settings.vm.defaultWorkDiskHint")}>
           <Input {...num("default_work_disk_mb", 256, 1048576)} step={1024} />
+        </Field>
+        <Field label={t("settings.vm.sharedQuota")} hint={t("settings.vm.sharedQuotaHint")}>
+          <Input {...num("shared_quota_mb", 64, 1048576)} step={512} />
         </Field>
       </div>
       <div className={styles.pair}>

@@ -84,6 +84,13 @@ pub struct WorkDisk {
     pub size_mb: u32,
 }
 
+/// The folder agents of a session share (`/home/agent/shared`), served to each VM over its `shared` port.
+#[derive(Clone)]
+pub struct SharedDir {
+    pub dir: PathBuf,
+    pub quota_mb: u32,
+}
+
 /// One lock per work disk: an agent whose runs overlap (the same node called twice at once) must
 /// not have two VMs on one ext4.
 fn disk_lock(path: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
@@ -104,6 +111,8 @@ pub struct Spec {
     pub memory_mb: u32,
     /// The agent's disk for the whole session; `None` (single runs): `work` is a scratch folder.
     pub work_disk: Option<WorkDisk>,
+    /// The session's shared folder; `None` for single runs.
+    pub shared: Option<SharedDir>,
     /// Hosts the agent may reach besides the global list (Settings > Network) and the project's: the profile's.
     pub allow_hosts: Vec<String>,
     /// The credential injections the profile switched on, applied by the egress proxy.
@@ -145,7 +154,7 @@ fn net_event(t: &crate::net::egress::Totals) -> Outbound {
 /// the final (also a synthesized one), in order. `Err` only for what stops the VM from starting
 /// (no token, image not built, QEMU missing). `cancel` firing ends the run as failed.
 pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<()>, mut on_msg: impl FnMut(&Outbound)) -> Result<Final, String> {
-    let Spec { run_id, project, image, identity, cpus, memory_mb, work_disk, allow_hosts, injections, max_connections, max_upload_mb, max_download_mb, watch, task } = spec;
+    let Spec { run_id, project, image, identity, cpus, memory_mb, work_disk, shared, allow_hosts, injections, max_connections, max_upload_mb, max_download_mb, watch, task } = spec;
     let disk = crate::vm::images::path(app, &project, &image).ok_or_else(|| format!("the image {image} is not built"))?;
     let vars = crate::config::variables::all(app, &project);
     let lookup = |n: &str| vars.get(n).cloned();
@@ -185,7 +194,7 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
         on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "account", "account": account_name}) }));
         let work = crate::util::data_dir(app)?.join("runs").join("tmp").join(format!("{run_id}-{}", tried.len()));
         std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
-        let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), work_disk.as_ref(), &identity, &token, egress.clone(), task.clone(), &mut cancel, &mut on_msg).await;
+        let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), work_disk.as_ref(), shared.as_ref(), &identity, &token, egress.clone(), task.clone(), &mut cancel, &mut on_msg).await;
         crate::util::remove_dir_retry(&work).await;
         let fin = result?;
         if let Some(why) = crate::config::accounts::classify(&fin) {
@@ -279,6 +288,7 @@ async fn boot_and_drive(
     disk: &Path,
     size: (Option<u32>, u32),
     work_disk: Option<&WorkDisk>,
+    shared: Option<&SharedDir>,
     identity: &str,
     token: &str,
     egress: Egress,
@@ -331,6 +341,7 @@ async fn boot_and_drive(
 
     let channel = Serial::named(work, "agent");
     let net_port = Serial::named(work, "net");
+    let shared_port = shared.map(|_| Serial::named(work, "shared"));
     let errlog = work.join("qemu.err");
     let timeout_secs = task.timeout_secs;
     let grace_secs = crate::config::vm_settings::current(app).run_grace_secs;
@@ -350,6 +361,10 @@ async fn boot_and_drive(
         .arg("-chardev")
         .arg(format!("{},id=net", net_port.chardev))
         .args(["-device", "virtserialport,chardev=net,name=net"]);
+    if let Some(p) = &shared_port {
+        // the shared folder: the guest runs 9P over this port, the app answers (`shared.rs`)
+        cmd.arg("-chardev").arg(format!("{},id=shared", p.chardev)).args(["-device", "virtserialport,chardev=shared,name=shared"]);
+    }
     // An agent VM's QEMU connects to nothing over TCP (it has no network card; both ports are
     // sockets it serves); it needs the guest's memory and some headroom, and, as a backstop for a
     // VM that outlives the app, no more CPU time than every core for the whole deadline.
@@ -397,6 +412,21 @@ async fn boot_and_drive(
             vm_state(on_msg, "off");
             return Ok(failed(format!("{e}: {}", tail(&errlog))));
         }
+    };
+    // the shared folder's server lives as long as the VM
+    let shared_server = match (shared, &shared_port) {
+        (Some(sd), Some(port)) => match crate::vm::builder::within(30, "the shared folder port", port.connect()).await {
+            Ok(s) => {
+                let quota = crate::vm::shared::quota_for(&sd.dir, u64::from(sd.quota_mb) * 1024 * 1024);
+                Some(tokio::spawn(crate::vm::shared::serve(s, sd.dir.clone(), quota)))
+            }
+            Err(e) => {
+                let _ = child.kill().await;
+                vm_state(on_msg, "off");
+                return Ok(failed(format!("{e}: {}", tail(&errlog))));
+            }
+        },
+        _ => None,
     };
     vm_state(on_msg, "booting");
     let mut running = false;
@@ -482,6 +512,9 @@ async fn boot_and_drive(
     };
     let _ = child.kill().await;
     drop(tunnel);
+    if let Some(h) = shared_server {
+        h.abort();
+    }
     // the last numbers, so the log holds the run's totals
     let now = meter.totals();
     if now != last_net {
@@ -564,7 +597,7 @@ pub fn agent_run(app: AppHandle, project: Option<String>, profile: String, promp
         };
         let mut emit = emit;
         let watch = crate::net::leaks::watched(&profile_env, &|n| crate::config::secrets::secret_value(&scope, n));
-        let spec = Spec { run_id: id.clone(), project: scope, image: resolved.image_id().to_string(), identity: who, cpus: resolved.cpus, memory_mb: resolved.memory(), work_disk: None, allow_hosts: profile_hosts, injections, max_connections: resolved.max_connections, max_upload_mb: resolved.max_upload_mb, max_download_mb: resolved.max_download_mb, watch, task };
+        let spec = Spec { run_id: id.clone(), project: scope, image: resolved.image_id().to_string(), identity: who, cpus: resolved.cpus, memory_mb: resolved.memory(), work_disk: None, shared: None, allow_hosts: profile_hosts, injections, max_connections: resolved.max_connections, max_upload_mb: resolved.max_upload_mb, max_download_mb: resolved.max_download_mb, watch, task };
         if let Err(e) = run_vm(&app, spec, cancel_rx, &mut emit).await {
             emit(&Outbound::Final(failed(e)));
         }

@@ -25,6 +25,9 @@ mdev -s
 # a second virtio disk is the agent's work disk (the app attaches it for agents of a session)
 WORKDEV=
 [ -b /dev/vdb ] && WORKDEV=/dev/vdb
+# a virtio port `shared` is the session's shared folder (9P, served by the app)
+SHAREDDEV=
+[ -e /dev/virtio-ports/shared ] && SHAREDDEV=/dev/virtio-ports/shared
 
 # agentd waits for the app's bootstrap anyway: read what it will run into the page cache meanwhile
 # (the disk is a cold overlay, and Claude Code is a big binary)
@@ -48,6 +51,6 @@ export USE_BUILTIN_RIPGREP=0
 export PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 
 # agentd powers the VM off when the task is done; if it dies, so does the VM
-/usr/local/bin/agentd --run-as agent --poweroff ${WORKDEV:+--work-dev $WORKDEV}
+/usr/local/bin/agentd --run-as agent --poweroff ${WORKDEV:+--work-dev $WORKDEV} ${SHAREDDEV:+--shared-dev $SHAREDDEV}
 sync
 poweroff -f

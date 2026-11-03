@@ -332,6 +332,8 @@
       "defaultMemoryHint": "Cu ce pornește un profil de agent nou.",
       "defaultWorkDisk": "Disc de lucru implicit (MB)",
       "defaultWorkDiskHint": "Mărimea lui /home/agent/work pentru fiecare agent dintr-o sesiune, păstrat între rulările lui și șters odată cu sesiunea. Fișier rar: ocupă doar ce se scrie. Se fixează la crearea discului.",
+      "sharedQuota": "Cota folderului comun (MB)",
+      "sharedQuotaHint": "Cât poate conține folderul comun al unei sesiuni (/home/agent/shared, același pentru toți agenții ei). Scrierile peste limită eșuează cu „no space left”.",
       "maxVms": "VM-uri simultane, toată aplicația",
       "maxVmsHint": "Se aplică la pornirea aplicației.",
       "maxPerSession": "VM-uri simultane, pe sesiune",

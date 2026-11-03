@@ -11,3 +11,4 @@ pub mod machine;
 pub mod protocol;
 pub mod qemu;
 pub mod runs;
+pub mod shared;

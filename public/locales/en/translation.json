@@ -332,6 +332,8 @@
       "defaultMemoryHint": "What a new agent profile starts with.",
       "defaultWorkDisk": "Default work disk (MB)",
       "defaultWorkDiskHint": "Size of /home/agent/work for each agent of a session, kept across its runs and deleted with the session. A sparse file: it takes only what is written. Fixed when the disk is made.",
+      "sharedQuota": "Shared folder quota (MB)",
+      "sharedQuotaHint": "How much the shared folder of one session (/home/agent/shared, the same for all its agents) may hold. Writes past it fail with no space left.",
       "maxVms": "VMs at once, whole app",
       "maxVmsHint": "Applied when the app starts.",
       "maxPerSession": "VMs at once, per session",

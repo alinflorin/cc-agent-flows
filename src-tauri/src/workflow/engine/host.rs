@@ -91,7 +91,11 @@ impl Host for RealHost {
             Ok(path) => Some(crate::vm::runs::WorkDisk { path, size_mb: profile.work_disk_mb.unwrap_or_else(|| crate::config::vm_settings::current(&self.app).default_work_disk_mb) }),
             Err(e) => return failed(format!("the work disk: {e}")),
         };
-        let spec = Spec { run_id, project: scope, image: profile.image_id().to_string(), identity, cpus: profile.cpus, memory_mb: profile.memory(), work_disk, allow_hosts: profile_hosts, injections, max_connections: profile.max_connections, max_upload_mb: profile.max_upload_mb, max_download_mb: profile.max_download_mb, watch, task };
+        let shared = match crate::workflow::store::shared_dir(&self.root, &self.sid) {
+            Ok(dir) => Some(crate::vm::runs::SharedDir { dir, quota_mb: crate::config::vm_settings::current(&self.app).shared_quota_mb }),
+            Err(e) => return failed(format!("the shared folder: {e}")),
+        };
+        let spec = Spec { run_id, project: scope, image: profile.image_id().to_string(), identity, cpus: profile.cpus, memory_mb: profile.memory(), work_disk, shared, allow_hosts: profile_hosts, injections, max_connections: profile.max_connections, max_upload_mb: profile.max_upload_mb, max_download_mb: profile.max_download_mb, watch, task };
         // Cancelling the session cancels this VM.
         let (tx, rx) = oneshot::channel();
         let mut c = self.cancel.clone();

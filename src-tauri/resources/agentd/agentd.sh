@@ -26,6 +26,8 @@ RUN_AS=
 POWEROFF=0
 WORK_DEV=
 WORK_MOUNTED=0
+SHARED_DEV=
+SHARED=/home/agent/shared
 while [ $# -gt 0 ]; do
 	case $1 in
 	--channel) IN=$2; shift ;;
@@ -39,6 +41,8 @@ while [ $# -gt 0 ]; do
 	--run-as) RUN_AS=$2; shift ;;
 	--poweroff) POWEROFF=1 ;;
 	--work-dev) WORK_DEV=$2; shift ;;
+	--shared-dev) SHARED_DEV=$2; shift ;;
+	--shared) SHARED=$2; shift ;;
 	*) echo "agentd: unknown argument $1" >&2; exit 2 ;;
 	esac
 	shift
@@ -188,6 +192,29 @@ if [ -n "$RUN_AS" ]; then
 	else
 		chown -R "$RUN_AS:$RUN_AS" "$WS" || fail "workspace: chown"
 	fi
+fi
+
+# The folder every agent of the session shares: the app serves 9P2000.L on the virtio port
+# `shared`. The kernel's 9p client cannot write to a virtio port itself ("kernel write not
+# supported"), so two `cat`s carry the port to a pair of fifos, which it can use. Each `cat` opens
+# the fifo by name (the kernel makes the descriptors it is given non-blocking, which would stop a
+# `cat` that shared them). The files all belong to the agent user, whose ids go in `aname`. The
+# descriptors are closed here once mounted: the kernel keeps its own, and `claude` must not
+# inherit them.
+if [ -n "$SHARED_DEV" ]; then
+	_u=0
+	_g=0
+	if [ -n "$RUN_AS" ]; then
+		_u=$(id -u "$RUN_AS") && _g=$(id -g "$RUN_AS") || fail "shared folder: no user $RUN_AS"
+	fi
+	mkdir -p "$SHARED" || fail "shared folder: cannot create $SHARED"
+	mkfifo "$T/p9in" "$T/p9out" || fail "shared folder: mkfifo"
+	exec 7<>"$T/p9out" 8<>"$SHARED_DEV" 9<>"$T/p9in"
+	cat <&8 >"$T/p9in" &
+	cat <"$T/p9out" >&8 &
+	mount -t 9p -o "trans=fd,rfdno=9,wfdno=7,version=9p2000.L,aname=$_u:$_g,msize=262144,nosuid,nodev" shared "$SHARED" >"$T/mount" 2>&1 ||
+		fail "shared folder: mount failed: $(tail -c 500 "$T/mount")"
+	exec 7>&- 8>&- 9>&-
 fi
 
 # The device id Claude Code reports (`userID`), stable across runs: without one each VM makes its own

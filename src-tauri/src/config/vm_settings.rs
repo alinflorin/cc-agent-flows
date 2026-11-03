@@ -31,6 +31,9 @@ pub struct VmSettings {
     /// Size (MB) of the disk mounted at `/home/agent/work` for an agent of a session whose profile
     /// gives none. A sparse file: it takes only what is written. Fixed when the disk is made.
     pub default_work_disk_mb: u32,
+    /// How much (MB) the shared folder of one session may hold (`/home/agent/shared`, the same
+    /// folder for every agent of the session).
+    pub shared_quota_mb: u32,
     /// VMs running at once in the whole app (applied when the app starts).
     pub max_vms: u32,
     /// VMs running at once for one session.
@@ -53,6 +56,7 @@ impl Default for VmSettings {
             default_cpus: None,
             default_memory_mb: 2048,
             default_work_disk_mb: 5120,
+            shared_quota_mb: 2048,
             max_vms: 8,
             max_vms_per_session: 4,
             accel: Accel::Auto,
@@ -67,7 +71,7 @@ impl Default for VmSettings {
 
 /// The fields that mean the same on another computer, so the only ones the export carries (the
 /// others depend on this machine's cores, memory and hypervisor).
-pub const PORTABLE: [&str; 4] = ["default_memory_mb", "default_work_disk_mb", "run_grace_secs", "image_script_mins"];
+pub const PORTABLE: [&str; 5] = ["default_memory_mb", "default_work_disk_mb", "shared_quota_mb", "run_grace_secs", "image_script_mins"];
 
 /// Bounds of a work disk (MB), for the global default and a profile's own.
 pub const MIN_WORK_DISK_MB: u32 = 256;
@@ -83,6 +87,7 @@ impl VmSettings {
         }
         range("the default memory", self.default_memory_mb.into(), 1024, 65536)?;
         range("the default work disk", self.default_work_disk_mb.into(), MIN_WORK_DISK_MB.into(), MAX_WORK_DISK_MB.into())?;
+        range("the shared folder quota", self.shared_quota_mb.into(), 64, 1_048_576)?;
         range("the VM limit", self.max_vms.into(), 1, 32)?;
         range("the VM limit per session", self.max_vms_per_session.into(), 1, 16)?;
         range("the run grace time", self.run_grace_secs, 60, 3600)?;
