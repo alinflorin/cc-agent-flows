@@ -29,11 +29,11 @@ fn reported(n: &Node, f: &Final) -> Reported {
         Status::NeedsInput => "needs_input",
         Status::Failed => "failed",
     };
-    Reported { label: label_of(n), status: status.into(), summary: f.result.clone(), questions: f.questions.clone() }
+    Reported { label: label_of(n), status: status.into(), summary: f.result.clone(), data: data_of(f.output.as_ref().and_then(|o| o.get("data"))), questions: f.questions.clone() }
 }
 
 fn failure(n: &Node, why: impl Into<String>) -> Reported {
-    Reported { label: label_of(n), status: "failed".into(), summary: why.into(), questions: vec![] }
+    Reported { label: label_of(n), status: "failed".into(), summary: why.into(), data: String::new(), questions: vec![] }
 }
 
 impl<H: Host> Ctx<H> {
@@ -252,19 +252,19 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
         if !replayed {
             let (action, detail) = match &decision.action {
                 Action::Delegate(calls) => ("delegate", json!({"calls": calls.iter().map(|(o, i)| json!({"to": o.id, "label": o.label, "instructions": i})).collect::<Vec<_>>()})),
-                Action::Finish { result, success } => ("finish", json!({"result": result, "success": success})),
+                Action::Finish { result, success, data } => ("finish", json!({"result": result, "success": success, "data": clip(data, 4000)})),
                 Action::Ask(q) => ("ask", json!({"questions": q})),
             };
             ctx.host.log("decision", json!({"call": path, "node": n.id, "label": label_of(&n), "depth": depth, "round": round, "action": action, "detail": detail, "notes": notes}));
         }
 
         match decision.action {
-            Action::Finish { result, success } => {
-                return Ok(Reported { label: label_of(&n), status: if success { "done" } else { "unmet" }.into(), summary: result, questions: vec![] });
+            Action::Finish { result, success, data } => {
+                return Ok(Reported { label: label_of(&n), status: if success { "done" } else { "unmet" }.into(), summary: result, data, questions: vec![] });
             }
             Action::Ask(questions) => {
                 if !may_ask {
-                    return Ok(Reported { label: label_of(&n), status: "needs_input".into(), summary: format!("{} cannot go on without answers.", label_of(&n)), questions });
+                    return Ok(Reported { label: label_of(&n), status: "needs_input".into(), summary: format!("{} cannot go on without answers.", label_of(&n)), data: String::new(), questions });
                 }
                 let pending = Pending { id: format!("{path}:{round}:ask"), node: n.id.clone(), label: label_of(&n), kind: "questions".into(), prompt: String::new(), questions: questions.clone(), human: ctx.wf.ask_node(&n.id).map(|h| h.id.clone()) };
                 match ctx.ask_user(pending, false).await? {
@@ -273,6 +273,7 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
                                             label: "The user".into(),
                             status: "user".into(),
                             summary: format!("Your questions:\n{}\n\nThe user answered:\n{}", questions.join("\n"), clip(reply.text.trim(), 20_000)),
+                            data: String::new(),
                             questions: vec![],
                         }];
                     }
@@ -299,7 +300,7 @@ async fn coordinator<H: Host>(ctx: Arc<Ctx<H>>, n: Node, opts: Vec<Opt>, path: S
                             let approved = ctx.ask_user(pending, true).await?.is_some_and(|r| r.approved == Some(true));
                             if !approved {
                                 let summary = "The user did not approve this handover. Do not do it; choose another way or finish.".to_string();
-                                return Ok((i, Reported { label: opt.label, status: "rejected".into(), summary, questions: vec![] }));
+                                return Ok((i, Reported { label: opt.label, status: "rejected".into(), summary, data: String::new(), questions: vec![] }));
                             }
                         }
                         let r = call(ctx, opt.id.clone(), child_path, instructions, depth + 1, Some(from.id.clone())).await?;

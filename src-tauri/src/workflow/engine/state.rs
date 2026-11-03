@@ -122,6 +122,8 @@ pub struct Reported {
     /// `done | failed | unmet (finished without meeting the goal) | needs_input | rejected | user`
     pub status: String,
     pub summary: String,
+    /// Verbatim content the callee passes on (`data` of its answer): JSON, lists, code. Empty if none.
+    pub data: String,
     pub questions: Vec<String>,
 }
 

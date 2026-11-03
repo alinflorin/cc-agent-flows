@@ -149,7 +149,7 @@ pub struct Final {
 }
 
 /// The answer `claude` is asked to end with (`--json-schema`).
-pub const RESULT_SCHEMA: &str = r#"{"type":"object","properties":{"status":{"type":"string","enum":["done","needs_input","failed"]},"summary":{"type":"string"},"questions":{"type":"array","items":{"type":"string"}},"assumptions":{"type":"array","items":{"type":"string"}}},"required":["status","summary"]}"#;
+pub const RESULT_SCHEMA: &str = r#"{"type":"object","properties":{"status":{"type":"string","enum":["done","needs_input","failed"]},"summary":{"type":"string"},"questions":{"type":"array","items":{"type":"string"}},"assumptions":{"type":"array","items":{"type":"string"}},"data":{"type":"string"}},"required":["status","summary"]}"#;
 
 #[cfg(test)]
 mod tests {

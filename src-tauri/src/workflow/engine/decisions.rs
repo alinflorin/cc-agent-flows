@@ -3,12 +3,12 @@
 use super::*;
 
 /// What a coordinator answers: where `calls` go, or `finish` with a `result`, or `ask`.
-pub const COORDINATOR_SCHEMA: &str = r#"{"type":"object","properties":{"action":{"type":"string","enum":["delegate","finish","ask"]},"calls":{"type":"array","items":{"type":"object","properties":{"to":{"type":"string"},"instructions":{"type":"string"}},"required":["to","instructions"]}},"result":{"type":"string"},"success":{"type":"boolean"},"questions":{"type":"array","items":{"type":"string"}},"notes":{"type":"string"},"assumptions":{"type":"array","items":{"type":"string"}}},"required":["action","notes"]}"#;
+pub const COORDINATOR_SCHEMA: &str = r#"{"type":"object","properties":{"action":{"type":"string","enum":["delegate","finish","ask"]},"calls":{"type":"array","items":{"type":"object","properties":{"to":{"type":"string"},"instructions":{"type":"string"}},"required":["to","instructions"]}},"result":{"type":"string"},"success":{"type":"boolean"},"questions":{"type":"array","items":{"type":"string"}},"notes":{"type":"string"},"assumptions":{"type":"array","items":{"type":"string"}},"data":{"type":"string"}},"required":["action","notes"]}"#;
 
 #[derive(Debug, PartialEq)]
 pub enum Action {
     Delegate(Vec<(Opt, String)>),
-    Finish { result: String, success: bool },
+    Finish { result: String, success: bool, data: String },
     Ask(Vec<String>),
 }
 
@@ -20,6 +20,16 @@ pub struct Decision {
 
 fn strings(v: Option<&Value>) -> Vec<String> {
     v.and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()).unwrap_or_default()
+}
+
+/// The `data` of an answer: verbatim content for the caller (JSON, lists, code), empty when none.
+pub fn data_of(v: Option<&Value>) -> String {
+    match v {
+        Some(Value::String(s)) => s.trim().to_string(),
+        // a model that put a structured value there anyway: keep it as JSON text
+        Some(Value::Null) | None => String::new(),
+        Some(other) => other.to_string(),
+    }
 }
 
 pub fn assumptions_of(output: Option<&Value>) -> Vec<String> {
@@ -62,7 +72,7 @@ pub fn parse_decision(output: Option<&Value>, options: &[Opt], finished: &std::c
             if result.is_empty() {
                 return Err("`finish` needs a `result`".into());
             }
-            Action::Finish { result, success: o.get("success").and_then(Value::as_bool).unwrap_or(true) }
+            Action::Finish { result, success: o.get("success").and_then(Value::as_bool).unwrap_or(true), data: data_of(o.get("data")) }
         }
         "ask" => {
             let questions = strings(o.get("questions"));
@@ -105,5 +115,9 @@ mod tests {
         assert!(parse_decision(Some(&json!({"action": "delegate", "calls": six, "notes": ""})), &opts, &Default::default()).is_err());
         assert!(parse_decision(None, &opts, &Default::default()).is_err());
         serde_json::from_str::<Value>(COORDINATOR_SCHEMA).unwrap();
+        let fin = parse_decision(Some(&json!({"action": "finish", "result": "r", "data": " {\"k\":1} ", "notes": ""})), &opts, &Default::default()).unwrap();
+        assert!(matches!(&fin.action, Action::Finish { data, .. } if data == "{\"k\":1}"));
+        assert_eq!(data_of(Some(&json!({"k": 1}))), "{\"k\":1}");
+        assert_eq!(data_of(Some(&Value::Null)), "");
     }
 }

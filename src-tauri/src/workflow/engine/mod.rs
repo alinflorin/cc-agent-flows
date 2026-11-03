@@ -55,7 +55,12 @@ const MAX_USER_QUESTIONS: u32 = 10;
 const DECISION_ATTEMPTS: u32 = 2;
 /// How much text the prompts carry.
 const LOG_CHARS: usize = 8_000;
+/// What one agent's result may take in the prompt of whoever called it: its share of
+/// `RESULTS_CHARS` (so a single result can be long), but never less than `ITEM_CHARS` nor more
+/// than `ITEM_MAX_CHARS`.
 const ITEM_CHARS: usize = 6_000;
+const ITEM_MAX_CHARS: usize = 30_000;
+const RESULTS_CHARS: usize = 60_000;
 
 mod decisions;
 mod host;

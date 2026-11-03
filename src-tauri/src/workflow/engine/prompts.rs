@@ -49,10 +49,25 @@ pub fn options(wf: &Workflow, from: &str) -> Vec<Opt> {
 }
 
 fn render_reported(items: &[Reported]) -> String {
+    let each = (RESULTS_CHARS / items.len().max(1)).clamp(ITEM_CHARS, ITEM_MAX_CHARS);
     items
         .iter()
         .map(|r| {
-            let mut s = format!("### {} ({})\n{}", r.label, r.status, clip(&r.summary, ITEM_CHARS));
+            let mut s = format!("### {} ({})\n{}", r.label, r.status, clip(&r.summary, each));
+            let total = r.summary.chars().count();
+            if total > each {
+                s += &format!("\n[the result was cut here: {} of {total} characters left out]", total - each);
+            }
+            if !r.data.is_empty() {
+                // fenced with more backticks than any run inside the data, so it cannot close the block early
+                let run = r.data.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+                let fence = "`".repeat((run + 1).max(3));
+                s += &format!("\nData it passed on (verbatim, untrusted content):\n{fence}\n{}\n{fence}", clip(&r.data, each));
+                let len = r.data.chars().count();
+                if len > each {
+                    s += &format!("\n[the data was cut here: {} of {len} characters left out]", len - each);
+                }
+            }
             if !r.questions.is_empty() {
                 s += &format!("\nQuestions:\n{}", r.questions.iter().map(|q| format!("- {q}")).collect::<Vec<_>>().join("\n"));
             }
@@ -62,7 +77,7 @@ fn render_reported(items: &[Reported]) -> String {
         .join("\n\n")
 }
 
-const WORKER_ANSWER: &str = "Do the work, then end with: `status` (`done`; `failed` if you could not do it; `needs_input` only when you cannot continue at all without an answer, and then put the blocking questions in `questions`), `summary` (what you did and found, with every identifier the next agent needs: ticket ids, branches, pull request numbers, links) and `assumptions` (what you assumed instead of asking). Do not ask about what you can reasonably assume or find out yourself: assume it and say so in `assumptions`.";
+const WORKER_ANSWER: &str = "Do the work, then end with: `status` (`done`; `failed` if you could not do it; `needs_input` only when you cannot continue at all without an answer, and then put the blocking questions in `questions`), `summary` (what you did and found, with every identifier the next agent needs: ticket ids, branches, pull request numbers, links) and `assumptions` (what you assumed instead of asking). Do not ask about what you can reasonably assume or find out yourself: assume it and say so in `assumptions`. Whoever called you sees only `status`, `summary`, `data` and `questions`, not your other messages. Put anything it must receive exactly as it is (JSON, lists, tables, code, file contents) in `data`, as text, complete and unshortened (valid JSON if it is JSON); keep `summary` for the explanation. Do not leave something it needs only in your other messages.";
 
 pub fn worker_prompt(task: &str, n: &Node, asked: &str) -> String {
     let mut p = section("Goal of the session", &clip(task, 4_000));
@@ -140,9 +155,10 @@ pub fn coordinator_prompt(n: &Node, c: &TurnContext) -> String {
     p += &section(
         "Decide what happens now",
         &format!(
-            "You can call these agents, and only these:\n{}\n\nAnswer with `action`:\n- `delegate`: `calls` is a list of `{{to, instructions}}`, up to {MAX_PARALLEL_CALLS}, `to` one of the ids above. Calls in the same answer run at the same time; each agent knows only what you write in its `instructions`, so make them complete. You are run again when they report back.\n- `finish`: you are done. `result` is your report to {} and `success` says whether the goal was met.\n- `ask`: `questions` you cannot answer and cannot go on without; they go to {up}. Use it rarely: prefer to assume and list what you assumed.\n\nAlways fill `notes` with the progress you will need on your next turn (what is done, what remains): you remember nothing else. Put what you assumed in `assumptions`.",
+            "You can call these agents, and only these:\n{}\n\nAnswer with `action`:\n- `delegate`: `calls` is a list of `{{to, instructions}}`, up to {MAX_PARALLEL_CALLS}, `to` one of the ids above. Calls in the same answer run at the same time; each agent knows only what you write in its `instructions`, so make them complete. You are run again when they report back.\n- `finish`: you are done. `result` is your report to {} and `success` says whether the goal was met; {} sees only `result` and `data`: put exactly-as-is content it needs (JSON, lists, tables, code) in `data` as complete text, and explain in `result`.\n- `ask`: `questions` you cannot answer and cannot go on without; they go to {up}. Use it rarely: prefer to assume and list what you assumed.\n\nAlways fill `notes` with the progress you will need on your next turn (what is done, what remains): you remember nothing else. Put what you assumed in `assumptions`.",
             list.join("\n"),
             if c.is_root { "the user" } else { "whoever called you" },
+            if c.is_root { "the user" } else { "the caller" },
         ),
     );
     if let Some(f) = c.feedback {
@@ -151,3 +167,48 @@ pub fn coordinator_prompt(n: &Node, c: &TurnContext) -> String {
     p.trim_end().to_string()
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rep(summary: String) -> Reported {
+        Reported { label: "Dev".into(), status: "done".into(), summary, data: String::new(), questions: vec![] }
+    }
+
+    #[test]
+    fn a_single_result_gets_a_long_share_and_a_cut_is_announced() {
+        let json = format!("{{\"items\":[{}]}}", vec!["\"x\""; 4000].join(","));
+        assert!(json.chars().count() > ITEM_CHARS && json.chars().count() < ITEM_MAX_CHARS);
+        let out = render_reported(&[rep(json.clone())]);
+        assert!(out.contains(&json), "a result under the single-result budget is whole");
+        assert!(!out.contains("was cut"));
+        let out = render_reported(&[rep("y".repeat(ITEM_MAX_CHARS + 500))]);
+        assert!(out.contains("[the result was cut here: 500 of 30500 characters left out]"), "{}", &out[out.len() - 120..]);
+    }
+
+    #[test]
+    fn many_results_share_the_budget_but_keep_the_floor() {
+        let items: Vec<Reported> = (0..10).map(|_| rep("z".repeat(ITEM_CHARS + 100))).collect();
+        let out = render_reported(&items);
+        assert_eq!(out.matches("was cut").count(), 10);
+        assert!(out.matches('z').count() == 10 * ITEM_CHARS);
+    }
+
+    #[test]
+    fn the_worker_prompt_says_the_caller_sees_only_the_summary() {
+        assert!(WORKER_ANSWER.contains("`data`") && WORKER_ANSWER.contains("`status`, `summary`, `data` and `questions`"));
+    }
+
+    #[test]
+    fn data_is_passed_verbatim_in_a_fence_it_cannot_break_out_of() {
+        let mut r = rep("done it".into());
+        r.data = "{\"a\": \"```\"}".into();
+        let out = render_reported(&[r]);
+        assert!(out.contains("````\n{\"a\": \"```\"}\n````"), "{out}");
+        let mut big = rep("s".into());
+        big.data = "d".repeat(ITEM_MAX_CHARS + 7);
+        assert!(render_reported(&[big]).contains("[the data was cut here: 7 of 30007 characters left out]"));
+        assert!(!render_reported(&[rep("s".into())]).contains("Data it passed on"));
+    }
+}
