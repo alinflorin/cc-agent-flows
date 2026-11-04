@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Serialize, de::DeserializeOwned};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 use super::Config;
 use crate::config::scope::Scope;
@@ -213,6 +213,10 @@ pub fn run(app: &AppHandle, cfg: &Config, command: &str, stdin: Option<&str>) ->
         "sessions" => sessions_cmd(app, cfg, verb, &a, stdin),
         other => Err(format!("unknown resource {other:?}; run `ccaf help`")),
     };
+    // Tell the UI to reload everything: an agent changed things behind its back.
+    if !matches!(verb, "" | "list" | "get" | "available" | "log") {
+        let _ = app.emit("config-changed", ());
+    }
     out.map(cut)
 }
 

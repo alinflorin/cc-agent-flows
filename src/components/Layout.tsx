@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Outlet } from "react-router";
 import { useTranslation } from "react-i18next";
 import { Button, makeStyles, tokens } from "@fluentui/react-components";
@@ -28,6 +29,26 @@ export function Layout() {
   const mobile = useIsMobile();
   const [menuOpen, setMenuOpen] = useState(false);
 
+  // Bumped when an agent changes things through the MCP server; the keyed
+  // subtrees remount and so reload their data.
+  const [rev, setRev] = useState(0);
+  const timer = useRef<number>(0);
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let gone = false;
+    listen("config-changed", () => {
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setRev((r) => r + 1), 150);
+    })
+      .then((u) => (gone ? u() : (off = u)))
+      .catch(() => {});
+    return () => {
+      gone = true;
+      off?.();
+      window.clearTimeout(timer.current);
+    };
+  }, []);
+
   useEffect(() => {
     if (!mobile) setMenuOpen(false);
   }, [mobile]);
@@ -37,7 +58,7 @@ export function Layout() {
       <Welcome />
       <Notifier />
       {/* Hidden on mobile; the overlay version only exists while open. */}
-      {(!mobile || menuOpen) && <Sidebar overlay={mobile} open={mobile ? menuOpen : true} onClose={() => setMenuOpen(false)} />}
+      {(!mobile || menuOpen) && <Sidebar key={rev} overlay={mobile} open={mobile ? menuOpen : true} onClose={() => setMenuOpen(false)} />}
       <div className={styles.column}>
         {mobile && (
           <div className={styles.mobileBar}>
@@ -45,7 +66,7 @@ export function Layout() {
           </div>
         )}
         <main className={styles.main}>
-          <div className={styles.content}>
+          <div className={styles.content} key={rev}>
             <Outlet />
           </div>
         </main>
