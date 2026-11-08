@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { getPref, inTauri } from "../prefs";
+import { getPref, native } from "../prefs";
 
 interface Entry {
   kind: string;
@@ -16,7 +16,7 @@ export function Notifier() {
   const { t } = useTranslation();
 
   useEffect(() => {
-    if (!inTauri()) return;
+    if (!native()) return;
     let off: (() => void) | undefined;
     let gone = false;
     void (async () => {

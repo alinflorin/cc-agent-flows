@@ -1,12 +1,17 @@
 /**
  * App-wide preferences, kept in `settings.json` in the app's config directory
  * (tauri-plugin-store) so the Rust side can read them too. In a plain browser
- * (`pnpm dev`) it falls back to localStorage.
+ * (`pnpm dev`) or in the remote-control page it falls back to localStorage.
  *
  * `loadPrefs()` must finish before anything reads a value: after that, reads
  * are synchronous from an in-memory copy and writes persist in the background.
  */
-export const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+/** Running in the app's own window (the Tauri APIs and plugins exist). */
+export const native = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+/** Served by the app's remote-control server to a browser (`--serve`, `--headless`); the server marks the page. */
+export const remote = () => typeof window !== "undefined" && "__CCAF_REMOTE__" in window;
+/** The backend is reachable, in the app's window or through the server. Gates every page that needs it. */
+export const inTauri = () => native() || remote();
 
 const FILE = "settings.json";
 const KEYS = ["theme", "language", "autoUpdate", "llmModel", "llmThinking", "welcomed", "notifications"];
@@ -32,7 +37,7 @@ function fromLocalStorage(key: string): unknown {
 }
 
 export async function loadPrefs(): Promise<void> {
-  if (inTauri()) {
+  if (native()) {
     try {
       const { load } = await import("@tauri-apps/plugin-store");
       store = await load(FILE, { defaults: {}, autoSave: 100 });

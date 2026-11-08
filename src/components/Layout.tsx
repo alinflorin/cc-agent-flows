@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { listen } from "../tauri";
 import { Outlet } from "react-router";
 import { useTranslation } from "react-i18next";
 import { Button, makeStyles, tokens } from "@fluentui/react-components";

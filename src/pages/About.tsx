@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Badge, Body1, Button, Caption1, Link, Spinner, Subtitle2, makeStyles, tokens } from "@fluentui/react-components";
 import { ArrowClockwise20Regular, CheckmarkCircle20Filled, DismissCircle20Filled, Info20Filled, Warning20Filled } from "@fluentui/react-icons";
 import { getVersion } from "@tauri-apps/api/app";
-import { inTauri } from "../prefs";
+import { inTauri, native } from "../prefs";
 import { call } from "../tauri";
 
 interface Check {
@@ -48,7 +48,7 @@ export function About() {
 
   useEffect(() => {
     if (!desktop) return;
-    getVersion().then(setVersion).catch(() => {});
+    if (native()) getVersion().then(setVersion).catch(() => {});
     void run();
   }, [desktop, run]);
 

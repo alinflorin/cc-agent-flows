@@ -8,7 +8,7 @@ import { Add20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { EmptyState, useConfirmDelete } from "../components/Confirm";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
-import { call } from "../tauri";
+import { call, listen } from "../tauri";
 import { projectPath, useProjectId } from "../project";
 
 interface Session {
@@ -58,7 +58,6 @@ export function Sessions() {
     let gone = false;
     const offs: (() => void)[] = [];
     void (async () => {
-      const { listen } = await import("@tauri-apps/api/event");
       const subs = [
         await listen("sessions-changed", () => void load()),
         await listen<{ entry: { kind: string } }>("session-log", ({ payload }) => {

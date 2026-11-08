@@ -8,7 +8,7 @@ import { Edit20Regular } from "@fluentui/react-icons";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { clip, digest, nodeStates, type Entry } from "../../sessionLog";
-import { call } from "../../tauri";
+import { call, listen } from "../../tauri";
 import { projectPath, useProjectId } from "../../project";
 import { useStyles } from "./styles";
 import { Tab_, View, WEdge, WNode, fmtBytes, fmtTokens, statusColor } from "./types";
@@ -62,7 +62,6 @@ export function SessionView() {
       }
       setLog(await call<Entry[]>("session_log", { project, id: sid }));
       await refresh();
-      const { listen } = await import("@tauri-apps/api/event");
       const u = await listen<{ project: string; session: string; entry: Entry }>("session-log", (e) => {
         if (e.payload.session !== sid || e.payload.project !== project) return;
         setLog((l) => [...l, e.payload.entry]);

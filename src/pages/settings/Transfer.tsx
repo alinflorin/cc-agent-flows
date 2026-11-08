@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Body1, Button, Checkbox, Field, Input, MessageBar, MessageBarBody, Subtitle1, makeStyles, tokens } from "@fluentui/react-components";
 import { ArrowDownload20Regular, ArrowUpload20Regular } from "@fluentui/react-icons";
-import { inTauri } from "../../prefs";
+import { native } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
 
@@ -27,7 +27,7 @@ export function TransferSettings() {
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
-  const desktop = inTauri();
+  const desktop = native();
 
   const [exportPw, setExportPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");

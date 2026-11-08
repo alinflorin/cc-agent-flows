@@ -2,6 +2,7 @@ mod config;
 mod demo;
 mod mcp;
 mod net;
+mod remote;
 mod system;
 mod transfer;
 mod util;
@@ -139,6 +140,8 @@ pub fn run() {
             mcp::mcp_get,
             mcp::mcp_set,
             mcp::mcp_new_token,
+            remote::remote_get,
+            remote::remote_set,
             system::autostart_get,
             system::autostart_set,
             mcp::quick_add::mcp_quick_add,
@@ -180,6 +183,13 @@ pub fn run() {
             workflow::webhook::start(app.handle());
             app.manage(mcp::Mcp::default());
             mcp::init(app.handle());
+            if remote::headless() {
+                // the window stays hidden (it is the IPC endpoint the server uses)
+            } else if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+            }
+            app.manage(remote::Remote::default());
+            remote::init(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

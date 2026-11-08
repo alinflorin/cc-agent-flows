@@ -88,7 +88,8 @@
       "integrations": "Integrations",
       "vm": "Virtual machines",
       "transfer": "Import / Export",
-      "mcp": "MCP (your agent)"
+      "mcp": "MCP (your agent)",
+      "remote": "Remote control"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -379,7 +380,22 @@
       "claudeDesktop": "Claude Desktop",
       "codex": "Codex"
     },
-    "autostart": "Start the app when I log in"
+    "autostart": "Start the app when I log in",
+    "remote": {
+      "intro": "Serve this app to a web browser: the same pages and commands, from this computer. Start the app with --headless to run it without a window; the server then always runs. Open the address below in any browser that can reach this computer.",
+      "enabled": "Start the server when the app opens",
+      "forced": "The app was started with --serve or --headless, so the server runs whatever the switch says. The address, port and login below still apply.",
+      "bind": "Address to listen on",
+      "bindHint": "127.0.0.1 is this computer only. 0.0.0.0 is every network this computer is on.",
+      "port": "Port",
+      "auth": "Ask for a user and password (HTTP basic auth)",
+      "user": "User",
+      "password": "Password",
+      "passwordKept": "Leave empty to keep the saved password.",
+      "openWarning": "Without a password, anyone who can reach this address can use the app, including your secrets and tokens. Turn authentication on, or keep the address on 127.0.0.1.",
+      "address": "Address",
+      "addressHint": "Applies a moment after saving. Browsers send a basic-auth password as plain text over http: use it on a network you trust, or behind a tunnel or reverse proxy with https."
+    }
   },
   "updates": {
     "title": "Updates",

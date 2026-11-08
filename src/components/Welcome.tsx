@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Body1, Button, Caption1, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, makeStyles, tokens } from "@fluentui/react-components";
-import { getPref, inTauri, setPref } from "../prefs";
+import { getPref, native, setPref } from "../prefs";
+import { call } from "../tauri";
 import { useNotify } from "../notifications";
 import { AppearanceFields } from "./AppearanceFields";
 import { HelpLink } from "./Help";
@@ -17,15 +18,14 @@ export function Welcome() {
   const { t } = useTranslation();
   const styles = useStyles();
   const notify = useNotify();
-  const [open, setOpen] = useState(() => inTauri() && !getPref<boolean>("welcomed"));
+  const [open, setOpen] = useState(() => native() && !getPref<boolean>("welcomed"));
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
 
   const accept = async () => {
     setBusy(true);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("provision_starters");
+      await call("provision_starters");
       setPref("welcomed", true);
       window.dispatchEvent(new Event("projects-changed"));
       notify(t("welcome.done"), "success");

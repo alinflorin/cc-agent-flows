@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button, Dialog, DialogActions, DialogBody, DialogContent, DialogSurface, DialogTitle, DialogTrigger } from "@fluentui/react-components";
 import { ArrowReset20Regular } from "@fluentui/react-icons";
 import { inTauri } from "../prefs";
+import { call } from "../tauri";
 import { useNotify } from "../notifications";
 import { DEMO_PROJECT, useProject } from "../project";
 
@@ -17,8 +18,7 @@ export function ResetDemoButton({ command, what, onDone }: { command: string; wh
   const run = async () => {
     setBusy(true);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke(command, { project });
+      await call(command, { project });
       notify(t("reset.done"), "success");
       onDone?.();
       setOpen(false);

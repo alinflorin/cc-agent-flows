@@ -7,7 +7,7 @@ import { PageHeader } from "../components/PageHeader";
 import { EmptyState } from "../components/Confirm";
 import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
-import { call } from "../tauri";
+import { call, listen } from "../tauri";
 import { fmtDateTime } from "../text";
 import { DEMO_PROJECT, ProjectInfo, projectPath } from "../project";
 
@@ -97,7 +97,6 @@ export function Projects() {
     let gone = false;
     const offs: (() => void)[] = [];
     void (async () => {
-      const { listen } = await import("@tauri-apps/api/event");
       const subs = [
         await listen("sessions-changed", () => void load()),
         await listen<{ entry: { kind: string } }>("session-log", ({ payload }) => {

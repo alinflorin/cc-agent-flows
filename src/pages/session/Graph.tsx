@@ -7,6 +7,7 @@ import { capitalize } from "../../text";
 import { activeEdges, nodeNet, nodeStates, nodeVms, type Digest, type NodeState, type VmState, type VmStats } from "../../sessionLog";
 import { useStyles } from "./styles";
 import { useProjectId } from "../../project";
+import { call } from "../../tauri";
 import { LiveNode, Pending, WEdge, WNode, fmtBytes, fmtRate, fmtTokens } from "./types";
 
 /** A coloured dot and the VM's state; pulses while the VM is on its way up. */
@@ -172,9 +173,9 @@ export function Graph({ wf, d, pending, picked, onPick }: { wf: { nodes: WNode[]
   const project = useProjectId();
   const [profileNames, setProfileNames] = useState<Record<string, string>>({});
   useEffect(() => {
-    void import("@tauri-apps/api/core").then(({ invoke }) =>
-      invoke<{ id: string; name: string }[]>("profiles_available", { project }).then((ps) => setProfileNames(Object.fromEntries(ps.map((p) => [p.id, p.name])))),
-    ).catch(() => {});
+    call<{ id: string; name: string }[]>("profiles_available", { project })
+      .then((ps) => setProfileNames(Object.fromEntries(ps.map((p) => [p.id, p.name]))))
+      .catch(() => {});
   }, [project]);
   const kinds = useMemo(() => new Map(wf.nodes.map((n) => [n.id, n.kind as string])), [wf]);
   const active = useMemo(() => activeEdges(d, wf.edges, kinds), [d, wf, kinds]);

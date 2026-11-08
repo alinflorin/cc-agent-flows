@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { check } from "@tauri-apps/plugin-updater";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { getPref, inTauri, setPref } from "./prefs";
+import { getPref, native, setPref } from "./prefs";
 import { useNotify } from "./notifications";
 
 const RELEASES_URL = "https://github.com/alinflorin/cc-agent-flows/releases/latest";
@@ -50,7 +50,7 @@ export function UpdatesProvider({ children }: { children: ReactNode }) {
   // Installing never restarts by itself on a silent check.
   const run = useCallback(
     async (silent: boolean) => {
-      if (!inTauri()) return;
+      if (!native()) return;
       setChecking(true);
       try {
         const update = await check();
@@ -77,7 +77,7 @@ export function UpdatesProvider({ children }: { children: ReactNode }) {
 
   const startup = useRef(autoUpdate);
   useEffect(() => {
-    if (!inTauri() || !import.meta.env.PROD || !startup.current) return;
+    if (!native() || !import.meta.env.PROD || !startup.current) return;
     const id = setTimeout(() => void run(true), 5000);
     return () => clearTimeout(id);
     // once per launch

@@ -88,7 +88,8 @@
       "integrations": "Integrări",
       "vm": "Mașini virtuale",
       "transfer": "Import / Export",
-      "mcp": "MCP (agentul tău)"
+      "mcp": "MCP (agentul tău)",
+      "remote": "Control de la distanță"
     },
     "llm": {
       "token": "Setup token Claude Code",
@@ -379,7 +380,22 @@
       "claudeDesktop": "Claude Desktop",
       "codex": "Codex"
     },
-    "autostart": "Pornește aplicația la autentificarea în sistem"
+    "autostart": "Pornește aplicația la autentificarea în sistem",
+    "remote": {
+      "intro": "Servește aplicația într-un browser web: aceleași pagini și comenzi, de pe acest calculator. Pornește aplicația cu --headless ca să ruleze fără fereastră; serverul rulează atunci mereu. Deschide adresa de mai jos în orice browser care ajunge la acest calculator.",
+      "enabled": "Pornește serverul când se deschide aplicația",
+      "forced": "Aplicația a fost pornită cu --serve sau --headless, deci serverul rulează indiferent de comutator. Adresa, portul și autentificarea de mai jos se aplică în continuare.",
+      "bind": "Adresa pe care ascultă",
+      "bindHint": "127.0.0.1 înseamnă doar acest calculator. 0.0.0.0 înseamnă toate rețelele la care e conectat.",
+      "port": "Port",
+      "auth": "Cere utilizator și parolă (HTTP basic auth)",
+      "user": "Utilizator",
+      "password": "Parolă",
+      "passwordKept": "Lasă gol ca să păstrezi parola salvată.",
+      "openWarning": "Fără parolă, oricine ajunge la această adresă poate folosi aplicația, inclusiv secretele și tokenurile tale. Activează autentificarea sau păstrează adresa 127.0.0.1.",
+      "address": "Adresă",
+      "addressHint": "Se aplică la câteva clipe după salvare. Browserele trimit parola basic auth ca text simplu peste http: folosește-o într-o rețea de încredere sau în spatele unui tunel ori proxy invers cu https."
+    }
   },
   "updates": {
     "title": "Actualizări",
