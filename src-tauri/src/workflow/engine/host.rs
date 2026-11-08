@@ -14,12 +14,24 @@ struct Live {
 pub struct Sessions(Mutex<HashMap<String, Live>>);
 
 /// VMs running in the whole app: sessions share them, a run waits for a free one.
-pub struct VmSlots(Semaphore);
+pub struct VmSlots {
+    sem: Arc<Semaphore>,
+    cap: usize,
+}
 
 impl VmSlots {
     /// The limit comes from the settings as they are when the app starts.
     pub fn new(app: &AppHandle) -> Self {
-        VmSlots(Semaphore::new(crate::config::vm_settings::current(app).max_vms as usize))
+        let cap = crate::config::vm_settings::current(app).max_vms as usize;
+        VmSlots { sem: Arc::new(Semaphore::new(cap)), cap }
+    }
+
+    pub fn semaphore(&self) -> Arc<Semaphore> {
+        self.sem.clone()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.cap
     }
 }
 
@@ -87,15 +99,16 @@ impl Host for RealHost {
         };
         let scope = Scope::project(&self.project);
         let watch = crate::net::leaks::watched(&profile_env, &|n| crate::config::secrets::secret_value(&scope, n));
+        // names the agent's work disk to the computer that keeps it
+        let disk_key = format!("{}/{}/{}", self.project, self.sid, req.node);
         let work_disk = match crate::workflow::store::work_disk_path(&self.root, &self.sid, &req.node) {
-            Ok(path) => Some(crate::vm::runs::WorkDisk { path, size_mb: profile.work_disk_mb.unwrap_or_else(|| crate::config::vm_settings::current(&self.app).default_work_disk_mb) }),
+            Ok(path) => Some(crate::vm::runs::WorkDisk { path, key: disk_key.clone(), size_mb: profile.work_disk_mb.unwrap_or_else(|| crate::config::vm_settings::current(&self.app).default_work_disk_mb) }),
             Err(e) => return failed(format!("the work disk: {e}")),
         };
         let shared = match crate::workflow::store::shared_dir(&self.root, &self.sid) {
             Ok(dir) => Some(crate::vm::runs::SharedDir { dir, quota_mb: crate::config::vm_settings::current(&self.app).shared_quota_mb }),
             Err(e) => return failed(format!("the shared folder: {e}")),
         };
-        let spec = Spec { run_id, project: scope, image: profile.image_id().to_string(), identity, cpus: profile.cpus, memory_mb: profile.memory(), work_disk, shared, allow_hosts: profile_hosts, injections, max_connections: profile.max_connections, max_upload_mb: profile.max_upload_mb, max_download_mb: profile.max_download_mb, watch, task };
         // Cancelling the session cancels this VM.
         let (tx, rx) = oneshot::channel();
         let mut c = self.cancel.clone();
@@ -104,16 +117,19 @@ impl Host for RealHost {
                 let _ = tx.send(());
             }
         });
-        let slots = self.app.state::<VmSlots>();
         let mut gone = self.cancel.clone();
-        let permit = tokio::select! {
-            p = slots.0.acquire() => p.ok(),
-            _ = gone.wait_for(|v| *v) => None,
+        let placement = match crate::nodes::place(&self.app, &mut gone, Some(&disk_key)).await {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                forward.abort();
+                return failed("cancelled while waiting for a free VM");
+            }
+            Err(e) => {
+                forward.abort();
+                return failed(e);
+            }
         };
-        let Some(_permit) = permit else {
-            forward.abort();
-            return failed("cancelled while waiting for a free VM");
-        };
+        let spec = Spec { run_id, project: scope, image: profile.image_id().to_string(), identity, cpus: profile.cpus, memory_mb: profile.memory(), work_disk, shared, allow_hosts: profile_hosts, injections, max_connections: profile.max_connections, max_upload_mb: profile.max_upload_mb, max_download_mb: profile.max_download_mb, watch, task, placement };
         // the last traffic totals the run reported, for the session's log (analytics)
         let net = std::sync::Mutex::new((0u64, 0u64));
         let res = crate::vm::runs::run_vm(&self.app, spec, rx, |m| {

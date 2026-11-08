@@ -89,7 +89,8 @@
       "vm": "Virtual machines",
       "transfer": "Import / Export",
       "mcp": "MCP (your agent)",
-      "remote": "Remote control"
+      "remote": "Remote control",
+      "nodes": "Nodes"
     },
     "llm": {
       "token": "Claude Code setup token",
@@ -395,6 +396,38 @@
       "openWarning": "Without a password, anyone who can reach this address can use the app, including your secrets and tokens. Turn authentication on, or keep the address on 127.0.0.1.",
       "address": "Address",
       "addressHint": "Applies a moment after saving. Browsers send a basic-auth password as plain text over http: use it on a network you trust, or behind a tunnel or reverse proxy with https."
+    },
+    "nodes": {
+      "intro": "Run the VMs of your agents on other computers that run this app. This computer keeps the sessions, the secrets and the Claude tokens; a node only runs the VM and sees what the agent does. Use nodes you trust.",
+      "hubTitle": "Computers that run my VMs",
+      "local": "This computer runs VMs",
+      "inUse": "{{running}} of {{slots}} in use",
+      "online": "Online",
+      "offline": "Offline",
+      "off": "Switched off",
+      "unusable": "Cannot be used",
+      "enabled": "Use this node",
+      "slots": "VMs at once",
+      "add": "Add a node",
+      "name": "Name",
+      "address": "Address",
+      "addressHint": "host:port of the node, like 192.168.1.20:7881",
+      "key": "Key",
+      "keyHint": "The key shown on the node (Settings > Nodes there).",
+      "check": "Check the node",
+      "fingerprint": "Certificate fingerprint",
+      "fingerprintHint": "Compare it with the fingerprint shown on the node. If they differ, do not add it.",
+      "trust": "Trust this node and add it",
+      "roleTitle": "Let other computers use this one",
+      "roleIntro": "Other computers running this app can start VMs here. They need the key and the certificate below. Disk images are copied here the first time they are used.",
+      "forced": "The app was started with --node, so this computer accepts VMs whatever the switch says. The address, port and key below still apply.",
+      "accept": "Accept VMs from other computers",
+      "bind": "Address to listen on",
+      "bindHint": "0.0.0.0 is every network this computer is on; 127.0.0.1 is this computer only.",
+      "port": "Port",
+      "newKey": "New key",
+      "yourKeyHint": "Give this key to the computer that will use this one. A new key locks out the computers that have the old one.",
+      "yourFingerprintHint": "The certificate of this computer. The other computer shows it when it is added: it must match."
     }
   },
   "updates": {

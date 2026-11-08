@@ -47,6 +47,8 @@ import {
   Settings24Filled,
   Settings24Regular,
   bundleIcon,
+  Desktop24Filled,
+  Desktop24Regular,
   Server24Filled,
   Server24Regular,
 } from "@fluentui/react-icons";
@@ -63,6 +65,7 @@ const IntegrationsIcon = bundleIcon(Link24Filled, Link24Regular);
 const VmIcon = bundleIcon(Server24Filled, Server24Regular);
 const McpIcon = bundleIcon(Code24Filled, Code24Regular);
 const RemoteIcon = bundleIcon(Globe24Filled, Globe24Regular);
+const NodesIcon = bundleIcon(Desktop24Filled, Desktop24Regular);
 const TransferIcon = bundleIcon(ArrowSwap24Filled, ArrowSwap24Regular);
 const WorkflowIcon = bundleIcon(Flowchart24Filled, Flowchart24Regular);
 const SessionsIcon = bundleIcon(Chat24Filled, Chat24Regular);
@@ -286,6 +289,7 @@ export function Sidebar({
             )}
             {setting("mcp", t("settings.tabs.mcp"), <McpIcon />)}
             {setting("remote", t("settings.tabs.remote"), <RemoteIcon />)}
+            {setting("nodes", t("settings.tabs.nodes"), <NodesIcon />)}
             {setting("transfer", t("settings.tabs.transfer"), <TransferIcon />)}
           </>
         ) : (

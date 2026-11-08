@@ -15,6 +15,7 @@ import { Profiles } from "./Profiles";
 import { ImagesSettings } from "./settings/Images";
 import { LlmSettings } from "./settings/Llm";
 import { McpSettings } from "./settings/McpSettings";
+import { NodesSettings } from "./settings/NodesSettings";
 import { RemoteSettings } from "./settings/RemoteSettings";
 import { NetworkSettings } from "./settings/Network";
 import { SecretsSettings } from "./settings/Secrets";
@@ -152,8 +153,9 @@ export function Settings() {
     transfer: <TransferSettings />,
     mcp: <McpSettings />,
     remote: <RemoteSettings />,
+    nodes: <NodesSettings />,
   };
-  const title = tab === "general" || tab === "llm" || tab === "vm" || tab === "transfer" || tab === "mcp" || tab === "remote" ? t(`settings.tabs.${tab}`) : t(`settings.globalTabs.${tab}`);
+  const title = tab === "general" || tab === "llm" || tab === "vm" || tab === "transfer" || tab === "mcp" || tab === "remote" || tab === "nodes" ? t(`settings.tabs.${tab}`) : t(`settings.globalTabs.${tab}`);
 
   return (
     <>

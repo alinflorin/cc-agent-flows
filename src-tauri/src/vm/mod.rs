@@ -7,6 +7,7 @@ mod agentd_e2e;
 pub mod builder;
 pub mod confine;
 pub mod images;
+pub mod launch;
 pub mod machine;
 pub mod protocol;
 pub mod qemu;

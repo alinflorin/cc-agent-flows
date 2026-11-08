@@ -2,6 +2,7 @@ mod config;
 mod demo;
 mod mcp;
 mod net;
+mod nodes;
 mod remote;
 mod system;
 mod transfer;
@@ -142,6 +143,14 @@ pub fn run() {
             mcp::mcp_new_token,
             remote::remote_get,
             remote::remote_set,
+            nodes::node_get,
+            nodes::node_set,
+            nodes::node_new_key,
+            nodes::nodes_get,
+            nodes::nodes_set_local,
+            nodes::nodes_probe,
+            nodes::nodes_save,
+            nodes::nodes_delete,
             system::autostart_get,
             system::autostart_set,
             mcp::quick_add::mcp_quick_add,
@@ -190,6 +199,8 @@ pub fn run() {
             }
             app.manage(remote::Remote::default());
             remote::init(app.handle());
+            app.manage(nodes::Nodes::default());
+            nodes::init(app.handle());
             Ok(())
         })
         .build(tauri::generate_context!())

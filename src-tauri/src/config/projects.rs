@@ -169,7 +169,9 @@ pub fn projects_delete(app: tauri::AppHandle, id: String) -> Result<(), String> 
     }
     let scope = Scope::project(&id);
     crate::config::secrets::forget_all(&app, &scope);
-    std::fs::remove_dir_all(dir_in(&data(&app)?, &id)).map_err(|e| e.to_string())
+    std::fs::remove_dir_all(dir_in(&data(&app)?, &id)).map_err(|e| e.to_string())?;
+    crate::nodes::forget(&app, &format!("{id}/"));
+    Ok(())
 }
 
 #[cfg(test)]

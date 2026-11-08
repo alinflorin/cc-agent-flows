@@ -101,5 +101,7 @@ pub fn sessions_autonomy(app: tauri::AppHandle, project: String, id: String, aut
 
 #[tauri::command]
 pub fn sessions_delete(app: tauri::AppHandle, project: String, id: String) -> Result<(), String> {
-    delete_session(&root(&app, &project)?, &id)
+    delete_session(&root(&app, &project)?, &id)?;
+    crate::nodes::forget(&app, &format!("{project}/{id}/"));
+    Ok(())
 }

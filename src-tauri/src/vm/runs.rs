@@ -9,17 +9,15 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use tauri::AppHandle;
-use tokio::process::Command;
 use tokio::sync::oneshot;
 
 use crate::config::scope::Scope;
-use crate::vm::builder::Serial;
+use crate::vm::launch::{LaunchError, LaunchSpec, Launched};
 use crate::vm::protocol::{Bootstrap, Event, Final, Outbound, Status, Task};
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -62,19 +60,13 @@ pub fn failed(reason: impl Into<String>) -> Final {
     Final { status: Status::Failed, result: reason.into(), questions: vec![], session_id: None, tokens: None, output: None, exit_code: None }
 }
 
-fn tail(path: &Path) -> String {
-    let text = std::fs::read(path).map(|b| String::from_utf8_lossy(&b).into_owned()).unwrap_or_default();
-    let text = text.trim();
-    let start = text.len().saturating_sub(1000);
-    let start = (start..=text.len()).find(|i| text.is_char_boundary(*i)).unwrap_or(text.len());
-    text[start..].to_string()
-}
-
 /// The disk an agent of a session keeps across its runs (`/home/agent/work` in the VM): a sparse
 /// qcow2 that lives with the session and is deleted with it.
 #[derive(Clone)]
 pub struct WorkDisk {
     pub path: PathBuf,
+    /// Names the disk to a node that keeps it (`<project>/<session>/<node>`).
+    pub key: String,
     /// Size when the disk is made; a disk that exists keeps its own.
     pub size_mb: u32,
 }
@@ -119,6 +111,8 @@ pub struct Spec {
     /// The secrets in the agent's environment, which only the profile's hosts may receive.
     pub watch: Vec<crate::net::leaks::Watched>,
     pub task: Task,
+    /// Where the VM runs, and the slot it holds there until the run is over.
+    pub placement: crate::nodes::Placement,
 }
 
 /// A profile's allowed hosts with their `${var:NAME}` references filled in (Settings > Variables) and
@@ -135,7 +129,7 @@ fn resolve_hosts(hosts: &[String], var: &dyn Fn(&str) -> Option<String>) -> Resu
 
 /// Tells the listener what the VM is doing (`preparing`, `starting`, `booting`, `running`, `off`), as an
 /// event like the egress lines: seq 0, not Claude's, ignored by what digests the agent's own events.
-fn vm_state(on_msg: &mut impl FnMut(&Outbound), state: &str) {
+fn vm_state(on_msg: &mut (impl FnMut(&Outbound) + Send), state: &str) {
     on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "vm", "state": state}) }));
 }
 
@@ -148,8 +142,8 @@ fn net_event(t: &crate::net::egress::Totals) -> Outbound {
 /// Boots a VM of `image`, runs `task` in it and returns how it ended. `on_msg` sees every event and
 /// the final (also a synthesized one), in order. `Err` only for what stops the VM from starting
 /// (no token, image not built, QEMU missing). `cancel` firing ends the run as failed.
-pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<()>, mut on_msg: impl FnMut(&Outbound)) -> Result<Final, String> {
-    let Spec { run_id, project, image, identity, cpus, memory_mb, work_disk, shared, allow_hosts, injections, max_connections, max_upload_mb, max_download_mb, watch, task } = spec;
+pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<()>, mut on_msg: impl FnMut(&Outbound) + Send) -> Result<Final, String> {
+    let Spec { run_id, project, image, identity, cpus, memory_mb, work_disk, shared, allow_hosts, injections, max_connections, max_upload_mb, max_download_mb, watch, task, placement } = spec;
     let disk = crate::vm::images::path(app, &project, &image).ok_or_else(|| format!("the image {image} is not built"))?;
     let vars = crate::config::variables::all(app, &project);
     let lookup = |n: &str| vars.get(n).cloned();
@@ -187,11 +181,11 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
         let (account, account_name, token) = crate::config::accounts::pick(app, &tried)?;
         tried.push(account.clone());
         on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "account", "account": account_name}) }));
-        let work = crate::util::data_dir(app)?.join("runs").join("tmp").join(format!("{run_id}-{}", tried.len()));
-        std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
-        let result = boot_and_drive(app, &work, &disk, (cpus, memory_mb), work_disk.as_ref(), shared.as_ref(), &identity, &token, egress.clone(), task.clone(), &mut cancel, &mut on_msg).await;
-        crate::util::remove_dir_retry(&work).await;
-        let fin = result?;
+        if let Some(n) = placement.target.node_name() {
+            on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({"type": "node", "node": n}) }));
+        }
+        let name = format!("{run_id}-{}", tried.len());
+        let fin = boot_and_drive(app, &placement.target, &name, &disk, (cpus, memory_mb), work_disk.as_ref(), shared.as_ref(), &identity, &token, egress.clone(), task.clone(), &mut cancel, &mut on_msg).await?;
         if let Some(why) = crate::config::accounts::classify(&fin) {
             crate::config::accounts::rest(&account, why);
             let free = fin.tokens.is_none_or(|t| t == 0);
@@ -208,65 +202,6 @@ pub async fn run_vm(app: &AppHandle, spec: Spec, mut cancel: oneshot::Receiver<(
     }
 }
 
-/// A fresh qcow2 overlay of `disk` at `overlay`. Making one with `qemu-img` costs a process per run,
-/// so an empty overlay is made once per version of the image (path, size and time of the file) and
-/// every run gets a copy of it (a reflink where the file system has them).
-async fn make_overlay(app: &AppHandle, disk: &Path, overlay: &Path) -> Result<(), String> {
-    use std::hash::{Hash, Hasher};
-    let meta = std::fs::metadata(disk).map_err(|e| format!("the image: {e}"))?;
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    disk.hash(&mut h);
-    let prefix = format!("{:016x}", h.finish());
-    let stamp = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
-    let dir = runs_dir(app)?.join("overlays");
-    let template = dir.join(format!("{prefix}-{}-{stamp}.qcow2", meta.len()));
-    if !template.exists() {
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        // older versions of this image's template are of no use any more
-        for old in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-            if old.file_name().to_string_lossy().starts_with(&prefix) {
-                let _ = std::fs::remove_file(old.path());
-            }
-        }
-        // unique name, then rename: runs that start together do not see a half-written file
-        let tmp = dir.join(format!("{prefix}.{}.tmp", new_run_id()));
-        let (base, top) = (disk.to_string_lossy(), tmp.to_string_lossy());
-        crate::vm::machine::qemu_img(app, &["create", "-q", "-f", "qcow2", "-b", &base, "-F", "qcow2", &top]).await?;
-        std::fs::rename(&tmp, &template).map_err(|e| e.to_string())?;
-    }
-    // std's copy clones the file where the file system can (reflink, copy_file_range, clonefile);
-    // either way it blocks, so it runs off the async executor
-    let (from, to) = (template, overlay.to_path_buf());
-    tokio::task::spawn_blocking(move || std::fs::copy(from, to).map(|_| ()))
-        .await
-        .map_err(|e| format!("overlay: {e}"))?
-        .map_err(|e| format!("overlay: {e}"))
-}
-
-/// Reads the files a boot needs (disk, kernel) once per process in the background, so
-/// the first run after the app starts does not wait on a cold disk; later runs find them cached.
-fn warm_cache(app: &AppHandle, disk: &Path) {
-    static DONE: std::sync::Mutex<Vec<std::path::PathBuf>> = std::sync::Mutex::new(Vec::new());
-    let mut files = vec![disk.to_path_buf()];
-    if let (Ok(res), Ok(arch)) = (crate::vm::machine::resources(app), crate::vm::machine::arch()) {
-        let dir = res.join("images");
-        files.push(dir.join(format!("alpine-{arch}.vmlinuz")));
-    }
-    let Ok(mut done) = DONE.lock() else { return };
-    files.retain(|f| !done.contains(f));
-    done.extend(files.iter().cloned());
-    drop(done);
-    if !files.is_empty() {
-        tokio::task::spawn_blocking(move || {
-            for f in files {
-                if let Ok(mut r) = std::fs::File::open(f) {
-                    let _ = std::io::copy(&mut r, &mut std::io::sink());
-                }
-            }
-        });
-    }
-}
-
 /// What the egress proxy of a run enforces.
 #[derive(Clone)]
 struct Egress {
@@ -279,7 +214,8 @@ struct Egress {
 #[allow(clippy::too_many_arguments)]
 async fn boot_and_drive(
     app: &AppHandle,
-    work: &Path,
+    target: &crate::nodes::Target,
+    name: &str,
     disk: &Path,
     size: (Option<u32>, u32),
     work_disk: Option<&WorkDisk>,
@@ -289,11 +225,9 @@ async fn boot_and_drive(
     egress: Egress,
     task: Task,
     cancel: &mut oneshot::Receiver<()>,
-    on_msg: &mut impl FnMut(&Outbound),
+    on_msg: &mut (impl FnMut(&Outbound) + Send),
 ) -> Result<Final, String> {
     vm_state(on_msg, "preparing");
-    let overlay = work.join("disk.qcow2");
-    warm_cache(app, disk);
     // The VM's only way out: it has no network card, just a virtio-serial port whose far end is a
     // yamux session (`tunnel.rs`) that hands the agent's connections to the egress proxy.
     let (egress_tx, mut egress_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -301,10 +235,10 @@ async fn boot_and_drive(
     // The Claude token never enters the VM: the proxy sets it on the requests to the API. Last, so
     // no user injection can override it.
     injections.push(crate::config::injections::claude(token)?);
-    // Everything the VM does not need to wait for runs together: the overlay is copied while the
-    // run's CA is made (off the executor), then the proxy starts warming its connections and
-    // certificates, all before QEMU is spawned.
-    let overlay_job = make_overlay(app, disk, &overlay);
+    let timeout_secs = task.timeout_secs;
+    let grace_secs = crate::config::vm_settings::current(app).run_grace_secs;
+    // The proxy is made (the run's CA is generated off the executor, its connections and
+    // certificates warmed) while the machine half makes the disks and boots the VM.
     let net_job = async {
         let inspector = tokio::task::spawn_blocking(move || crate::net::inspect::Inspector::new(injections))
             .await
@@ -317,116 +251,45 @@ async fn boot_and_drive(
         proxy.warm();
         Ok::<_, String>((proxy, meter, ca))
     };
-    // the agent's own disk, made empty the first time (the guest formats a blank one)
-    let disk_job = async {
-        let Some(d) = work_disk else { return Ok(()) };
-        if d.path.exists() {
-            return Ok(());
+    let spec = LaunchSpec { name: name.to_string(), disk: disk.to_path_buf(), cpus: size.0, memory_mb: size.1, work_disk: work_disk.cloned(), shared: shared.is_some(), timeout_secs, grace_secs };
+    let mut progress = |s: &str| vm_state(on_msg, s);
+    let (net, launched) = tokio::join!(net_job, crate::vm::launch::launch_on(app, target, spec, &mut progress));
+    let Launched { agent, net: net_stream, shared: shared_stream, mut vm } = match launched {
+        Ok(l) => l,
+        Err(LaunchError::Setup(e)) => return Err(e),
+        Err(LaunchError::Failed(e)) => {
+            vm_state(on_msg, "off");
+            return Ok(failed(e));
         }
-        if let Some(dir) = d.path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("work disk: {e}"))?;
-        }
-        crate::vm::machine::qemu_img(app, &["create", "-q", "-f", "qcow2", &d.path.to_string_lossy(), &format!("{}M", d.size_mb)]).await
     };
-    let (overlay_made, net, disk_made) = tokio::join!(overlay_job, net_job, disk_job);
-    overlay_made?;
-    disk_made?;
-    let (proxy, meter, ca) = net?;
+    let (proxy, meter, ca) = match net {
+        Ok(n) => n,
+        Err(e) => {
+            vm.end().await;
+            return Err(e);
+        }
+    };
     let ca = Some(ca);
-
-    let channel = Serial::named(work, "agent");
-    let net_port = Serial::named(work, "net");
-    let shared_port = shared.map(|_| Serial::named(work, "shared"));
-    let errlog = work.join("qemu.err");
-    let timeout_secs = task.timeout_secs;
-    let grace_secs = crate::config::vm_settings::current(app).run_grace_secs;
-    let mut cmd = crate::vm::machine::machine(app, size.1, size.0, true)?;
-    cmd.args(AGENT_NIC)
-        .args(["-action", "panic=exit-failure", "-serial", "null"])
-        .arg("-drive")
-        .arg(crate::vm::machine::drive_arg(&overlay));
-    if let Some(d) = work_disk {
-        // second virtio disk = /dev/vdb; it must survive the VM, so QEMU flushes when the guest asks
-        cmd.arg("-drive").arg(crate::vm::machine::persistent_drive_arg(&d.path));
-    }
-    cmd.args(["-device", "virtio-serial-pci"])
-        .arg("-chardev")
-        .arg(format!("{},id=agent", channel.chardev))
-        .args(["-device", "virtserialport,chardev=agent,name=agent"])
-        .arg("-chardev")
-        .arg(format!("{},id=net", net_port.chardev))
-        .args(["-device", "virtserialport,chardev=net,name=net"]);
-    if let Some(p) = &shared_port {
-        // the shared folder: the guest runs 9P over this port, the app answers (`shared.rs`)
-        cmd.arg("-chardev").arg(format!("{},id=shared", p.chardev)).args(["-device", "virtserialport,chardev=shared,name=shared"]);
-    }
-    // An agent VM's QEMU connects to nothing over TCP (it has no network card; both ports are
-    // sockets it serves); it needs the guest's memory and some headroom, and, as a backstop for a
-    // VM that outlives the app, no more CPU time than every core for the whole deadline.
-    let cores = size.0.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get() as u32)) as u64;
-    let vm_limits = crate::vm::confine::Limits {
-        connect_ports: Some(vec![]),
-        mem_mb: Some(size.1 as u64),
-        cpu_secs: Some(timeout_secs.saturating_add(grace_secs).saturating_mul(cores + 1).saturating_add(120)),
-    };
-    // the work disk is written, so its folder is writable (the plan's `disks` are read only)
-    let mut disks = vec![overlay.as_path()];
-    let mut writable = vec![work];
-    if let Some(d) = work_disk {
-        disks.push(d.path.as_path());
-        writable.extend(d.path.parent());
-    }
-    crate::vm::machine::confine(app, &mut cmd, &disks, &writable, vm_limits);
-    let mut cmd = Command::from(cmd);
-    cmd.stdin(Stdio::null()).stdout(Stdio::null()).kill_on_drop(true);
-    cmd.stderr(std::fs::File::create(&errlog).map(Stdio::from).unwrap_or_else(|_| Stdio::null()));
-    let mut child = cmd.spawn().map_err(|e| super::qemu::spawn_error(app, &format!("qemu-system-{}", crate::vm::machine::arch().unwrap_or("?")), &e))?;
-    crate::vm::machine::confine_started(app, &child);
-    vm_state(on_msg, "starting");
-
-    let stream = match crate::vm::builder::within(30, "the agent channel", channel.connect()).await {
-        Ok(s) => s,
-        Err(e) => {
-            let _ = child.kill().await;
-            vm_state(on_msg, "off");
-            return Ok(failed(format!("{e}: {}", tail(&errlog))));
-        }
-    };
-    // The network port: the session lives as long as this value does. The agent channel is up
-    // first, so a failure here ends the run like a failure of the channel does.
-    let tunnel = match crate::vm::builder::within(30, "the network port", net_port.connect()).await {
-        Ok(s) => crate::net::tunnel::Tunnel::start(
-            s,
-            proxy,
-            std::sync::Arc::new(move |line| {
-                let _ = egress_tx.send(line);
-            }),
-        ),
-        Err(e) => {
-            let _ = child.kill().await;
-            vm_state(on_msg, "off");
-            return Ok(failed(format!("{e}: {}", tail(&errlog))));
-        }
-    };
+    // The network port: the session lives as long as this value does.
+    let tunnel = crate::net::tunnel::Tunnel::start(
+        net_stream,
+        proxy,
+        std::sync::Arc::new(move |line| {
+            let _ = egress_tx.send(line);
+        }),
+    );
     // the shared folder's server lives as long as the VM
-    let shared_server = match (shared, &shared_port) {
-        (Some(sd), Some(port)) => match crate::vm::builder::within(30, "the shared folder port", port.connect()).await {
-            Ok(s) => {
-                let quota = crate::vm::shared::quota_for(&sd.dir, u64::from(sd.quota_mb) * 1024 * 1024);
-                Some(tokio::spawn(crate::vm::shared::serve(s, sd.dir.clone(), quota)))
-            }
-            Err(e) => {
-                let _ = child.kill().await;
-                vm_state(on_msg, "off");
-                return Ok(failed(format!("{e}: {}", tail(&errlog))));
-            }
-        },
+    let shared_server = match (shared, shared_stream) {
+        (Some(sd), Some(s)) => {
+            let quota = crate::vm::shared::quota_for(&sd.dir, u64::from(sd.quota_mb) * 1024 * 1024);
+            Some(tokio::spawn(crate::vm::shared::serve(s, sd.dir.clone(), quota)))
+        }
         _ => None,
     };
     vm_state(on_msg, "booting");
     let mut running = false;
     // The stream stays open inside `drive` until the run is over.
-    let mut rx = crate::vm::agent::drive(stream, Bootstrap {
+    let mut rx = crate::vm::agent::drive(agent, Bootstrap {
             id: identity.to_string(),
             claude_token: crate::config::injections::CLAUDE_PLACEHOLDER.to_string(),
             tunnel: true,
@@ -439,8 +302,6 @@ async fn boot_and_drive(
     tokio::pin!(deadline);
     let mut exit = None;
     // what the VM costs the host, sampled from QEMU's own process (the guest is not asked)
-    let pid = child.id().map(sysinfo::Pid::from_u32);
-    let mut sys = sysinfo::System::new();
     let mut sample = tokio::time::interval(Duration::from_secs(2));
     sample.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     // what the agent's traffic has been, reported when it changes (the session view turns it into speeds)
@@ -462,9 +323,9 @@ async fn boot_and_drive(
                     // The stream ended: QEMU is gone (or about to be) and the agent never finished.
                     let status = match exit {
                         Some(s) => s,
-                        None => tokio::time::timeout(Duration::from_secs(5), child.wait()).await.ok().and_then(|r| r.ok()),
+                        None => tokio::time::timeout(Duration::from_secs(5), vm.wait()).await.ok().flatten(),
                     };
-                    break failed(format!("the VM ended without a result ({}): {}", status.map_or("unknown exit".into(), |s| s.to_string()), tail(&errlog)));
+                    break failed(format!("the VM ended without a result ({}): {}", status.unwrap_or_else(|| "unknown exit".into()), vm.err_tail()));
                 }
             },
             Some(line) = egress_rx.recv() => {
@@ -482,30 +343,23 @@ async fn boot_and_drive(
                     break failed("the data budget of this agent is used up, the run was stopped");
                 }
             }
-            _ = sample.tick(), if exit.is_none() && pid.is_some() => {
-                let pid = pid.unwrap();
-                sys.refresh_processes_specifics(
-                    sysinfo::ProcessesToUpdate::Some(&[pid]),
-                    true,
-                    sysinfo::ProcessRefreshKind::nothing().with_cpu().with_memory(),
-                );
-                if let Some(p) = sys.process(pid) {
-                    let cpus = size.0.unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| n.get() as u32));
+            _ = sample.tick(), if exit.is_none() => {
+                if let Some(s) = vm.stats() {
                     // `cpu` is a percentage of one core (it can pass 100), `mem_mb` the host memory QEMU holds
                     on_msg(&Outbound::Event(Event { seq: 0, event: serde_json::json!({
-                        "type": "vm_stats", "cpu": p.cpu_usage(), "mem_mb": p.memory() / (1024 * 1024), "mem_limit_mb": size.1, "cpus": cpus,
+                        "type": "vm_stats", "cpu": s.cpu, "mem_mb": s.mem_mb, "mem_limit_mb": size.1, "cpus": s.cpus,
                     }) }));
                 }
             }
-            status = child.wait(), if exit.is_none() => {
+            status = vm.wait(), if exit.is_none() => {
                 // Keep reading: the final may still be on its way through the channel.
-                exit = Some(status.ok());
+                exit = Some(status);
             }
             _ = &mut deadline => break failed(format!("the run did not end within {}s, the VM was killed", timeout_secs.saturating_add(grace_secs))),
             _ = &mut *cancel => break failed("cancelled"),
         }
     };
-    let _ = child.kill().await;
+    vm.end().await;
     drop(tunnel);
     if let Some(h) = shared_server {
         h.abort();
@@ -519,18 +373,13 @@ async fn boot_and_drive(
     Ok(fin)
 }
 
-/// The agent VM has no network card at all: what it reaches goes through the `net` port (see
-/// `tunnel.rs`).
-const AGENT_NIC: [&str; 2] = ["-nic", "none"];
-
-fn runs_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    Ok(crate::util::data_dir(app)?.join("runs"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::vm::protocol::TaskEnv;
+    use crate::vm::builder::Serial;
+    use std::process::Stdio;
+    use tokio::process::Command;
 
     #[test]
     fn allowed_hosts_take_variables() {
@@ -610,7 +459,7 @@ mod tests {
             .args(["-accel", if Path::new("/dev/kvm").exists() { "kvm" } else { "tcg" }, "-cpu", "max", "-m", "2048", "-smp", "2", "-M", "pc,usb=off,vmport=off", "-nodefaults", "-no-user-config", "-display", "none", "-monitor", "none"])
             .args(crate::vm::machine::boot_args(&res.join("images"), "x86_64", true))
             .args(["-no-reboot", "-action", "panic=exit-failure", "-serial", "null"])
-            .args(AGENT_NIC)
+            .args(crate::vm::launch::AGENT_NIC)
             .arg("-drive")
             .arg(crate::vm::machine::drive_arg(&overlay))
             .args(["-device", "virtio-serial-pci", "-chardev"])

@@ -89,7 +89,8 @@
       "vm": "Mașini virtuale",
       "transfer": "Import / Export",
       "mcp": "MCP (agentul tău)",
-      "remote": "Control de la distanță"
+      "remote": "Control de la distanță",
+      "nodes": "Noduri"
     },
     "llm": {
       "token": "Setup token Claude Code",
@@ -395,6 +396,38 @@
       "openWarning": "Fără parolă, oricine ajunge la această adresă poate folosi aplicația, inclusiv secretele și tokenurile tale. Activează autentificarea sau păstrează adresa 127.0.0.1.",
       "address": "Adresă",
       "addressHint": "Se aplică la câteva clipe după salvare. Browserele trimit parola basic auth ca text simplu peste http: folosește-o într-o rețea de încredere sau în spatele unui tunel ori proxy invers cu https."
+    },
+    "nodes": {
+      "intro": "Rulează VM-urile agenților tăi pe alte calculatoare care rulează această aplicație. Acest calculator păstrează sesiunile, secretele și tokenurile Claude; un nod doar rulează VM-ul și vede ce face agentul. Folosește noduri în care ai încredere.",
+      "hubTitle": "Calculatoarele care rulează VM-urile mele",
+      "local": "Acest calculator rulează VM-uri",
+      "inUse": "{{running}} din {{slots}} folosite",
+      "online": "Conectat",
+      "offline": "Deconectat",
+      "off": "Oprit",
+      "unusable": "Nu poate fi folosit",
+      "enabled": "Folosește acest nod",
+      "slots": "VM-uri simultane",
+      "add": "Adaugă un nod",
+      "name": "Nume",
+      "address": "Adresă",
+      "addressHint": "host:port al nodului, de exemplu 192.168.1.20:7881",
+      "key": "Cheie",
+      "keyHint": "Cheia afișată pe nod (Setări > Noduri acolo).",
+      "check": "Verifică nodul",
+      "fingerprint": "Amprenta certificatului",
+      "fingerprintHint": "Compar-o cu amprenta afișată pe nod. Dacă diferă, nu adăuga nodul.",
+      "trust": "Am încredere în acest nod, adaugă-l",
+      "roleTitle": "Lasă alte calculatoare să folosească acest calculator",
+      "roleIntro": "Alte calculatoare care rulează această aplicație pot porni VM-uri aici. Au nevoie de cheia și certificatul de mai jos. Imaginile de disc sunt copiate aici la prima folosire.",
+      "forced": "Aplicația a fost pornită cu --node, deci acest calculator acceptă VM-uri indiferent de comutator. Adresa, portul și cheia de mai jos se aplică în continuare.",
+      "accept": "Acceptă VM-uri de la alte calculatoare",
+      "bind": "Adresa pe care ascultă",
+      "bindHint": "0.0.0.0 înseamnă toate rețelele calculatorului; 127.0.0.1 doar acest calculator.",
+      "port": "Port",
+      "newKey": "Cheie nouă",
+      "yourKeyHint": "Dă această cheie calculatorului care va folosi acest calculator. O cheie nouă blochează calculatoarele care o au pe cea veche.",
+      "yourFingerprintHint": "Certificatul acestui calculator. Celălalt calculator îl arată la adăugare: trebuie să fie identic."
     }
   },
   "updates": {

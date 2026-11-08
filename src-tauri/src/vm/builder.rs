@@ -217,6 +217,18 @@ impl Serial {
         Serial { qemu_arg: format!("pipe:{short}"), chardev: format!("pipe,path={short}"), name: format!(r"\\.\pipe\{short}") }
     }
 
+    /// The private folder made for a socket whose path was too long: QEMU must be allowed to write there.
+    pub fn short_dir(&self) -> Option<&Path> {
+        #[cfg(unix)]
+        {
+            self.short_dir.as_deref()
+        }
+        #[cfg(not(unix))]
+        {
+            None
+        }
+    }
+
     /// Connects once QEMU has created the socket or pipe.
     #[cfg(unix)]
     pub async fn connect(&self) -> Result<Box<dyn Stream>, String> {
