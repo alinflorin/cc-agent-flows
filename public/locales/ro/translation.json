@@ -345,6 +345,8 @@
       "builderCpus": "vCPU constructor",
       "builderHint": "VM-ul care construiește imaginile.",
       "builderMemory": "Memorie constructor (MB)",
+      "debugLogs": "Jurnale detaliate ale agenților",
+      "debugLogsHint": "Pentru depanare: fiecare rulare a unui agent înregistrează și jurnalul de depanare și erorile Claude Code (o intrare agent_debug în jurnalul sesiunii), iar rezultatele lungi ale uneltelor sunt tăiate mai puțin în MCP. Agentul tău le citește, împreună cu mesajele, apelurile și rezultatele agenților, prin MCP cu sessions log --agent. Dezactivat implicit.",
       "confine": "Izolează procesul mașinii virtuale",
       "confineHint": "Închide procesul QEMU pe acest calculator, astfel încât o eroare în el să nu poată ajunge la fișierele tale sau să pornească alte programe (Landlock și seccomp pe Linux, un profil de sandbox pe macOS, un obiect job pe Windows). Dezactivează doar dacă mașinile virtuale nu pornesc."
     },

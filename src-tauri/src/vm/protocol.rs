@@ -78,6 +78,10 @@ pub struct Task {
     /// session list instead of a new one per VM.
     #[serde(default)]
     pub device_id: Option<String>,
+    /// Debug logs (Settings > VM): `claude` runs with `--debug-file` and `agentd` sends the end of that log
+    /// and of `claude`'s error output as an `agent_debug` event before the final.
+    #[serde(default)]
+    pub debug: bool,
     /// Hard limit for the `claude` run.
     #[serde(default = "default_timeout")]
     #[cfg_attr(test, ts(type = "number"))]

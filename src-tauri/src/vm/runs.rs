@@ -487,6 +487,7 @@ mod tests {
             env: vec![TaskEnv { name: "TEAM".into(), value: "red".into() }],
             device_id: None,
             timeout_secs: 120,
+            debug: false,
         };
         let who = identity(&[("test", "boot")], "r-test");
         let mut rx = crate::vm::agent::drive(stream, Bootstrap {

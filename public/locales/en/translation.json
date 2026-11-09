@@ -345,6 +345,8 @@
       "builderCpus": "Builder vCPUs",
       "builderHint": "The VM that builds images.",
       "builderMemory": "Builder memory (MB)",
+      "debugLogs": "Detailed agent logs",
+      "debugLogsHint": "For debugging: each agent run also logs Claude Code's own debug log and error output (an agent_debug entry in the session log) and long tool results are clipped less in MCP. Your agent reads it, with the agents' messages, tool calls and results, through MCP with sessions log --agent. Off by default.",
       "confine": "Confine the VM process",
       "confineHint": "Boxes in the QEMU process on this computer so that a bug in it cannot reach your files or run other programs (Landlock and seccomp on Linux, a sandbox profile on macOS, a job object on Windows). Turn off only if VMs fail to start."
     },

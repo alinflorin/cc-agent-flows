@@ -32,7 +32,7 @@ integrations list <scope> | save <scope> [--previous NAME] (stdin: integration J
 images list <scope> | get <id> <scope> | save <scope> [--id ID] (stdin: spec JSON) | build <id> <scope> | delete <id> <scope> --yes
 network get <scope> | add <scope> <host>... | remove <scope> <host>...
 workflows list --project P | get <id> --project P | standard --project P | save --project P [--id ID] [--name N] [--prompt P] (stdin: workflow JSON) | delete <id> --project P --yes
-sessions list --project P | get <id> --project P | log <id> --project P [--last N]
+sessions list --project P | get <id> --project P | log <id> --project P [--last N] [--agent [--node ID]]
 sessions start --project P [--workflow W] [--autonomy ask|never] --task T|stdin | continue <id> --project P | message <id> --project P (text in --text or stdin)
 sessions reply <id> --project P [--approve|--reject] (text in --text or stdin) | cancel <id> --project P
 
@@ -86,7 +86,7 @@ struct Args {
     bools: BTreeSet<String>,
 }
 
-const BOOL_FLAGS: &[&str] = &["global", "yes", "approve", "reject"];
+const BOOL_FLAGS: &[&str] = &["global", "yes", "approve", "reject", "agent"];
 
 fn parse(tokens: Vec<String>) -> Result<Args, String> {
     let mut a = Args::default();
@@ -538,8 +538,21 @@ fn text(a: &Args, flag: &str, stdin: Option<&str>) -> Option<String> {
     a.flag(flag).map(str::to_string).or_else(|| stdin.filter(|s| !s.trim().is_empty()).map(str::to_string))
 }
 
+/// Shortens every long string in `v` (tool results can be huge), saying how much was cut.
+fn clip_strings(v: &mut serde_json::Value, max: usize) {
+    match v {
+        serde_json::Value::String(s) if s.chars().count() > max => {
+            let total = s.chars().count();
+            *s = format!("{}... [{} more characters]", s.chars().take(max).collect::<String>(), total - max);
+        }
+        serde_json::Value::Array(a) => a.iter_mut().for_each(|x| clip_strings(x, max)),
+        serde_json::Value::Object(o) => o.values_mut().for_each(|x| clip_strings(x, max)),
+        _ => {}
+    }
+}
+
 fn sessions_cmd(app: &AppHandle, cfg: &Config, verb: &str, a: &Args, stdin: Option<&str>) -> Result<String, String> {
-    a.only(&["project", "global", "workflow", "autonomy", "task", "text", "last", "approve", "reject"])?;
+    a.only(&["project", "global", "workflow", "autonomy", "task", "text", "last", "approve", "reject", "agent", "node"])?;
     let project = a.project(app)?;
     let id = || a.arg(2, "id").map(str::to_string);
     match verb {
@@ -548,7 +561,22 @@ fn sessions_cmd(app: &AppHandle, cfg: &Config, verb: &str, a: &Args, stdin: Opti
         "log" => {
             let last: usize = a.flag("last").map_or(Ok(40), str::parse).map_err(|_| "--last is a number")?;
             // the agents' own messages are most of a log: left out, the rest tells what happened
-            let log: Vec<_> = eng::session_log(app.clone(), project, id()?)?.into_iter().filter(|e| e["kind"] != "agent").collect();
+            // --agent: also the agents' own entries (messages, tool calls and results, and with Settings > VM >
+            // detailed logs on, their `agent_debug` event: claude's debug log and error output); --node N keeps one node's.
+            // Long texts are clipped, 20000 characters with the setting on, else 3000.
+            let agent = a.bools.contains("agent");
+            let node = a.flag("node");
+            let clip = if crate::config::vm_settings::current(app).debug_logs { 20_000 } else { 3_000 };
+            let log: Vec<_> = eng::session_log(app.clone(), project, id()?)?
+                .into_iter()
+                .filter(|e| e["kind"] != "agent" || (agent && node.is_none_or(|n| e["body"]["node"] == n)))
+                .map(|mut e| {
+                    if e["kind"] == "agent" {
+                        clip_strings(&mut e["body"]["event"], clip);
+                    }
+                    e
+                })
+                .collect();
             json(&log[log.len().saturating_sub(last.min(200))..])
         }
         "start" => {

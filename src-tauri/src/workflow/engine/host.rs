@@ -86,6 +86,7 @@ impl Host for RealHost {
             Err(e) => return failed(format!("the profile {}: {e}", req.profile)),
         };
         let task = Task {
+            debug: crate::config::vm_settings::current(&self.app).debug_logs,
             prompt: req.prompt,
             model: profile.model.clone(),
             effort: Some(profile.effort_or_default()),

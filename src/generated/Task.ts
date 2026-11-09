@@ -30,6 +30,11 @@ env: Array<TaskEnv>,
  */
 device_id: string | null, 
 /**
+ * Debug logs (Settings > VM): `claude` runs with `--debug-file` and `agentd` sends the end of that log
+ * and of `claude`'s error output as an `agent_debug` event before the final.
+ */
+debug: boolean, 
+/**
  * Hard limit for the `claude` run.
  */
 timeout_secs: number, };

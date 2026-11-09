@@ -20,6 +20,7 @@ export interface VmSettings {
   builder_cpus: number;
   builder_memory_mb: number;
   confine: boolean;
+  debug_logs: boolean;
 }
 
 const useStyles = makeStyles({
@@ -133,6 +134,9 @@ export function VmSettingsSection() {
       </div>
       <Field hint={t("settings.vm.confineHint")}>
         <Switch checked={v.confine} label={t("settings.vm.confine")} onChange={(_, d) => set({ confine: d.checked })} />
+      </Field>
+      <Field hint={t("settings.vm.debugLogsHint")}>
+        <Switch checked={v.debug_logs} label={t("settings.vm.debugLogs")} onChange={(_, d) => set({ debug_logs: d.checked })} />
       </Field>
       <div className={styles.actions}>
         <Button appearance="primary" disabled={!dirty} onClick={() => void save()}>

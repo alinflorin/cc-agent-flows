@@ -99,7 +99,7 @@ result lists `problems` (codes, with the node): fix them. Webhook tokens are gen
   creates and starts one and returns its id; `--autonomy never` makes agents assume instead of asking the
   user (otherwise questions and approval gates wait for an answer). Poll with `sessions get` (status:
   new, running, waiting, done, failed, cancelled, interrupted; `pending` holds the question or approval
-  and `result` the outcome); `sessions log` shows what happened without the agents' own messages. Answer a
+  and `result` the outcome); `sessions log` shows what happened without the agents' own messages; add `--agent` to also get the agents' own entries (messages, tool calls and tool results; long texts are clipped; `--node ID` keeps one workflow node) and, when the user turned on Settings > General > Virtual machines > "Detailed agent logs", an `agent_debug` entry per run: Claude Code's own debug log and error output. Use it to find out what an agent did and why it failed.
   waiting session with `sessions reply` (`--approve` / `--reject` for gates, text for questions) only if the
   user told you how; otherwise ask the user. `message` starts a new turn of a finished session,
   `continue` resumes an interrupted or failed one, `cancel` stops it.

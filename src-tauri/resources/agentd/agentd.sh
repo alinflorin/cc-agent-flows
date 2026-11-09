@@ -151,6 +151,7 @@ _t=$(printf '%s' "$TASK" | jq -r '
 	"EFFORT=\($b.effort // "" | tostring | @sh)",
 	"RESUME=\($b.resume // "" | tostring | @sh)",
 	"SCHEMA=\($schema | @sh)",
+	"DEBUG=\($b.debug // false | tostring | @sh)",
 	"TIMEOUT=\($b.timeout_secs // "" | tostring | @sh)",
 	"SYSTEM=\($b.system_prompt // "" | tostring | @sh)",
 	"DEVICE=\($b.device_id // "" | tostring | @sh)",
@@ -235,6 +236,11 @@ esac
 set -- -p "$PROMPT" --output-format stream-json --verbose \
 	--dangerously-skip-permissions --tools "$CLAUDE_TOOLS" --disable-slash-commands --strict-mcp-config
 if [ "$RESUME" = true ]; then set -- "$@" --resume "$SID"; else set -- "$@" --session-id "$SID" --no-session-persistence; fi
+DBG=
+if [ "$DEBUG" = true ]; then
+	# claude's own debug log, in a file the agent user can write (the run's folder $T is root's)
+	DBG=$(mktemp) && { [ -z "$RUN_AS" ] || chown "$RUN_AS:$RUN_AS" "$DBG"; } && set -- "$@" --debug-file "$DBG"
+fi
 [ -z "$MODEL" ] || set -- "$@" --model "$MODEL"
 [ -z "$EFFORT" ] || set -- "$@" --effort "$EFFORT"
 # The image's notes on its command-line tools (`*.md` written when it was built, see images.rs),
@@ -362,6 +368,11 @@ else
 			exit_code: $code}}')
 fi
 [ -n "$FINAL" ] || fail "could not build the final message"
+if [ "$DEBUG" = true ]; then
+	# seq 0: not one of claude's lines (the app logs it with the agent's events)
+	send "$(jq -nc --arg e "$(tail -c 20000 "$T/stderr" 2>/dev/null)" --arg d "$(tail -c 60000 "${DBG:-/dev/null}" 2>/dev/null)" --argjson code "$CODE" \
+		'{kind: "event", body: {seq: 0, event: {type: "agent_debug", exit_code: $code, stderr: $e, debug_log: $d}}}')"
+fi
 disk_report
 send "$FINAL"
 finish

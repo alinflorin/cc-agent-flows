@@ -48,6 +48,9 @@ pub struct VmSettings {
     /// Box in the QEMU process on this computer (see `vm::confine`): on by default; off only when
     /// it gets in the way of a VM starting.
     pub confine: bool,
+    /// More detail in the logs of agent VM runs (QEMU's command line and output, the guest's console,
+    /// timings): off by default, for debugging. Not exported (a debugging aid, not a preference).
+    pub debug_logs: bool,
 }
 
 impl Default for VmSettings {
@@ -65,6 +68,7 @@ impl Default for VmSettings {
             builder_cpus: 2,
             builder_memory_mb: 1024,
             confine: true,
+            debug_logs: false,
         }
     }
 }
