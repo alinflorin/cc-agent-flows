@@ -79,6 +79,12 @@ const RLERROR: u8 = 7;
 
 /// The largest message either side may send.
 const MAX_MSIZE: u32 = 1 << 20;
+/// The message size the server offers in `Tversion`, whatever the client asks (agentd asks for
+/// 256 KiB). In the guest the traffic passes through fifos of 64 KiB (see `agentd`): the kernel's
+/// 9p client writes a whole message to one, and a message that does not fit never arrives (a
+/// write or read of 64 KiB or more hung the guest for good, measured). Larger messages gain
+/// nothing here: with 64 KiB a debug build moves ~300 MB/s.
+const OFFER_MSIZE: u32 = 1 << 16;
 const AT_REMOVEDIR: u32 = 0x200;
 const SETATTR_MODE: u32 = 1;
 const SETATTR_SIZE: u32 = 8;
@@ -501,7 +507,7 @@ impl Server {
             TVERSION => {
                 let m = r.u32()?;
                 let v = r.str()?;
-                self.msize = m.clamp(4096, MAX_MSIZE);
+                self.msize = m.clamp(4096, OFFER_MSIZE);
                 self.fids.clear();
                 w.u32(self.msize).str(if v.starts_with("9P2000.L") { "9P2000.L" } else { "unknown" });
             }
@@ -1089,7 +1095,8 @@ mod tests {
     }
 
     /// By hand, with a VM: `P9_SOCK=/tmp/x/s P9_DIR=/some/dir cargo test serve_for_a_vm -- --ignored`
-    /// serves the folder on a unix socket (QEMU connects with `-chardev socket,path=...`) for 80 s.
+    /// serves the folder on a unix socket (QEMU connects with `-chardev socket,path=...`) for 80 s
+    /// (`P9_SECS` changes that).
     #[cfg(unix)]
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
@@ -1099,6 +1106,6 @@ mod tests {
         let l = tokio::net::UnixListener::bind(&sock).unwrap();
         let (s, _) = l.accept().await.unwrap();
         let q = quota_for(&dir, 1 << 30);
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(80), serve(Box::new(s), dir, q)).await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(std::env::var("P9_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(80)), serve(Box::new(s), dir, q)).await;
     }
 }
