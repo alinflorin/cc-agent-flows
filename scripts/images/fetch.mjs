@@ -7,7 +7,7 @@
 // host's architecture: aarch64 targets get the aarch64 image, everything else x86_64. Without
 // --required a missing image only warns.
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
