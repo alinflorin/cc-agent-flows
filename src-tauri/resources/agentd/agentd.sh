@@ -296,7 +296,13 @@ run_claude() {
 
 # `ccaf-init` started the tunnel at boot; it has been coming up since. `claude` needs it.
 if [ "$TUNNEL" = true ]; then
-	read -r _rc _tu <"$TUNNEL_FIFO" 2>/dev/null
+	# the relay reports through the fifo once it listens; if it died before that nothing ever opens
+	# the fifo, so the wait is bounded
+	_tl=$(timeout 120 cat "$TUNNEL_FIFO" 2>/dev/null)
+	_rc=${_tl%% *}
+	_tu=
+	case $_tl in *" "*) _tu=${_tl#* } ;; esac
+	[ -n "$_tl" ] || fail "tunnel: the relay did not report in 120 s: $(tail -c 500 "$TUNNEL_FIFO.err" 2>/dev/null)"
 	[ "${_rc:-1}" = 0 ] || fail "tunnel: cannot reach the network proxy (relay exit ${_rc:-?}): $(tail -c 500 "$TUNNEL_FIFO.err" 2>/dev/null)"
 fi
 

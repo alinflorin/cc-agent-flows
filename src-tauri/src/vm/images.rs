@@ -243,7 +243,7 @@ pub fn valid_id(id: &str) -> bool {
     !id.is_empty() && id != BASE && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-const SETUP_FILES: [&str; 5] = ["setup.sh", "agentd.sh", "agentd.initd", "ccaf-init.sh", "ccaf-relay"];
+const SETUP_FILES: [&str; 5] = ["setup.sh", "agentd.sh", "agentd.initd", "ccaf-init.sh", "ccaf-relay.gz"];
 
 /// What the base image is made of: the setup files and the sizes of the plain image and kernel.
 fn base_stamp(app: &AppHandle) -> Result<String, String> {

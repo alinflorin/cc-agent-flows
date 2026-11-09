@@ -7,8 +7,9 @@
 // host's architecture: aarch64 targets get the aarch64 image, everything else x86_64. Without
 // --required a missing image only warns.
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -29,14 +30,18 @@ const file = join(dest, name);
 const marker = `${file}.version`;
 
 // The guest's network relay (relay/, built on CI for both arches and committed in vendor/relay): a
-// setup file of the base image, so it goes where the others are.
+// setup file of the base image, so it goes where the others are. It is shipped gzipped: the Linux
+// AppImage tooling rewrites every ELF file it finds in the bundle (patchelf), which corrupted this
+// static binary (it crashed at start, the VM's tunnel never came up and the run hung); `setup.sh`
+// unpacks it in the guest.
 const relayName = `ccaf-relay-${arch}`;
 const relaySource = join(here, "../../vendor/relay", relayName);
-const relayDest = join(here, "../../src-tauri/resources/agentd/ccaf-relay");
+const relayDest = join(here, "../../src-tauri/resources/agentd/ccaf-relay.gz");
 
 try {
   if (!existsSync(relaySource)) throw new Error(`vendor/relay has no ${relayName}`);
-  copyFileSync(relaySource, relayDest);
+  writeFileSync(relayDest, gzipSync(readFileSync(relaySource), { level: 9 }));
+  rmSync(join(here, "../../src-tauri/resources/agentd/ccaf-relay"), { force: true });
   for (const n of names) if (!existsSync(join(here, "../../vendor/images", n))) throw new Error(`vendor/images has no ${n}`);
   const stamp = names.map((n) => { const st = statSync(join(here, "../../vendor/images", n)); return `${st.size} ${st.mtimeMs}`; }).join(" ");
   if (existsSync(file) && existsSync(marker) && readFileSync(marker, "utf8") === stamp) {

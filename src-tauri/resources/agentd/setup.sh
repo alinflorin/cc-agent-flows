@@ -29,8 +29,14 @@ install -m 755 /tmp/setup/agentd.initd /etc/init.d/agentd
 rc-update add agentd default
 # the init agent VMs boot with (init=/sbin/ccaf-init): agentd without OpenRC
 install -m 755 /tmp/setup/ccaf-init.sh /sbin/ccaf-init
-# carries the agent's traffic to the app's egress proxy (static, see relay/)
-install -m 755 /tmp/setup/ccaf-relay /usr/local/bin/ccaf-relay
+# carries the agent's traffic to the app's egress proxy (static, see relay/). It arrives gzipped:
+# the AppImage tooling corrupts ELF files in the bundle, so none is shipped as one.
+gunzip -c /tmp/setup/ccaf-relay.gz >/usr/local/bin/ccaf-relay
+chmod 755 /usr/local/bin/ccaf-relay
+# it must run (a broken one makes every run hang waiting for the tunnel): unknown argument = exit 2
+_rc=0
+/usr/local/bin/ccaf-relay --check 2>/dev/null || _rc=$?
+[ "$_rc" = 2 ] || { echo "ccaf-relay does not run (exit $_rc)"; exit 1; }
 
 # Checks: everything agentd needs is there, and nothing that would let an agent be reached or
 # escalate.

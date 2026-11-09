@@ -375,7 +375,7 @@ mod tests {
         }
         let (mut vm, mut con, work) = boot("setup").await;
         con.run("mkdir -p /tmp/setup", |_| {}).await.unwrap();
-        for f in ["setup.sh", "agentd.sh", "agentd.initd", "ccaf-init.sh", "ccaf-relay"] {
+        for f in ["setup.sh", "agentd.sh", "agentd.initd", "ccaf-init.sh", "ccaf-relay.gz"] {
             con.put(&format!("/tmp/setup/{f}"), &std::fs::read(res().join("agentd").join(f)).unwrap()).await.unwrap();
         }
         let code = within(7200, "setup", con.run(&script_cmd("/tmp/setup/setup.sh"), |l| eprintln!("{l}"))).await.unwrap();

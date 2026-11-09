@@ -281,4 +281,5 @@ dist
 
 # built on CI, copied here by scripts/images/fetch.mjs
 src-tauri/resources/agentd/ccaf-relay
+src-tauri/resources/agentd/ccaf-relay.gz
 relay/target/
