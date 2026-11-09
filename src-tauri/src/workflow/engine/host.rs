@@ -217,6 +217,9 @@ fn prepare(app: &AppHandle, project: &str, workflow: &str) -> Result<(Workflow, 
         if crate::vm::images::path(app, &Scope::project(project), image).is_none() {
             return Err(format!("the image {image} (profile {}) is not built yet", n.profile));
         }
+        if crate::vm::images::rebuilding(app, &Scope::project(project), image) {
+            return Err(format!("the image {image} (profile {}) is being built, or the one it is built on: wait for it to finish (Images)", n.profile));
+        }
         profiles.insert(n.profile.clone(), profile);
     }
     if !crate::config::accounts::usable(app) {

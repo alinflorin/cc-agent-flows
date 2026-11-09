@@ -493,6 +493,25 @@ pub fn path(app: &AppHandle, scope: &Scope, id: &str) -> Option<PathBuf> {
     built(app, &resolve(app, scope, id)?)
 }
 
+/// Whether the image a run in `scope` means by `id`, or one it is built on, is being built or waits
+/// to be (its disk is about to change, or a rebuild of its parent is about to replace it).
+pub fn rebuilding(app: &AppHandle, scope: &Scope, id: &str) -> bool {
+    let mut next = resolve(app, scope, id);
+    // a chain ends at the base; the bound keeps a cycle in hand-edited specs from looping
+    for _ in 0..16 {
+        let Some(r) = next else { return false };
+        {
+            let images = app.state::<Images>();
+            let g = images.0.lock().unwrap();
+            if g.building.as_ref() == Some(&r) || g.queue.contains(&r) {
+                return true;
+            }
+        }
+        next = if r == Ref::base() { None } else { spec_of(app, &r).and_then(|sp| parent_of(app, &r, &sp)) };
+    }
+    false
+}
+
 /// Builds the base image if it is missing or stale, and otherwise the custom images that are out
 /// of date (run at startup: this is how an app update, or an edit that was never built, reaches
 /// the images). When the base is rebuilt, the images built on it follow in the queue.
