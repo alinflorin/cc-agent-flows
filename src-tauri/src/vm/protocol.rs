@@ -78,6 +78,10 @@ pub struct Task {
     /// session list instead of a new one per VM.
     #[serde(default)]
     pub device_id: Option<String>,
+    /// The `--mcp-config` JSON (`{"mcpServers": {...}}`) from the agent profile, if it has MCP
+    /// servers. `agentd` writes it to a file; `--strict-mcp-config` makes it the only source.
+    #[serde(default)]
+    pub mcp_config: Option<String>,
     /// Debug logs (Settings > VM): `claude` runs with `--debug-file` and `agentd` sends the end of that log
     /// and of `claude`'s error output as an `agent_debug` event before the final.
     #[serde(default)]

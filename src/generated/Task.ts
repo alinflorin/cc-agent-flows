@@ -30,6 +30,11 @@ env: Array<TaskEnv>,
  */
 device_id: string | null, 
 /**
+ * The `--mcp-config` JSON (`{"mcpServers": {...}}`) from the agent profile, if it has MCP
+ * servers. `agentd` writes it to a file; `--strict-mcp-config` makes it the only source.
+ */
+mcp_config: string | null, 
+/**
  * Debug logs (Settings > VM): `claude` runs with `--debug-file` and `agentd` sends the end of that log
  * and of `claude`'s error output as an `agent_debug` event before the final.
  */

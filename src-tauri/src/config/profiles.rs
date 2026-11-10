@@ -27,6 +27,145 @@ pub struct EnvVar {
     pub value: String,
 }
 
+/// How an MCP server is reached.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum McpKind {
+    /// A program started in the VM, talking over stdin/stdout.
+    #[default]
+    Stdio,
+    /// Streamable HTTP.
+    Http,
+    /// Server-sent events (the older remote transport).
+    Sse,
+}
+
+/// An MCP server the agent's `claude` gets (`--mcp-config`). Values may hold `${var:NAME}`,
+/// `${secret:NAME}` and `${injection:NAME}` like environment variables do.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct McpServer {
+    /// The key in `mcpServers`; tools show up as `mcp__<name>__...`.
+    pub name: String,
+    #[serde(default)]
+    pub kind: McpKind,
+    /// `stdio`: the program (it must exist in the image) and its arguments.
+    #[serde(default)]
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// `stdio`: environment variables of the program.
+    #[serde(default)]
+    pub env: Vec<EnvVar>,
+    /// `http` and `sse`: the endpoint. Its host is allowed for the agent automatically.
+    #[serde(default)]
+    pub url: String,
+    /// `http` and `sse`: request headers.
+    #[serde(default)]
+    pub headers: Vec<EnvVar>,
+}
+
+const MAX_MCP_SERVERS: usize = 20;
+
+impl McpServer {
+    fn validate(&self) -> Result<(), String> {
+        let n = &self.name;
+        if n.is_empty() || n.len() > 64 || !n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+            return Err(format!("{n:?} is not a valid MCP server name (letters, digits, - and _)"));
+        }
+        if self.args.len() > 100 || self.env.len() > 100 || self.headers.len() > 100 {
+            return Err(format!("the MCP server {n} has too many arguments, variables or headers"));
+        }
+        let texts = self.args.iter().chain([&self.command, &self.url]).chain(self.env.iter().chain(&self.headers).flat_map(|v| [&v.name, &v.value]));
+        if texts.clone().any(|t| t.contains('\0') || t.len() > 16 * 1024) {
+            return Err(format!("the MCP server {n} has a value that is too long or has a NUL"));
+        }
+        match self.kind {
+            McpKind::Stdio => {
+                if self.command.trim().is_empty() {
+                    return Err(format!("the MCP server {n} needs a command"));
+                }
+                validate_env(self.env.iter().map(|v| (v.name.as_str(), Some(v.value.as_str()))))?;
+            }
+            McpKind::Http | McpKind::Sse => {
+                // a `${var:...}` is only known at run time, when the URL is checked again
+                if !self.url.contains("${") && mcp_url_host(&self.url).is_none() {
+                    return Err(format!("the MCP server {n} needs an https:// (or http://) URL with a host name"));
+                }
+                let mut seen = std::collections::HashSet::new();
+                for h in &self.headers {
+                    let ok = !h.name.is_empty() && h.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+                    if !ok {
+                        return Err(format!("{:?} is not a valid header name", h.name));
+                    }
+                    if !seen.insert(h.name.to_ascii_lowercase()) {
+                        return Err(format!("the header {} is set twice", h.name));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The host name of an MCP endpoint (`http(s)://host[:port]/...`); `None` for anything else or an
+/// IP address (the egress proxy only allows names).
+pub fn mcp_url_host(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    if authority.contains('@') {
+        return None;
+    }
+    let host = authority.rsplit_once(':').map_or(authority, |(h, port)| if port.chars().all(|c| c.is_ascii_digit()) { h } else { authority });
+    clean_host(host).ok()
+}
+
+/// The values of a profile's MCP servers as synthetic variables, so they go through the same
+/// expansion as the environment (`injections::prepare`); [`mcp_config`] puts them back.
+pub fn mcp_vars(servers: &[McpServer]) -> Vec<EnvVar> {
+    let v = |name: String, value: &str| EnvVar { name, value: value.to_string() };
+    let mut out = vec![];
+    for (i, s) in servers.iter().enumerate() {
+        out.push(v(format!("M{i}_COMMAND"), &s.command));
+        out.push(v(format!("M{i}_URL"), &s.url));
+        out.extend(s.args.iter().enumerate().map(|(j, a)| v(format!("M{i}_ARG{j}"), a)));
+        out.extend(s.env.iter().enumerate().map(|(j, e)| v(format!("M{i}_ENV{j}"), &e.value)));
+        out.extend(s.headers.iter().enumerate().map(|(j, h)| v(format!("M{i}_HDR{j}"), &h.value)));
+    }
+    out
+}
+
+/// The `--mcp-config` JSON for `servers`, from their expanded values (what [`mcp_vars`] gave,
+/// after expansion), and the hosts of the remote ones. `None` when there are no servers.
+pub fn mcp_config(servers: &[McpServer], expanded: &[crate::vm::protocol::TaskEnv]) -> Result<Option<(String, Vec<String>)>, String> {
+    if servers.is_empty() {
+        return Ok(None);
+    }
+    let get = |name: String| expanded.iter().find(|e| e.name == name).map(|e| e.value.clone()).unwrap_or_default();
+    let mut map = serde_json::Map::new();
+    let mut hosts = vec![];
+    for (i, s) in servers.iter().enumerate() {
+        let entry = match s.kind {
+            McpKind::Stdio => {
+                let args: Vec<String> = (0..s.args.len()).map(|j| get(format!("M{i}_ARG{j}"))).collect();
+                let env: serde_json::Map<String, serde_json::Value> = s.env.iter().enumerate().map(|(j, e)| (e.name.clone(), get(format!("M{i}_ENV{j}")).into())).collect();
+                serde_json::json!({"type": "stdio", "command": get(format!("M{i}_COMMAND")), "args": args, "env": env})
+            }
+            McpKind::Http | McpKind::Sse => {
+                let url = get(format!("M{i}_URL"));
+                let host = mcp_url_host(&url).ok_or_else(|| format!("the MCP server {}: {url:?} is not an http(s) URL with a host name", s.name))?;
+                if !hosts.contains(&host) {
+                    hosts.push(host);
+                }
+                let headers: serde_json::Map<String, serde_json::Value> = s.headers.iter().enumerate().map(|(j, h)| (h.name.clone(), get(format!("M{i}_HDR{j}")).into())).collect();
+                let kind = if s.kind == McpKind::Http { "http" } else { "sse" };
+                serde_json::json!({"type": kind, "url": url, "headers": headers})
+            }
+        };
+        map.insert(s.name.clone(), entry);
+    }
+    Ok(Some((serde_json::json!({"mcpServers": map}).to_string(), hosts)))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Profile {
     pub name: String,
@@ -75,6 +214,10 @@ pub struct Profile {
     /// ... and bytes it may take in. The connections close when one is used up.
     #[serde(default)]
     pub max_download_mb: Option<u32>,
+    /// MCP servers the agent's `claude` can use. Remote ones need their host reachable (it is
+    /// allowed automatically); a `stdio` command must exist in the image.
+    #[serde(default)]
+    pub mcp_servers: Vec<McpServer>,
     /// The id of the profile this one builds on (see [`resolve`]); `None` for a plain profile.
     #[serde(default)]
     pub extends: Option<String>,
@@ -241,6 +384,16 @@ impl Profile {
         if self.integrations.len() > 50 || self.integrations.iter().any(|n| n.is_empty() || n.len() > 80) {
             return Err("at most 50 integrations".into());
         }
+        if self.mcp_servers.len() > MAX_MCP_SERVERS {
+            return Err(format!("at most {MAX_MCP_SERVERS} MCP servers"));
+        }
+        let mut names = std::collections::HashSet::new();
+        for m in &self.mcp_servers {
+            m.validate()?;
+            if !names.insert(&m.name) {
+                return Err(format!("the MCP server {} is listed twice", m.name));
+            }
+        }
         let mut seen = std::collections::HashSet::new();
         for h in &self.allow_hosts {
             if !h.contains("${var:") && clean_host(h)? != *h {
@@ -396,6 +549,13 @@ fn inherit(parent: Profile, child: Profile) -> Profile {
         }
         a
     };
+    let mut mcp_servers = parent.mcp_servers;
+    for m in child.mcp_servers {
+        match mcp_servers.iter_mut().find(|e| e.name == m.name) {
+            Some(e) => *e = m,
+            None => mcp_servers.push(m),
+        }
+    }
     Profile {
         name: child.name,
         description: child.description,
@@ -412,6 +572,7 @@ fn inherit(parent: Profile, child: Profile) -> Profile {
         max_connections: child.max_connections.or(parent.max_connections),
         max_upload_mb: child.max_upload_mb.or(parent.max_upload_mb),
         max_download_mb: child.max_download_mb.or(parent.max_download_mb),
+        mcp_servers,
         extends: None,
     }
 }
@@ -544,10 +705,45 @@ pub fn profiles_delete(app: tauri::AppHandle, project: Option<String>, id: Strin
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mcp_servers_become_a_config_and_hosts() {
+        use crate::vm::protocol::TaskEnv;
+        let pair = |n: &str, v: &str| EnvVar { name: n.into(), value: v.into() };
+        let servers = vec![
+            McpServer { name: "docs".into(), kind: McpKind::Http, url: "https://mcp.example.com:8443/mcp".into(), headers: vec![pair("Authorization", "Bearer x")], ..Default::default() },
+            McpServer { name: "old".into(), kind: McpKind::Sse, url: "http://sse.example.org/sse".into(), ..Default::default() },
+            McpServer { name: "local".into(), command: "npx".into(), args: vec!["-y".into(), "pkg".into()], env: vec![pair("KEY", "v")], ..Default::default() },
+        ];
+        for s in &servers {
+            s.validate().unwrap();
+        }
+        let expanded: Vec<TaskEnv> = mcp_vars(&servers).into_iter().map(|v| TaskEnv { name: v.name, value: v.value }).collect();
+        let (json, hosts) = mcp_config(&servers, &expanded).unwrap().unwrap();
+        assert_eq!(hosts, vec!["mcp.example.com", "sse.example.org"]);
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["mcpServers"]["docs"]["type"], "http");
+        assert_eq!(v["mcpServers"]["docs"]["headers"]["Authorization"], "Bearer x");
+        assert_eq!(v["mcpServers"]["old"]["type"], "sse");
+        assert_eq!(v["mcpServers"]["local"]["args"], serde_json::json!(["-y", "pkg"]));
+        assert_eq!(v["mcpServers"]["local"]["env"]["KEY"], "v");
+        assert!(mcp_config(&[], &[]).unwrap().is_none());
+    }
+
+    #[test]
+    fn mcp_servers_are_checked() {
+        let bad = |s: McpServer| s.validate().is_err();
+        assert!(bad(McpServer { name: "a b".into(), ..Default::default() }));
+        assert!(bad(McpServer { name: "x".into(), ..Default::default() }), "stdio needs a command");
+        assert!(bad(McpServer { name: "x".into(), kind: McpKind::Http, url: "ftp://a.com".into(), ..Default::default() }));
+        assert!(bad(McpServer { name: "x".into(), kind: McpKind::Http, url: "http://127.0.0.1/mcp".into(), ..Default::default() }));
+        assert!(!bad(McpServer { name: "x".into(), kind: McpKind::Sse, url: "${var:URL}".into(), ..Default::default() }));
+        assert_eq!(mcp_url_host("https://user@a.com/"), None);
+    }
+
     use super::*;
 
     fn p(name: &str) -> Profile {
-        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: Some(DEFAULT_MEMORY_MB), work_disk_mb: None, image: Some("base".into()), allow_hosts: vec![], integrations: vec![], max_connections: None, max_upload_mb: None, max_download_mb: None, extends: None }
+        Profile { name: name.into(), description: String::new(), system_prompt: "sp".into(), env: vec![], model: None, effort: None, cpus: None, memory_mb: Some(DEFAULT_MEMORY_MB), work_disk_mb: None, image: Some("base".into()), allow_hosts: vec![], integrations: vec![], max_connections: None, max_upload_mb: None, max_download_mb: None, mcp_servers: vec![], extends: None }
     }
 
     #[test]

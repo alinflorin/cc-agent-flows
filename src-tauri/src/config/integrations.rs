@@ -322,6 +322,7 @@ mod tests {
             max_connections: None,
             max_upload_mb: None,
             max_download_mb: None,
+            mcp_servers: vec![],
             extends: None,
         }
     }

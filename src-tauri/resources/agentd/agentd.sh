@@ -154,6 +154,7 @@ _t=$(printf '%s' "$TASK" | jq -r '
 	"DEBUG=\($b.debug // false | tostring | @sh)",
 	"TIMEOUT=\($b.timeout_secs // "" | tostring | @sh)",
 	"SYSTEM=\($b.system_prompt // "" | tostring | @sh)",
+	"MCPCFG=\($b.mcp_config // "" | tostring | @sh)",
 	"DEVICE=\($b.device_id // "" | tostring | @sh)",
 	"ENVSET=\($env | @sh)",
 	"KEYS=\(try ($schema | fromjson | (.properties // {}) | keys | join(", ")) catch "" | @sh)"') || fail "bad task"
@@ -240,6 +241,13 @@ DBG=
 if [ "$DEBUG" = true ]; then
 	# claude's own debug log, in a file the agent user can write (the run's folder $T is root's)
 	DBG=$(mktemp) && { [ -z "$RUN_AS" ] || chown "$RUN_AS:$RUN_AS" "$DBG"; } && set -- "$@" --debug-file "$DBG"
+fi
+# The profile's MCP servers: a config file only the agent user can read (it may hold headers),
+# on top of --strict-mcp-config, so these are the only servers `claude` knows.
+if [ -n "$MCPCFG" ]; then
+	MCPF=$(mktemp) && printf '%s' "$MCPCFG" >"$MCPF" && chmod 600 "$MCPF" &&
+		{ [ -z "$RUN_AS" ] || chown "$RUN_AS:$RUN_AS" "$MCPF"; } || fail "mcp: cannot write the config"
+	set -- "$@" --mcp-config "$MCPF"
 fi
 [ -z "$MODEL" ] || set -- "$@" --model "$MODEL"
 [ -z "$EFFORT" ] || set -- "$@" --effort "$EFFORT"

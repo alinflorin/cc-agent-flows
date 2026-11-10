@@ -486,6 +486,7 @@ mod tests {
             system_prompt: Some("be brief".into()),
             env: vec![TaskEnv { name: "TEAM".into(), value: "red".into() }],
             device_id: None,
+            mcp_config: None,
             timeout_secs: 120,
             debug: false,
         };

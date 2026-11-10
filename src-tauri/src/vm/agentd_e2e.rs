@@ -32,6 +32,7 @@ mod e2e {
                 TaskEnv { name: "BAD NAME".into(), value: "x".into() },
             ],
             device_id: Some("ab".repeat(32)),
+            mcp_config: None,
             debug: false,
             timeout_secs,
         }

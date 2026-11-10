@@ -35,6 +35,7 @@ import { MODELS } from "../llm";
 import { useNotify } from "../notifications";
 import { call } from "../tauri";
 import { useProject } from "../project";
+import { McpServersEditor, type McpServer } from "../components/McpServersEditor";
 import { SettingsIntro } from "../components/SettingsIntro";
 
 interface EnvVar {
@@ -55,6 +56,7 @@ interface Profile {
   image: string | null;
   allow_hosts: string[];
   integrations: string[];
+  mcp_servers: McpServer[];
   max_connections: number | null;
   max_upload_mb: number | null;
   max_download_mb: number | null;
@@ -72,7 +74,7 @@ interface Entry extends Profile {
   global: boolean;
 }
 
-const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: "low", cpus: null, memory_mb: 2048, work_disk_mb: null, image: "base", allow_hosts: [], integrations: [], max_connections: null, max_upload_mb: null, max_download_mb: null, extends: null };
+const EMPTY: Profile = { name: "", description: "", system_prompt: "", env: [], model: null, effort: "low", cpus: null, memory_mb: 2048, work_disk_mb: null, image: "base", allow_hosts: [], integrations: [], mcp_servers: [], max_connections: null, max_upload_mb: null, max_download_mb: null, extends: null };
 
 const useStyles = makeStyles({
   list: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: tokens.spacingHorizontalM },
@@ -315,6 +317,9 @@ export function Profiles() {
                   </Field>
                   <Field label={t("profiles.allowHosts")} hint={t("profiles.allowHostsHint")}>
                     <HostList value={editing.profile.allow_hosts} onChange={(allow_hosts) => set({ allow_hosts })} placeholder="github.com" />
+                  </Field>
+                  <Field label={t("profiles.mcpServers")} hint={t("profiles.mcpServersHint")}>
+                    <McpServersEditor value={editing.profile.mcp_servers ?? []} onChange={(mcp_servers) => set({ mcp_servers })} />
                   </Field>
                   <Field label={t("profiles.maxConnections")} hint={t("profiles.maxConnectionsHint")}>
                     <Input

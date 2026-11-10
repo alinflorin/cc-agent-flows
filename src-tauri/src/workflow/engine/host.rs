@@ -81,10 +81,26 @@ impl Host for RealHost {
             Ok(v) => v,
             Err(e) => return failed(format!("the profile {}: {e}", req.profile)),
         };
-        let (env, injections) = match crate::config::injections::prepare(&self.app, &Scope::project(&self.project), &profile_env) {
+        // the MCP servers' values are expanded together with the environment (same variables,
+        // secrets and injections), then split off again
+        let mut all_vars = profile_env.clone();
+        all_vars.extend(crate::config::profiles::mcp_vars(&profile.mcp_servers));
+        let (mut env, injections) = match crate::config::injections::prepare(&self.app, &Scope::project(&self.project), &all_vars) {
             Ok(v) => v,
             Err(e) => return failed(format!("the profile {}: {e}", req.profile)),
         };
+        let mcp_expanded = env.split_off(profile_env.len());
+        let (mcp_config, mcp_hosts) = match crate::config::profiles::mcp_config(&profile.mcp_servers, &mcp_expanded) {
+            Ok(Some((json, hosts))) => (Some(json), hosts),
+            Ok(None) => (None, vec![]),
+            Err(e) => return failed(format!("the profile {}: {e}", req.profile)),
+        };
+        let mut profile_hosts = profile_hosts;
+        for h in mcp_hosts {
+            if !profile_hosts.contains(&h) {
+                profile_hosts.push(h);
+            }
+        }
         let task = Task {
             debug: crate::config::vm_settings::current(&self.app).debug_logs,
             prompt: req.prompt,
@@ -96,10 +112,11 @@ impl Host for RealHost {
             system_prompt: crate::workflow::combine_system_prompts(&self.instructions, &profile.system_prompt),
             env,
             device_id: Some(crate::config::profiles::device_id(&self.app, Some(&self.project), &req.profile)),
+            mcp_config,
             timeout_secs: u64::from(req.timeout_mins) * 60,
         };
         let scope = Scope::project(&self.project);
-        let watch = crate::net::leaks::watched(&profile_env, &|n| crate::config::secrets::secret_value(&scope, n));
+        let watch = crate::net::leaks::watched(&all_vars, &|n| crate::config::secrets::secret_value(&scope, n));
         // names the agent's work disk to the computer that keeps it
         let disk_key = format!("{}/{}/{}", self.project, self.sid, req.node);
         let work_disk = match crate::workflow::store::work_disk_path(&self.root, &self.sid, &req.node) {
