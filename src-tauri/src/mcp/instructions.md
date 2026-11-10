@@ -80,8 +80,8 @@ Commands that save structured data read a JSON object from `stdin`. Omitted opti
  "variables":[{"name":"GH_ORG","value":"acme"}],"secrets":[{"name":"GITHUB_TOKEN","value":null}],"injections":[]}
 ```
 
-**Workflow** (`workflows save --project P --name N`): an org chart. Start from `ccaf workflows standard --project P`
-(a valid example) or `workflows get`, and edit it rather than inventing from scratch.
+**Workflow** (`workflows save --project P --name N`): an org chart. Start from `workflows get` of an existing one
+(a valid example), and edit it rather than inventing from scratch.
 ```json
 {"nodes":[{"id":"lead","label":"Lead","x":0,"y":0,"kind":"agent","profile":"<profile id>","prompt":"What this agent does here","max_calls":20,"timeout_mins":30,"trigger":{"cron":"","token":"","autonomy":""}}],
  "edges":[{"id":"lead-dev","from":"lead","to":"dev","kind":"delegate"}]}

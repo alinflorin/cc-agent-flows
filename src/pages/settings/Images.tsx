@@ -23,7 +23,6 @@ import { Add20Regular, Delete20Regular, Edit20Regular } from "@fluentui/react-ic
 import { SettingsIntro } from "../../components/SettingsIntro";
 import { useConfirmDelete } from "../../components/Confirm";
 import { FormDialogSurface } from "../../components/FormDialogSurface";
-import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
@@ -158,7 +157,6 @@ export function ImagesSettings() {
         <Button appearance="primary" icon={<Add20Regular />} onClick={() => setEditing({ id: null, spec: { name: "", description: "", parent: "base", env: [], script: "", docs: [] } })}>
           {t("settings.images.new")}
         </Button>
-        <ResetDemoButton command="images_reset_demo" what="images" onDone={() => void refresh()} />
         </div>
       </SettingsIntro>
       <div className={styles.list}>

@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "cc-agent-flows"
-version = "1.9.4"
+version = "1.10.0"
 dependencies = [
  "argon2",
  "base64 0.23.1",

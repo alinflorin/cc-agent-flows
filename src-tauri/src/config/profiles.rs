@@ -1,7 +1,7 @@
 //! Agent profiles: how an agent behaves and which image it runs on. A profile has a name, a
 //! system prompt, environment variables and the id of an image (see `images.rs`; `base` is the
 //! built-in one). The user creates them in the UI; each is `<id>.json` in the app data dir. The
-//! app ships none, except the starter ones the user accepts on first start.
+//! app ships none.
 //!
 //! Everything in a profile travels in the `Task` when a run starts, nothing is baked into an
 //! image (variables baked into an image are set on the image itself).
@@ -294,6 +294,7 @@ fn user_path(user: &Path, id: &str) -> Result<PathBuf, String> {
     Ok(user.join(format!("{id}.json")))
 }
 
+#[cfg(test)]
 /// Saves a profile. `id` is `None` for a new one (derived from the name). Returns the id.
 pub fn save(user: &Path, id: Option<&str>, profile: &Profile) -> Result<String, String> {
     save_avoiding(user, id, profile, &[])
@@ -488,26 +489,6 @@ pub fn used_images(app: &tauri::AppHandle, project: Option<&str>) -> Vec<String>
         .collect()
 }
 
-/// The starter profiles of the demo project (`demo/demo.yaml`): the ones that work on code (developer, architect, reviewer) on the `developer` image, `qa` on its own, the rest on the base image; existing ones are left alone.
-///
-/// `reset`: the starter profiles are written again over what is there (the edits of the user are lost, other profiles are left alone).
-pub fn provision_defaults(app: &tauri::AppHandle, project: &str, reset: bool) -> Result<(), String> {
-    let dir = dir(app, project)?;
-    for (id, profile) in crate::demo::profiles() {
-        if !reset && user_path(&dir, &id)?.exists() {
-            continue;
-        }
-        save(&dir, Some(&id), &profile)?;
-    }
-    Ok(())
-}
-
-/// Page Agent profiles > Reset to demo content.
-#[tauri::command]
-pub fn profiles_reset_demo(app: tauri::AppHandle, project: String) -> Result<(), String> {
-    provision_defaults(&app, &project, true)
-}
-
 /// The profiles of the project (`project` null: the global ones), not the inherited global ones.
 #[tauri::command]
 pub fn profiles_list(app: tauri::AppHandle, project: Option<String>) -> Result<Vec<Entry>, String> {
@@ -602,25 +583,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
-    }
-
-    #[test]
-    fn demo_credentials_follow_least_privilege() {
-        // what a run gets: the profile's own variables plus those of its integrations
-        let demo_env = |id: &str| {
-            let profile = crate::demo::profiles().into_iter().find(|(i, _)| i == id).unwrap().1;
-            crate::config::integrations::merge(&profile, &crate::demo::integrations()).unwrap().0
-        };
-        let value = |id: &str, name: &str| demo_env(id).into_iter().find(|v| v.name == name).map(|v| v.value);
-        assert_eq!(value("developer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB}"));
-        assert_eq!(value("reviewer", "GH_TOKEN").as_deref(), Some("${injection:GITHUB}"));
-        assert_eq!(value("qa", "GH_TOKEN").as_deref(), Some("${injection:GITHUB_READONLY}"));
-        assert_eq!(value("architect", "JIRA_API_TOKEN").as_deref(), Some("${injection:JIRA}"));
-        assert_eq!(value("project-manager", "JIRA_API_TOKEN").as_deref(), Some("${injection:JIRA}"));
-        assert!(demo_env("orchestrator").is_empty());
-        for id in ["orchestrator", "project-manager", "business-analyst", "architect", "developer", "reviewer", "qa"] {
-            assert!(validate_env(demo_env(id).iter().map(|v| (v.name.as_str(), Some(v.value.as_str())))).is_ok(), "{id}");
-        }
     }
 
     fn entry(id: &str, profile: Profile) -> Entry {
@@ -775,20 +737,4 @@ mod tests {
         assert_eq!(list(&usr).len(), 1);
     }
 
-    #[test]
-    fn starter_profiles_list_the_hosts_of_their_injections() {
-        let demo = crate::demo::injections();
-        for (id, profile) in crate::demo::profiles() {
-            // as at run time, the variables are filled in first
-            let fill = |h: &str| crate::config::secrets::resolve(h, "var", &|_| Some("me.atlassian.net".to_string())).unwrap();
-            let rules = crate::net::egress::Rules::new([profile.allow_hosts.iter().map(|h| fill(h)).collect::<Vec<_>>()]);
-            for v in &profile.env {
-                let name = v.value.strip_prefix("${injection:").and_then(|n| n.strip_suffix('}'));
-                let Some(i) = name.and_then(|n| demo.iter().find(|i| i.name == n)) else { continue };
-                for r in &i.rules {
-                    assert!(rules.covers(&fill(&r.host)), "{id} uses {} but does not list {}", i.name, r.host);
-                }
-            }
-        }
-    }
 }

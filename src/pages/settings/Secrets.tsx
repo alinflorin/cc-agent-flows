@@ -4,7 +4,6 @@ import { Body1, Button, Field, Input, makeStyles, tokens } from "@fluentui/react
 import { Delete20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../../components/SettingsIntro";
 import { EmptyState, useConfirmDelete } from "../../components/Confirm";
-import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
@@ -73,7 +72,6 @@ export function SecretsSettings() {
     <div className={styles.form}>
       <SettingsIntro text={t("settings.secrets.intro")}>
         {!desktop && <Body1 block>{t("settings.secrets.desktopOnly")}</Body1>}
-        <ResetDemoButton command="secrets_reset_demo" what="secrets" onDone={() => void load()} />
       </SettingsIntro>
 
       <Field

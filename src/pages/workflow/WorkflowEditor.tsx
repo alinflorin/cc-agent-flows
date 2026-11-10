@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Background, Controls, MarkerType, ReactFlow, ReactFlowProvider, useEdgesState, useNodesState, type Connection } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { Button, Caption1, Field, Input, MessageBar, MessageBarBody, Select, Textarea, tokens } from "@fluentui/react-components";
-import { Add20Regular, Chat20Regular, Clock20Regular, Delete20Regular, Flowchart20Regular, Person20Regular, PlugConnected20Regular, Save20Regular, ShieldCheckmark20Regular } from "@fluentui/react-icons";
+import { Add20Regular, Chat20Regular, Clock20Regular, Delete20Regular, Person20Regular, PlugConnected20Regular, Save20Regular, ShieldCheckmark20Regular } from "@fluentui/react-icons";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
 import { useProjectId } from "../../project";
@@ -151,15 +151,6 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
     setSaving(false);
   };
 
-  const useStandard = async () => {
-    try {
-      const v = await call<View>("workflow_standard", { project });
-      load({ ...v, name: "", system_prompt: instructions }, true);
-    } catch (e) {
-      notify(String(e), "error");
-    }
-  };
-
   const flagged = useMemo(() => new Set(problems.map((p) => p.node)), [problems]);
   const roots = useMemo(() => {
     // an agent is called by an agent that points to it, or by a gate that leads to it (its caller points to the gate)
@@ -218,9 +209,6 @@ function Editor({ id, onSaved }: { id: string; onSaved: (id: string) => void }) 
           {t("wf.addWebhook")}
         </Button>
         <span className={styles.grow} />
-        <Button icon={<Flowchart20Regular />} onClick={useStandard}>
-          {t("wf.loadStandard")}
-        </Button>
         <Button appearance="primary" icon={<Save20Regular />} disabled={saving || !dirty || !name.trim()} onClick={save}>
           {t("common.save")}
         </Button>

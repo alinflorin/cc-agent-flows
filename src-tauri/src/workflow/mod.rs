@@ -18,6 +18,6 @@ pub mod store;
 pub mod triggers;
 pub mod webhook;
 
-pub use commands::{provision_defaults, root};
+pub use commands::root;
 pub use model::*;
 pub use store::*;

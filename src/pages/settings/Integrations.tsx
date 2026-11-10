@@ -30,7 +30,6 @@ import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
 import { useProject } from "../../project";
-import { ResetDemoButton } from "../../components/ResetDemoButton";
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
@@ -183,7 +182,6 @@ export function IntegrationsSettings() {
           <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit(null, EMPTY)}>
             {t("settings.integrations.new")}
           </Button>
-          <ResetDemoButton command="integrations_reset_demo" what="integrations" onDone={() => void load()} />
         </div>
       </SettingsIntro>
       {desktop && list.length === 0 && (

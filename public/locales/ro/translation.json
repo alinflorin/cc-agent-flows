@@ -497,19 +497,15 @@
     "imageInherited": "De la părinte, altfel imaginea de bază"
   },
   "welcome": {
-    "text": "Configurezi conținut demo? Creează un proiect demo: trei imagini (construite în fundal), șapte profiluri de agent, secrete fictive și injecții pentru GitHub și Jira, plus fluxul standard de livrare (orchestrator → manager de proiect → analist, arhitect, dezvoltator, revizor, tester). Poți edita sau șterge totul mai târziu.",
-    "yes": "Da, configurează",
-    "no": "Sari peste",
-    "done": "Conținutul demo a fost creat. Imaginile se construiesc.",
-    "step": "Pasul {{n}} din 3",
+    "step": "Pasul {{n}} din 2",
     "step1Title": "Limbă și temă",
     "step1Text": "Alege cum arată și în ce limbă vorbește aplicația. Le poți schimba oricând din Setări.",
-    "step2Title": "Conținut demo",
     "next": "Înainte",
     "back": "Înapoi",
     "step0Title": "Ce este CC Agent Flows?",
     "step0Text": "CC Agent Flows rulează echipe de agenți Claude Code care livrează munca cap-coadă. Scrii o cerere într-o sesiune; agenții unui flux își predau munca între ei, fiecare în propriul VM izolat, fără secrete înăuntru și doar cu gazdele de rețea permise de tine. Folosesc abonamentul tău Claude, fără chei API.",
-    "readHelp": "Citește ajutorul complet"
+    "readHelp": "Citește ajutorul complet",
+    "finish": "Începe"
   },
   "sessions": {
     "allWorkflows": "Toate fluxurile de lucru",
@@ -532,7 +528,6 @@
   "wf": {
     "saved": "Flux salvat.",
     "addAgent": "Adaugă agent",
-    "loadStandard": "Încarcă fluxul standard",
     "pick": "O săgeată de la A la B înseamnă că A poate da de lucru lui B. Agentul căruia nimeni nu-i dă de lucru este rădăcina și primește cererea utilizatorului; un agent cu săgeți coordonează agenții spre care arată și decide ce deleagă, în ce ordine și de câte ori. Trage din mânerul din dreapta al unui agent spre alt agent ca să-i legi; selectează o săgeată ca să ceri aprobare.",
     "agent": "Agent",
     "coordinates": "Coordonează {{count}} agent(ți): decide ce deleagă și când a terminat.",
@@ -769,18 +764,6 @@
   "app": {
     "desktopOnly": "Disponibil doar în aplicația desktop."
   },
-  "reset": {
-    "button": "Resetează la conținutul demo",
-    "title": "Resetezi la conținutul demo?",
-    "confirm": "Resetează",
-    "done": "Conținutul demo a fost restaurat.",
-    "images": "Imaginile starter (manager, developer, qa) sunt scrise din nou cu scriptul și setările inițiale; modificările tale la ele se pierd. Imaginile create de tine nu sunt atinse. Cele care rămân învechite sunt reconstruite.",
-    "profiles": "Profilele starter (orchestrator, project manager, business analyst, architect, developer, reviewer, qa) sunt scrise din nou așa cum au fost create prima dată, cu prompturi, variabile și gazde permise; modificările tale la ele se pierd, iar cele șterse revin. Celelalte profile nu sunt atinse.",
-    "secrets": "GITHUB_TOKEN, GITHUB_READONLY_TOKEN și JIRA_TOKEN primesc din nou valoarea dummy. Dacă ai pus tokenuri reale sub aceste nume, se pierd. Celelalte secrete nu sunt atinse.",
-    "variables": "ATLASSIAN_HOST și ATLASSIAN_EMAIL primesc din nou valorile placeholder. Dacă le-ai completat cu ale tale, se pierd. Celelalte variabile nu sunt atinse.",
-    "injections": "Injecțiile GITHUB, GITHUB_READONLY și JIRA sunt scrise din nou așa cum au fost create prima dată; modificările tale la ele se pierd. Celelalte injecții nu sunt atinse.",
-    "integrations": "Integrările Jira, GitHub read-write și GitHub read-only sunt scrise din nou așa cum au fost create prima dată; modificările tale la ele se pierd. Variabilele, secretele și injecțiile lor nu se schimbă (resetează-le pe paginile lor). Celelalte integrări nu sunt atinse."
-  },
   "analytics": {
     "intro": "Tokeni, timp și eșecuri pentru sesiunile tale, din jurnalele lor.",
     "range": "Perioadă",
@@ -822,7 +805,7 @@
     "title": "Proiecte",
     "intro": "Un proiect își are propriile fluxuri, sesiuni, profiluri, imagini, variabile, secrete și injecții, plus gazde permise și un prompt de sistem.",
     "new": "Proiect nou",
-    "empty": "Niciun proiect încă. Creează unul sau configurează proiectul demo.",
+    "empty": "Niciun proiect încă. Creează unul.",
     "noDescription": "Fără descriere",
     "workflows_one": "{{count}} flux",
     "workflows_few": "{{count}} fluxuri",
@@ -833,8 +816,6 @@
     "sessions_one": "{{count}} sesiune",
     "sessions_few": "{{count}} sesiuni",
     "sessions_other": "{{count}} de sesiuni",
-    "demo": "Creează proiectul demo",
-    "demoHint": "Proiectul demo este o linie de livrare gata făcută: imagini, profiluri de agent, secrete, injecții și un flux.",
     "notReady": "Acest calculator nu e încă pregătit să ruleze agenți: {{items}}.",
     "notReadyLink": "Vezi detalii",
     "active": "Sesiuni active",
@@ -880,7 +861,7 @@
     },
     "start": {
       "title": "Primii pași",
-      "text": "Adaugă un token Claude la Setări globale > LLM, creează un proiect (sau demo-ul), verifică fluxul și profilurile de agent, apoi deschide Sesiuni și scrie cererea."
+      "text": "Adaugă un token Claude la Setări globale > LLM, creează un proiect, definește profilurile de agent și fluxul, apoi deschide Sesiuni și scrie cererea."
     }
   },
   "hosts": {

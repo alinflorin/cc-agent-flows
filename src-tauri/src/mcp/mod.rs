@@ -116,7 +116,7 @@ fn tools() -> Value {
         },
         {
             "name": "execute",
-            "description": "Run a `ccaf` command that configures the app, e.g. `ccaf projects list` or `ccaf variables set API_HOST example.com --project demo`. `ccaf help` lists every command. Structured bodies go in `stdin` as JSON.",
+            "description": "Run a `ccaf` command that configures the app, e.g. `ccaf projects list` or `ccaf variables set API_HOST example.com --project my-project`. `ccaf help` lists every command. Structured bodies go in `stdin` as JSON.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

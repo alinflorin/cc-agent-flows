@@ -532,46 +532,6 @@ pub fn ensure_base(app: &AppHandle) {
     let _ = start(app, &first);
 }
 
-/// Creates the demo images in a project (the ones that do not exist yet) and builds them: now if
-/// the base is built, else after it (while the base builds they follow it as the images built on it).
-///
-/// `reset`: the demo images are written again over what is there (the edits of the user are lost, other images are left alone) and the ones that are then missing or out of date are built. Refused while a build runs.
-pub fn provision_defaults(app: &AppHandle, scope: &Scope, reset: bool) -> Result<(), String> {
-    let dir = spec_dir(app, scope)?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    if reset {
-        let images = app.state::<Images>();
-        let g = images.0.lock().unwrap();
-        if g.building.is_some() || !g.queue.is_empty() {
-            return Err("an image is being built, wait for it".into());
-        }
-    }
-    let mut created = vec![];
-    for (id, spec) in crate::demo::images() {
-        let file = dir.join(format!("{id}.json"));
-        let r = Ref::new(scope, &id);
-        if reset || !file.exists() {
-            crate::util::write_json(&file, &spec)?;
-            if !reset || info(app, &r, Some(&spec)).state != "ready" {
-                created.push(r);
-            }
-        }
-    }
-    if info(app, &Ref::base(), None).state == "ready"
-        && let Some((first, rest)) = created.split_first()
-    {
-        app.state::<Images>().0.lock().unwrap().queue.extend(rest.iter().cloned());
-        let _ = start(app, first);
-    }
-    Ok(())
-}
-
-/// Images > Reset to demo content.
-#[tauri::command]
-pub fn images_reset_demo(app: AppHandle, project: Option<String>) -> Result<(), String> {
-    provision_defaults(&app, &Scope::of(project)?, true)
-}
-
 fn start(app: &AppHandle, r: &Ref) -> Result<(), String> {
     let spec = if *r == Ref::base() { None } else { Some(spec_of(app, r).ok_or("no such image")?) };
     {
@@ -786,14 +746,6 @@ mod tests {
         let text = std::fs::read_to_string(dir.join("002-mine.md")).unwrap();
         assert_eq!(text, "## Tool\n\nit's \"quoted\" $HOME\n\n```\n$ echo it\\'s out; echo err >&2; exit 3\nit's out\nerr\n```\n\n");
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn default_images_are_valid() {
-        for (id, spec) in crate::demo::images() {
-            assert!(valid_id(&id));
-            assert!(spec.validate().is_ok(), "{id}");
-        }
     }
 
     #[test]

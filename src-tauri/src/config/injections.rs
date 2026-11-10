@@ -234,32 +234,6 @@ pub fn in_scope(app: &tauri::AppHandle, scope: &Scope) -> Vec<Injection> {
     file(app, scope).map(|f| load(&f)).unwrap_or_default()
 }
 
-/// Part of the demo content: adds the demo injections that do not exist yet.
-///
-/// `reset`: the demo injections are written again over the ones with their names, other injections are left alone.
-pub fn provision_demo(app: &tauri::AppHandle, scope: &Scope, reset: bool) -> Result<(), String> {
-    let path = file(app, scope)?;
-    let mut list = load(&path);
-    for i in crate::demo::injections() {
-        match list.iter_mut().find(|o| o.name == i.name) {
-            Some(o) if reset => *o = i,
-            Some(_) => {}
-            None => list.push(i),
-        }
-    }
-    let list = cleaned(&list)?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(&path, serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
-}
-
-/// Injections > Reset to demo content.
-#[tauri::command]
-pub fn injections_reset_demo(app: tauri::AppHandle, project: Option<String>) -> Result<(), String> {
-    provision_demo(&app, &Scope::of(project)?, true)
-}
-
 /// An injection switched on for a run, with its header value built from the secret. It lives in
 /// the app's memory (the proxy) and nowhere else.
 #[derive(Clone)]
@@ -456,17 +430,6 @@ mod tests {
 
     fn var(n: &str, v: &str) -> EnvVar {
         EnvVar { name: n.into(), value: v.into() }
-    }
-
-    #[test]
-    fn demo_injections_are_valid_and_use_demo_secrets() {
-        let list = crate::demo::injections();
-        assert_eq!(cleaned(&list).unwrap().len(), 3);
-        for i in &list {
-            assert!(crate::demo::secrets().contains(&i.secret), "{}", i.name);
-        }
-        let names: Vec<_> = list.iter().map(|i| i.name.as_str()).collect();
-        assert!(names.contains(&"GITHUB_READONLY") && names.contains(&"JIRA"));
     }
 
     #[test]

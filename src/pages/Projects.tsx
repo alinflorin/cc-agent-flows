@@ -9,7 +9,7 @@ import { inTauri } from "../prefs";
 import { useNotify } from "../notifications";
 import { call, listen } from "../tauri";
 import { fmtDateTime } from "../text";
-import { DEMO_PROJECT, ProjectInfo, projectPath } from "../project";
+import { ProjectInfo, projectPath } from "../project";
 
 interface Check {
   id: string;
@@ -61,7 +61,7 @@ export function Projects() {
   useEffect(() => {
     if (!desktop) return;
     void load();
-    // the welcome dialog creates the demo project while this page is open
+    // another page created, renamed or deleted a project (or an import did)
     window.addEventListener("projects-changed", load);
     return () => window.removeEventListener("projects-changed", load);
   }, [desktop, load]);
@@ -134,18 +134,6 @@ export function Projects() {
     setBusy(false);
   };
 
-  const demo = async () => {
-    setBusy(true);
-    try {
-      await call("provision_starters");
-      notify(t("welcome.done"), "success");
-      await load();
-    } catch (e) {
-      notify(String(e), "error");
-    }
-    setBusy(false);
-  };
-
   return (
     <>
       <PageHeader
@@ -204,15 +192,6 @@ export function Projects() {
           </Card>
         ))}
       </div>
-      {desktop && projects && !projects.some((p) => p.id === DEMO_PROJECT) && (
-        <div className={styles.empty} style={{ marginTop: tokens.spacingVerticalXL }}>
-          <Caption1 className={styles.desc}>{t("projects.demoHint")}</Caption1>
-          <Button disabled={busy} onClick={() => void demo()}>
-            {t("projects.demo")}
-          </Button>
-        </div>
-      )}
-
       <Dialog surfaceMotion={null} open={creating !== null} onOpenChange={(_, d) => !d.open && setCreating(null)}>
         <DialogSurface backdropMotion={null}>
           <DialogBody>

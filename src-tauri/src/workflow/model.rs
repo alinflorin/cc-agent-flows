@@ -420,16 +420,6 @@ impl Workflow {
     }
 }
 
-/// The standard delivery workflow, as an org chart (`demo/demo.yaml`): the orchestrator takes the request to the
-/// project manager, who goes through the work items one by one and has the business analyst,
-/// architect, developer, reviewer and tester do each, in that order (the dashed arrows; the engine
-/// holds the project manager to it). Only the root reaches the user: the others'
-/// questions go up the chain (add a user node to give an agent a direct line). How often and in
-/// which loops is up to the agents, as their prompts say.
-pub fn standard_workflow() -> Workflow {
-    crate::demo::workflow().workflow
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -452,6 +442,37 @@ pub(crate) mod tests {
 
     fn before(from: &str, to: &str) -> Edge {
         Edge { id: format!("{from}-{to}-before"), kind: EdgeKind::Before, ..e(from, to) }
+    }
+
+    /// An org chart for the tests: a chat entry and an orchestrator that hands work to a project
+    /// manager, who calls an analyst, an architect, a developer, a reviewer and a tester, in that order.
+    pub(crate) fn standard_workflow() -> Workflow {
+        let agent = |id: &str, label: &str, profile: &str| Node { label: label.into(), profile: profile.into(), ..n(id) };
+        Workflow {
+            nodes: vec![
+                Node { label: "Chat".into(), ..human("chat", NodeKind::Chat) },
+                agent("orch", "Orchestrator", "orchestrator"),
+                agent("pm", "Project manager", "project-manager"),
+                agent("ba", "Business analyst", "business-analyst"),
+                agent("arch", "Architect", "architect"),
+                agent("dev", "Developer", "developer"),
+                agent("rev", "Reviewer", "reviewer"),
+                agent("qa", "Tester", "qa"),
+            ],
+            edges: vec![
+                e("chat", "orch"),
+                e("orch", "pm"),
+                e("pm", "ba"),
+                e("pm", "arch"),
+                e("pm", "dev"),
+                e("pm", "rev"),
+                e("pm", "qa"),
+                before("ba", "arch"),
+                before("arch", "dev"),
+                before("dev", "rev"),
+                before("rev", "qa"),
+            ],
+        }
     }
 
     #[test]
@@ -557,7 +578,7 @@ pub(crate) mod tests {
         let mut wf = standard_workflow();
         wf.nodes.push(trig("cron", NodeKind::Cron, "0 9 * * 1-5"));
         wf.nodes.push(trig("hook", NodeKind::Webhook, ""));
-        // the standard workflow has its chat node already, pointing at the orchestrator
+        // the test workflow has its chat node already, pointing at the orchestrator
         wf.edges.extend([edge("cron", "orch"), edge("hook", "pm")]);
         wf.validate().unwrap();
         assert_eq!(wf.trigger_target("hook").unwrap().id, "pm");

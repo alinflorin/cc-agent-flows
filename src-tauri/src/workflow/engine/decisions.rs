@@ -89,7 +89,7 @@ pub fn parse_decision(output: Option<&Value>, options: &[Opt], finished: &std::c
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow::standard_workflow;
+    use crate::workflow::model::tests::standard_workflow;
 
     #[test]
     fn decisions_are_checked_against_the_options() {

@@ -5,9 +5,6 @@ import { Body1 } from "@fluentui/react-components";
 import { inTauri } from "./prefs";
 import { call } from "./tauri";
 
-/** The id of the demo project the welcome dialog creates (`demo/demo.yaml`). */
-export const DEMO_PROJECT = "demo";
-
 export interface ProjectInfo {
   id: string;
   name: string;

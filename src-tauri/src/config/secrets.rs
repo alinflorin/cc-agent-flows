@@ -109,54 +109,6 @@ pub fn resolve(value: &str, kind: &str, lookup: &dyn Fn(&str) -> Option<String>)
     Ok(out)
 }
 
-const DUMMY: &str = "dummy";
-
-/// Part of the demo content: adds the demo secrets with a dummy value. One that is already listed
-/// or already in the credential store is left as it is. A secret of the same name that older
-/// versions kept in the global store is moved into the scope instead of a dummy (and removed
-/// from the global one), so values the user already entered are not lost.
-///
-/// `reset`: the demo secrets get the dummy value again, a real one is lost.
-pub fn provision_demo(app: &tauri::AppHandle, scope: &Scope, reset: bool) -> Result<(), String> {
-    let path = index_file(app, scope)?;
-    let mut index = load_index(&path);
-    let global = Scope::global();
-    let global_path = index_file(app, &global)?;
-    let mut global_index = load_index(&global_path);
-    for name in crate::demo::secrets() {
-        if !reset && index.names.iter().any(|n| n == name) {
-            continue;
-        }
-        let entry = secret_entry(scope, name)?;
-        let old = secret_entry(&global, name)?;
-        let moved = if scope.is_global() { None } else { old.get_password().ok() };
-        match entry.get_password() {
-            Ok(_) if !reset => {}
-            Ok(_) | Err(keyring::Error::NoEntry) => entry.set_password(moved.as_deref().unwrap_or(DUMMY)).map_err(|e| e.to_string())?,
-            Err(e) => return Err(e.to_string()),
-        }
-        if moved.is_some() {
-            let _ = old.delete_credential();
-            global_index.names.retain(|n| n != name);
-        }
-        if !index.names.iter().any(|n| n == name) {
-            index.names.push(name.to_string());
-        }
-    }
-    index.names.sort();
-    save_index(&path, &index)?;
-    if !scope.is_global() && global_path.is_file() {
-        save_index(&global_path, &global_index)?;
-    }
-    Ok(())
-}
-
-/// Secrets > Reset to demo content.
-#[tauri::command]
-pub fn secrets_reset_demo(app: tauri::AppHandle, project: Option<String>) -> Result<(), String> {
-    provision_demo(&app, &Scope::of(project)?, true)
-}
-
 /// The names of the saved secrets.
 #[tauri::command]
 pub fn secrets_list(app: tauri::AppHandle, project: Option<String>) -> Result<Vec<String>, String> {
@@ -211,11 +163,6 @@ pub fn secrets_delete(app: tauri::AppHandle, project: Option<String>, name: Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn demo_secret_names_are_valid() {
-        assert!(crate::demo::secrets().iter().all(|n| valid_name(n)));
-    }
 
     fn look(n: &str) -> Option<String> {
         (n == "A").then(|| "1".to_string()).or_else(|| (n == "B_2").then(|| "x y".to_string()))

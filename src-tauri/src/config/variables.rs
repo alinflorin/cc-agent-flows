@@ -56,28 +56,6 @@ pub fn all(app: &tauri::AppHandle, project: &Scope) -> BTreeMap<String, String> 
     map
 }
 
-/// Part of the demo content: adds the demo variables that do not exist yet.
-///
-/// `reset`: the demo variables get their placeholder values again, the ones the user set are lost.
-pub fn provision_demo(app: &tauri::AppHandle, scope: &Scope, reset: bool) -> Result<(), String> {
-    let path = file(app, scope)?;
-    let mut map = load(&path);
-    for (name, value) in crate::demo::variables() {
-        if reset {
-            map.insert(name, value);
-        } else {
-            map.entry(name).or_insert(value);
-        }
-    }
-    save(&path, &map)
-}
-
-/// Variables > Reset to demo content.
-#[tauri::command]
-pub fn variables_reset_demo(app: tauri::AppHandle, project: Option<String>) -> Result<(), String> {
-    provision_demo(&app, &Scope::of(project)?, true)
-}
-
 /// The variables defined in one scope (not merged).
 pub fn own(app: &tauri::AppHandle, scope: &Scope) -> BTreeMap<String, String> {
     file(app, scope).map(|f| load(&f)).unwrap_or_default()
@@ -119,13 +97,6 @@ pub fn variables_delete(app: tauri::AppHandle, project: Option<String>, name: St
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn demo_variables_are_valid() {
-        for (n, v) in crate::demo::variables() {
-            assert!(check(&n, &v).is_ok(), "{n}");
-        }
-    }
 
     #[test]
     fn checks_names_and_values() {

@@ -4,7 +4,6 @@ import { Body1, Button, Field, Input, makeStyles, tokens } from "@fluentui/react
 import { Delete20Regular } from "@fluentui/react-icons";
 import { SettingsIntro } from "../../components/SettingsIntro";
 import { EmptyState, useConfirmDelete } from "../../components/Confirm";
-import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
@@ -78,7 +77,6 @@ export function VariablesSettings() {
     <div className={styles.form}>
       <SettingsIntro text={t("settings.variables.intro")}>
         {!desktop && <Body1 block>{t("settings.variables.desktopOnly")}</Body1>}
-        <ResetDemoButton command="variables_reset_demo" what="variables" onDone={() => void load()} />
       </SettingsIntro>
 
       <Field

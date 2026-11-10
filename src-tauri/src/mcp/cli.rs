@@ -31,7 +31,7 @@ injections get <scope> | upsert <scope> (stdin: object or array) | delete <NAME>
 integrations list <scope> | save <scope> [--previous NAME] (stdin: integration JSON) | delete <NAME> <scope> --yes
 images list <scope> | get <id> <scope> | save <scope> [--id ID] (stdin: spec JSON) | build <id> <scope> | delete <id> <scope> --yes
 network get <scope> | add <scope> <host>... | remove <scope> <host>...
-workflows list --project P | get <id> --project P | standard --project P | save --project P [--id ID] [--name N] [--prompt P] (stdin: workflow JSON) | delete <id> --project P --yes
+workflows list --project P | get <id> --project P | save --project P [--id ID] [--name N] [--prompt P] (stdin: workflow JSON) | delete <id> --project P --yes
 sessions list --project P | get <id> --project P | log <id> --project P [--last N] [--agent [--node ID]]
 sessions start --project P [--workflow W] [--autonomy ask|never] --task T|stdin | continue <id> --project P | message <id> --project P (text in --text or stdin)
 sessions reply <id> --project P [--approve|--reject] (text in --text or stdin) | cancel <id> --project P
@@ -503,7 +503,6 @@ fn workflows_cmd(app: &AppHandle, cfg: &Config, verb: &str, a: &Args, stdin: Opt
     match verb {
         "list" => json(&wf::workflows_list(app.clone(), project)?),
         "get" => json(&wf::workflow_get(app.clone(), project, a.arg(2, "id")?.into())?),
-        "standard" => json(&wf::workflow_standard(app.clone(), project)?.workflow),
         "save" => {
             can_write(cfg, None)?;
             let id = a.flag("id").unwrap_or("");
@@ -514,7 +513,7 @@ fn workflows_cmd(app: &AppHandle, cfg: &Config, verb: &str, a: &Args, stdin: Opt
             let workflow: Workflow = match (stdin.filter(|s| !s.trim().is_empty()), old) {
                 (Some(_), _) => body(stdin, "workflow")?,
                 (None, Some(o)) => o.workflow,
-                (None, None) => return Err("a new workflow needs its JSON in `stdin` (start from `workflows standard`)".into()),
+                (None, None) => return Err("a new workflow needs its JSON in `stdin` (see `workflows get` for the shape)".into()),
             };
             json(&wf::workflow_save(app.clone(), project, id.into(), name, workflow, prompt)?)
         }

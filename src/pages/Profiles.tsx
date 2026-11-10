@@ -30,7 +30,6 @@ import { Add20Regular, Copy20Regular, Delete20Regular } from "@fluentui/react-ic
 import { HostList } from "../components/HostList";
 import { EmptyState, useConfirmDelete } from "../components/Confirm";
 import { FormDialogSurface } from "../components/FormDialogSurface";
-import { ResetDemoButton } from "../components/ResetDemoButton";
 import { inTauri } from "../prefs";
 import { MODELS } from "../llm";
 import { useNotify } from "../notifications";
@@ -167,7 +166,6 @@ export function Profiles() {
 
   const actions = (
     <>
-      <ResetDemoButton command="profiles_reset_demo" what="profiles" onDone={load} />
       <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit({ id: null, profile: { ...EMPTY, memory_mb: defaultMemory } })}>
         {t("profiles.new")}
       </Button>

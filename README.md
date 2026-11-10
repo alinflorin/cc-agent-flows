@@ -30,7 +30,6 @@ Most tools answer with permission prompts. CC Agent Flows answers with architect
 ### Bring your own tools
 - **Images** are the disks agents run on. A ready-made base image is built in; add your own with a short script (git, Python, a browser, a Jira CLI…) and optional docs that are added to the agent's instructions.
 - **Integrations** (Jira, GitHub…) are set up once: hosts, variables, secrets and credentials in one place, then picked per agent.
-- A **demo project** with a full delivery pipeline (orchestrator, project manager, analyst, architect, developer, reviewer, tester) is one click away.
 
 ### Yours to move and keep
 - One encrypted file exports everything (projects, agents, workflows, secrets, accounts) and imports it on another machine.

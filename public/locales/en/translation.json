@@ -497,19 +497,15 @@
     "imageInherited": "From the parent, else the base image"
   },
   "welcome": {
-    "text": "Set up demo content? It creates a demo project: three images (built in the background), seven agent profiles, dummy secrets and injections for GitHub and Jira, and the standard delivery workflow (orchestrator → project manager → analyst, architect, developer, reviewer, tester). You can edit or delete all of it later.",
-    "yes": "Yes, set it up",
-    "no": "Skip",
-    "done": "Demo content created. The images are building.",
-    "step": "Step {{n}} of 3",
+    "step": "Step {{n}} of 2",
     "step1Title": "Language and theme",
     "step1Text": "Pick how the app looks and speaks. You can change both later in Settings.",
-    "step2Title": "Demo content",
     "next": "Next",
     "back": "Back",
     "step0Title": "What is CC Agent Flows?",
     "step0Text": "CC Agent Flows runs teams of Claude Code agents that deliver work end to end. You write a request in a session; the agents of a workflow hand work to each other, each in its own sandboxed VM with no secrets inside and only the network hosts you allow. They use your Claude subscription, no API keys.",
-    "readHelp": "Read the full help"
+    "readHelp": "Read the full help",
+    "finish": "Get started"
   },
   "sessions": {
     "allWorkflows": "All workflows",
@@ -532,7 +528,6 @@
   "wf": {
     "saved": "Workflow saved.",
     "addAgent": "Add agent",
-    "loadStandard": "Load standard workflow",
     "pick": "An arrow from A to B means A may hand work to B. The agent nobody hands work to is the root and receives the user's request; an agent with arrows coordinates the agents it points to and decides what to hand out, in what order and how often. Drag from an agent's right handle to another agent to connect them; select an arrow to require approval.",
     "agent": "Agent",
     "coordinates": "Coordinates {{count}} agent(s): decides what to delegate and when it is done.",
@@ -767,18 +762,6 @@
   "app": {
     "desktopOnly": "Only available in the desktop app."
   },
-  "reset": {
-    "button": "Reset to demo content",
-    "title": "Reset to demo content?",
-    "confirm": "Reset",
-    "done": "Demo content restored.",
-    "images": "The starter images (manager, developer, qa) are written again with their original script and settings; your edits to them are lost. Images you made yourself are not touched. The ones that end up out of date are rebuilt.",
-    "profiles": "The starter profiles (orchestrator, project manager, business analyst, architect, developer, reviewer, qa) are written again as they were first created, with their prompts, variables and allowed hosts; your edits to them are lost and deleted ones come back. Other profiles are not touched.",
-    "secrets": "GITHUB_TOKEN, GITHUB_READONLY_TOKEN and JIRA_TOKEN are set to the dummy value again. If you stored real tokens under these names, they are lost. Other secrets are not touched.",
-    "variables": "ATLASSIAN_HOST and ATLASSIAN_EMAIL are set to their placeholder values again. If you entered your own, they are lost. Other variables are not touched.",
-    "injections": "The injections GITHUB, GITHUB_READONLY and JIRA are written again as they were first created; your edits to them are lost. Other injections are not touched.",
-    "integrations": "The integrations Jira, GitHub read-write and GitHub read-only are written again as they were first created; your edits to them are lost. Their variables, secrets and injections are not changed (reset those on their own pages). Other integrations are not touched."
-  },
   "analytics": {
     "intro": "Tokens, time and failures over your sessions, from their logs.",
     "range": "Period",
@@ -820,7 +803,7 @@
     "title": "Projects",
     "intro": "A project holds its own workflows, sessions, profiles, images, variables, secrets and injections, plus allowed hosts and a system prompt.",
     "new": "New project",
-    "empty": "No projects yet. Create one, or set up the demo project.",
+    "empty": "No projects yet. Create one.",
     "noDescription": "No description",
     "workflows_one": "{{count}} workflow",
     "workflows_other": "{{count}} workflows",
@@ -828,8 +811,6 @@
     "profiles_other": "{{count}} agent profiles",
     "sessions_one": "{{count}} session",
     "sessions_other": "{{count}} sessions",
-    "demo": "Create the demo project",
-    "demoHint": "The demo project is a ready-made delivery pipeline: images, agent profiles, secrets, injections and a workflow.",
     "notReady": "This computer is not ready to run agents yet: {{items}}.",
     "notReadyLink": "See details",
     "active": "Active sessions",
@@ -875,7 +856,7 @@
     },
     "start": {
       "title": "Getting started",
-      "text": "Add a Claude token under Global settings > LLM, create a project (or the demo), check the workflow and agent profiles, then open Sessions and write your request."
+      "text": "Add a Claude token under Global settings > LLM, create a project, build the agent profiles and the workflow, then open Sessions and write your request."
     }
   },
   "hosts": {

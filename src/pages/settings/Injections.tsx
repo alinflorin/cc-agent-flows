@@ -24,7 +24,6 @@ import { SettingsIntro } from "../../components/SettingsIntro";
 import { EmptyState, useConfirmDelete } from "../../components/Confirm";
 import { FormDialogSurface } from "../../components/FormDialogSurface";
 import { RefCombobox } from "../../components/RefCombobox";
-import { ResetDemoButton } from "../../components/ResetDemoButton";
 import { inTauri } from "../../prefs";
 import { useNotify } from "../../notifications";
 import { call } from "../../tauri";
@@ -144,7 +143,6 @@ export function InjectionsSettings() {
           <Button appearance="primary" icon={<Add20Regular />} disabled={!desktop} onClick={() => edit(null, EMPTY)}>
             {t("settings.injections.new")}
           </Button>
-          <ResetDemoButton command="injections_reset_demo" what="injections" onDone={() => void load()} />
         </div>
       </SettingsIntro>
       {desktop && list.length === 0 && <EmptyState>{t("settings.injections.empty")}</EmptyState>}

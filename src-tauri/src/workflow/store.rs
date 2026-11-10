@@ -310,7 +310,7 @@ pub fn delete_session(root: &Path, sid: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow::model::tests::n;
+    use crate::workflow::model::tests::{n, standard_workflow};
 
     fn tmp(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("ccaf-proj-{tag}-{}", std::process::id()));

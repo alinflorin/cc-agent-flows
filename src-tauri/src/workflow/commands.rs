@@ -12,16 +12,6 @@ pub fn root(app: &tauri::AppHandle, project: &str) -> Result<PathBuf, String> {
     crate::config::scope::Scope::project(project).dir(app)
 }
 
-/// The standard workflow, if the project has no workflow yet (ones the user made are left alone).
-pub fn provision_defaults(app: &tauri::AppHandle, project: &str) -> Result<(), String> {
-    let root = root(app, project)?;
-    if workflows(&root).is_empty() {
-        let demo = crate::demo::workflow();
-        save_workflow(&root, &demo.id, &demo.name, &demo.workflow, &Instructions::default())?;
-    }
-    Ok(())
-}
-
 #[derive(Serialize)]
 pub struct WorkflowView {
     pub id: String,
@@ -58,12 +48,6 @@ pub fn workflow_save(app: tauri::AppHandle, project: String, id: String, name: S
 #[tauri::command]
 pub fn workflow_delete(app: tauri::AppHandle, project: String, id: String) -> Result<(), String> {
     delete_workflow(&root(&app, &project)?, &id)
-}
-
-/// The standard workflow, not saved (for a new workflow or to replace one's content).
-#[tauri::command]
-pub fn workflow_standard(app: tauri::AppHandle, project: String) -> Result<WorkflowView, String> {
-    view(&app, &project, String::new(), String::new(), standard_workflow(), String::new())
 }
 
 #[tauri::command]

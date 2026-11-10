@@ -1,5 +1,4 @@
 mod config;
-mod demo;
 mod mcp;
 mod net;
 mod nodes;
@@ -95,26 +94,22 @@ pub fn run() {
             vm::images::images_save,
             vm::images::images_delete,
             vm::images::images_build,
-            vm::images::images_reset_demo,
             config::network::network_get,
             config::network::network_set,
             config::projects::projects_list,
             config::projects::projects_get,
             config::projects::projects_save,
             config::projects::projects_delete,
-            demo::provision_starters,
             config::system_prompt::system_prompt_get,
             config::system_prompt::system_prompt_set,
             config::profiles::profiles_list,
             config::profiles::profiles_available,
             config::profiles::profiles_save,
             config::profiles::profiles_delete,
-            config::profiles::profiles_reset_demo,
             workflow::commands::workflows_list,
             workflow::commands::workflow_get,
             workflow::commands::workflow_delete,
             workflow::commands::workflow_save,
-            workflow::commands::workflow_standard,
             workflow::commands::sessions_list,
             workflow::commands::sessions_create,
             workflow::commands::sessions_rename,
@@ -167,17 +162,13 @@ pub fn run() {
             config::secrets::secrets_list,
             config::secrets::secrets_set,
             config::secrets::secrets_delete,
-            config::secrets::secrets_reset_demo,
             config::variables::variables_list,
             config::variables::variables_set,
             config::variables::variables_delete,
-            config::variables::variables_reset_demo,
             config::injections::injections_get,
             config::injections::injections_save,
-            config::injections::injections_reset_demo,
             config::integrations::integrations_list,
             config::integrations::integrations_save,
-            config::integrations::integrations_reset_demo,
             config::integrations::integrations_delete
         ])
         .setup(|app| {
