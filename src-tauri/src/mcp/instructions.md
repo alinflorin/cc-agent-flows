@@ -14,8 +14,8 @@ network except an egress proxy that allows only listed hosts. You configure the 
 - **Project** (`projects`): name, description, a system prompt (added to every agent of the project), its
   own allowed hosts. Owns workflows, sessions, profiles, images, variables, secrets, injections, integrations.
 - **Agent profile** (`profiles`): a role. Name, system prompt, env vars, model, effort, VM size, image,
-  allowed hosts, integrations. May `extends` another profile (prompts are joined parent first, env is
-  merged, hosts added; other fields come from the child, else the parent). A project profile may extend a
+  allowed hosts, integrations, MCP servers (tools for that agent's `claude`). May `extends` another profile (prompts are joined parent first, env is
+  merged, hosts added, MCP servers merged by name; other fields come from the child, else the parent). A project profile may extend a
   global one; a global one only a global one.
 - **Image** (`images`): the VM disk an agent runs on. `base` is built in. A custom image is a parent image
   plus env vars and a busybox-ash `script` run as root in a builder VM, plus `docs` (text or a command whose
@@ -57,9 +57,16 @@ Commands that save structured data read a JSON object from `stdin`. Omitted opti
 {"name":"Reviewer","description":"","system_prompt":"You review code.","env":[{"name":"GH_TOKEN","value":"${injection:GITHUB}"}],
  "model":"sonnet","effort":"medium","cpus":null,"memory_mb":2048,"work_disk_mb":null,"image":"base",
  "allow_hosts":["github.com","*.githubusercontent.com"],"integrations":[],
- "max_connections":null,"max_upload_mb":null,"max_download_mb":null,"extends":null}
+ "max_connections":null,"max_upload_mb":null,"max_download_mb":null,"extends":null,
+ "mcp_servers":[{"name":"docs","kind":"http","url":"https://mcp.example.com/mcp","headers":[{"name":"Authorization","value":"${injection:DOCS}"}]},
+  {"name":"files","kind":"stdio","command":"mcp-files","args":["--root","/workspace"],"env":[{"name":"TOKEN","value":"${secret:FILES}"}]}]}
 ```
 `model`: alias or id; `effort`: low|medium|high|xhigh|max; null = default / inherit.
+`mcp_servers` (omit or `[]` for none; saving replaces the list): `kind` is `stdio` (default; `command`, `args`, `env`;
+the program runs inside the VM, so it must exist in the profile's image, e.g. `npx` needs Node.js in a custom
+image), `http` (streamable HTTP) or `sse` (`url`, `headers`). Names: letters, digits, `-`, `_`. All values accept
+`${var:}`, `${secret:}`, `${injection:}`. The host of an http/sse URL is allowed automatically (https, port 443,
+no IP addresses or credentials in the URL). Prefer `${injection:NAME}` for auth headers so the token stays out of the VM.
 
 **Image spec** (`images save`):
 ```json
